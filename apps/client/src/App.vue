@@ -9,7 +9,8 @@ import {
   type SpeakerTag,
   type UploadStats,
 } from './audio/streamTranscriber'
-import { SpeechPlayer } from './audio/speechPlayer'
+import { BargeIn } from './audio/bargeIn'
+import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import HistoryPanel from './components/HistoryPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
@@ -55,9 +56,42 @@ const assistant = ref<{ state: 'idle' | 'conversation'; followUpEndsAt: number |
 /** Ticks every second so the follow-up countdown updates. */
 const now = ref(Date.now())
 const ticker = setInterval(() => (now.value = Date.now()), 1000)
-/** Jarvis is speaking a reply. */
-const jarvisSpeaking = ref(false)
-const player = new SpeechPlayer((speaking) => (jarvisSpeaking.value = speaking))
+/** What Jarvis's voice is doing. */
+const playback = ref<PlayerState>('idle')
+const jarvisSpeaking = computed(() => playback.value === 'playing')
+/** If a barge-in pause gets no answer from the server (e.g. connection trouble), carry on after this long. */
+const BARGE_IN_TIMEOUT_MS = 10000
+let bargeInTimer: ReturnType<typeof setTimeout> | undefined
+const player = new SpeechPlayer((state) => {
+  playback.value = state
+  if (state !== 'paused') clearTimeout(bargeInTimer)
+  // Jarvis stopped, finished, or the server decided: the next interruption starts fresh.
+  if (state !== 'paused') bargeInDetector.reset()
+  transcriber?.sendPlayback(state)
+})
+
+/** Duck, pause, or fade back up, from the voice detector's frames (see audio/bargeIn.ts). */
+const bargeInDetector = new BargeIn()
+
+/**
+ * After the server says "that wasn't for Jarvis, carry on" while someone is
+ * still talking, don't interrupt again for the same phrase.
+ */
+let ignoreUntilPhraseEnds = false
+
+/** Each 32 ms frame while Jarvis is talking: is someone interrupting? */
+function bargeInFrame(probability: number): void {
+  if (settings.bargeIn < 0.5 || ignoreUntilPhraseEnds) return
+  if (player.playerState !== 'playing' && !bargeInDetector.ducked) return
+  const action = bargeInDetector.frame(probability, { speechThreshold: settings.speechThreshold, pauseAfterMs: settings.bargeInMs })
+  if (action === 'duck') player.duck(settings.duckVolume)
+  else if (action === 'unduck') player.unduck()
+  else if (action === 'pause') {
+    player.pause()
+    clearTimeout(bargeInTimer)
+    bargeInTimer = setTimeout(() => player.resume(), BARGE_IN_TIMEOUT_MS)
+  }
+}
 const followUpSeconds = computed(() =>
   assistant.value?.followUpEndsAt ? Math.max(0, Math.ceil((assistant.value.followUpEndsAt - now.value) / 1000)) : 0,
 )
@@ -124,7 +158,19 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
     return
   }
   if (message.type === 'assistant.audio') {
-    player.play(message.replyId, message.wav)
+    player.add(message.replyId, message.seq, message.wav)
+    return
+  }
+  if (message.type === 'assistant.control') {
+    if (message.action === 'stop') player.stop()
+    else if (message.action === 'continue') player.continueSpeaking()
+    else if (message.action === 'repeat') player.repeat(message.replyId)
+    else {
+      player.resume()
+      if (bargeInDetector.ducked) player.unduck()
+      bargeInDetector.reset()
+      if (phraseState.value?.inPhrase) ignoreUntilPhraseEnds = true
+    }
     return
   }
   const id = -message.replyId
@@ -176,8 +222,12 @@ async function start(): Promise<void> {
       onFrame: (stats, uploadStats) => {
         frame.value = stats
         upload.value = uploadStats
+        bargeInFrame(stats.probability)
       },
-      onState: (state) => (phraseState.value = state),
+      onState: (state) => {
+        phraseState.value = state
+        if (!state.inPhrase) ignoreUntilPhraseEnds = false
+      },
       onRequest: (log) => (requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]),
       onPhrase: (id, text, final) => upsertPhrase(current, id, text, final),
       onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
@@ -216,7 +266,7 @@ async function stop(): Promise<void> {
   frame.value = null
   phraseState.value = null
   assistant.value = null
-  player.stop()
+  player.cancel()
   if (recordings.value.at(-1)?.length === 0) recordings.value.pop()
   status.value = 'idle'
 }
@@ -252,8 +302,12 @@ onBeforeUnmount(() => {
               <span class="spinner-grow spinner-sm" aria-hidden="true"></span>
               Jarvis speaking
             </span>
+            <span v-else-if="playback === 'paused'" class="badge theme-warning">Jarvis paused · listening to you</span>
+            <span v-else-if="playback === 'stopped'" class="badge theme-secondary" title="Say “continue” or “repeat”">
+              Jarvis stopped
+            </span>
             <span v-if="assistant.state === 'conversation'" class="badge theme-info">
-              Talking with Jarvis · follow-ups {{ followUpSeconds }} s
+              Talking with Jarvis{{ assistant.followUpEndsAt ? ` · follow-ups ${followUpSeconds} s` : '' }}
             </span>
             <span v-else class="text-sm fg-3">Say “Jarvis” to talk to it</span>
             <span v-if="!assistant.ownerTrained" class="badge theme-warning badge-subtle" title="Train your voice on the “Your voice” tab so only you can talk to Jarvis">

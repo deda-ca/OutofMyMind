@@ -5,6 +5,7 @@
 //   text   {"type":"start","sampleRate":16000,"language":"English","device":"web","mode":"conversation"|"enroll","settings":{…}}   first message
 //   text   {"type":"settings","settings":{…}}                                       any time
 //   text   {"type":"stop"}                                                          finish and close
+//   text   {"type":"playback","state":"playing"|"paused"|"stopped"|"idle"}          the client's speech player (Jarvis talking)
 //   binary [float32 LE speech probability][s16le mono PCM samples]                  one VAD frame
 //
 // Server → client
@@ -25,6 +26,7 @@
 //   {"type":"assistant.done","replyId":1,"text":"…","kind":"reply"|"wake"|"dismiss"}
 //   {"type":"assistant.error","replyId":1,"message":"…"}
 //   {"type":"assistant.audio","replyId":1,"seq":0,"text":"…","wav":"<base64 WAV>","synthMs":290}   one spoken sentence
+//   {"type":"assistant.control","action":"stop"|"continue"|"repeat"|"resume","replyId":1}   playback control
 
 import type { AssistantMessage } from '../assistant/assistant.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
@@ -62,6 +64,7 @@ export type ClientMessage =
     }
   | { type: 'settings'; settings: Partial<StreamSettings> }
   | { type: 'stop' }
+  | { type: 'playback'; state: 'playing' | 'paused' | 'stopped' | 'idle' }
 
 export type ServerMessage =
   | { type: 'ready'; settings: StreamSettings; sendHangoverMs: number }

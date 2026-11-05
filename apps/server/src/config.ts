@@ -19,7 +19,7 @@ export const config = {
   port: port('PORT', 5180),
   audiocppUrl: env('AUDIOCPP_URL', 'http://127.0.0.1:5552'),
   /** Browser origins allowed to call the API. Requests without an Origin (native apps, curl) are allowed. */
-  allowedOrigins: env('ALLOWED_ORIGINS', 'http://127.0.0.1:5173,http://localhost:5173')
+  allowedOrigins: env('ALLOWED_ORIGINS', 'https://127.0.0.1:5173,https://localhost:5173')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean),

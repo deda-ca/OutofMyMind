@@ -39,14 +39,20 @@ export interface SessionOptions {
   log?: (message: string, err?: unknown) => void
 }
 
-function segmenterOptions(settings: StreamSettings): Omit<SegmenterOptions, 'sampleRate'> {
+/**
+ * While Jarvis is in a conversation or talking, a one-word command ("stop")
+ * can have under 100 ms of confident speech; don't discard it as a click.
+ */
+const ATTENTIVE_MIN_SPEECH_MS = 60
+
+function segmenterOptions(settings: StreamSettings, attentive = false): Omit<SegmenterOptions, 'sampleRate'> {
   return {
     speechThreshold: settings.speechThreshold,
     silenceThreshold: Math.max(0.01, settings.speechThreshold - SILENCE_THRESHOLD_GAP),
     pauseMs: settings.pauseMs,
     preSpeechPadMs: settings.preSpeechPadMs,
     postSpeechPadMs: POST_SPEECH_PAD_MS,
-    minSpeechMs: settings.minSpeechMs,
+    minSpeechMs: attentive ? Math.min(settings.minSpeechMs, ATTENTIVE_MIN_SPEECH_MS) : settings.minSpeechMs,
     maxPhraseMs: settings.maxPhraseMs,
   }
 }
@@ -85,6 +91,8 @@ export class StreamSession {
   private readonly log: (message: string, err?: unknown) => void
   /** Jarvis, in conversation mode. */
   private readonly assistant: Assistant | undefined
+  /** Jarvis is in a conversation or talking: short phrases are kept (see ATTENTIVE_MIN_SPEECH_MS). */
+  private attentive = false
 
   constructor(send: (message: ServerMessage) => void, options: SessionOptions = {}) {
     this.send = send
@@ -130,8 +138,18 @@ export class StreamSession {
 
   frame(probability: number, pcm: Int16Array): void {
     if (!this.started) throw new Error('Send "start" before audio')
+    const attentive = this.assistant?.attentive ?? false
+    if (attentive !== this.attentive) {
+      this.attentive = attentive
+      this.segmenter.setOptions(segmenterOptions(this.settings, attentive))
+    }
     this.handleEvents(this.segmenter.feed(pcm, probability))
     this.reportState()
+  }
+
+  /** The client's speech player (Jarvis talking) changed state. */
+  playback(state: 'playing' | 'paused' | 'stopped' | 'idle'): void {
+    this.assistant?.setPlayback(state)
   }
 
   /** Finish the phrase in progress and wait for its final text. */
@@ -158,7 +176,7 @@ export class StreamSession {
 
   private applySettings(update: unknown): void {
     this.settings = mergeSettings(this.settings, update)
-    this.segmenter.setOptions(segmenterOptions(this.settings))
+    this.segmenter.setOptions(segmenterOptions(this.settings, this.attentive))
   }
 
   private restartPartialTimer(): void {
@@ -201,6 +219,8 @@ export class StreamSession {
       } else if (event.type === 'discard') {
         if (this.current) this.emit({ type: 'phrase.dropped', id: this.current.id })
         this.current = undefined
+        // A cough or click: if Jarvis paused for it, carry on.
+        this.assistant?.notForMe()
       } else {
         const phrase = this.current
         this.current = undefined
@@ -251,6 +271,8 @@ export class StreamSession {
         // Early guesses only match people already known; they never create a group.
         const speaker = speakers.identify(vector, speechMs, this.settings.speakerThreshold, false)
         this.emit({ type: 'phrase.speaker', id: phrase.id, final: false, speaker })
+        // Clearly someone else: if Jarvis paused for them, it can carry on.
+        if (speaker.isOwner === false && speaker.confidence === 'high') this.assistant?.notForMe()
       })
       .catch((err: unknown) => this.log(`speaker: early guess failed for phrase ${phrase.id}`, err))
   }
@@ -335,6 +357,7 @@ export class StreamSession {
     if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
     const archiveId = await this.archive(phrase, audio, text, status, vector, tag, speechMs)
     if (status === 'ok') this.assistant?.handle({ id: phrase.id, archiveId, text, speaker: tag })
+    else this.assistant?.notForMe()
   }
 
   /** Voice training: check the clip, archive it, and add it to the owner's library if it's good. */

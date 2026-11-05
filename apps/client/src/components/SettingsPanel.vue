@@ -71,6 +71,24 @@ const sliders: Slider[] = [
     format: (v) => v.toFixed(2),
   },
   {
+    key: 'bargeInMs',
+    label: 'Interrupt sensitivity',
+    help: 'How much of your speech Jarvis needs to hear before it pauses. Shorter reacts faster but background noise may pause it; longer is smoother.',
+    min: 200,
+    max: 1000,
+    step: 50,
+    format: millis,
+  },
+  {
+    key: 'duckVolume',
+    label: 'Volume while unsure',
+    help: 'Jarvis turns down to this while it checks whether you are talking, then pauses or comes back up.',
+    min: 0.1,
+    max: 0.8,
+    step: 0.05,
+    format: (v) => `${Math.round(v * 100)}%`,
+  },
+  {
     key: 'followUpMs',
     label: 'Jarvis follow-up window',
     help: 'After Jarvis answers, how long it keeps listening to you without needing “Jarvis” again. Say “thanks, Jarvis” or “that’s all” to end the conversation sooner.',
@@ -124,6 +142,24 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
           <label for="setting-speakReplies">Speak replies</label>
         </div>
         <div class="form-text">Jarvis reads its answers aloud (voice “jarvis”, Qwen3-TTS). Off = text only.</div>
+      </div>
+      <div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="switch">
+            <input
+              id="setting-bargeIn"
+              type="checkbox"
+              :checked="settings.bargeIn >= 0.5"
+              @change="settings.bargeIn = ($event.target as HTMLInputElement).checked ? 1 : 0"
+            />
+          </div>
+          <label for="setting-bargeIn">Interrupt by speaking</label>
+        </div>
+        <div class="form-text">
+          When you start talking, Jarvis turns its volume down; once it's clearly speech, it pauses. Then “stop”,
+          “continue” or “repeat” do just that; a new question gets a new answer; anything else and it carries on.
+          Needs headphones for now (with speakers it would hear itself).
+        </div>
       </div>
       <div v-for="slider in sliders" :key="slider.key">
         <label :for="`setting-${slider.key}`" class="form-label d-flex justify-content-between gap-3 w-100">

@@ -226,7 +226,10 @@ onMounted(() => {
               </span>
               <div class="flex-grow-1 vstack gap-2">
                 <span v-if="p.status === 'ok'">{{ p.text }}</span>
-                <span v-if="p.reply" :class="p.reply.kind === 'error' ? 'fg-danger' : 'fg-info'">
+                <span v-if="p.reply?.kind === 'control'" class="text-sm fg-3">
+                  Jarvis {{ ({ stop: 'stopped talking', continue: 'continued', repeat: 'repeated its answer' } as Record<string, string>)[p.reply.text] ?? p.reply.text }}
+                </span>
+                <span v-else-if="p.reply" :class="p.reply.kind === 'error' ? 'fg-danger' : 'fg-info'">
                   <span class="badge theme-info">Jarvis</span> {{ p.reply.text }}
                 </span>
                 <span v-else class="fg-3">

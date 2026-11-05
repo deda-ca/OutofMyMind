@@ -43,6 +43,8 @@ Say "Jarvis, …" and Jarvis answers in the Live transcript (blue "Jarvis" lines
 
 Jarvis also **speaks** its replies (Qwen3-TTS, voice "jarvis"), sentence by sentence as they're written; the header shows "Jarvis speaking". Turn it off with the "Speak replies" switch in Settings. There's no echo handling yet: use headphones or an earpiece, or the microphone will hear Jarvis.
 
+**Interrupting:** start talking while Jarvis speaks and it first turns its volume down (to 30%); once it has heard about 0.4 s of clear speech it pauses ("Jarvis paused · listening to you"). A hiss, click or cough only dips the volume briefly. Then "stop" (or "quiet", "wait") stops it, "continue" (or "go on") picks up where it stopped, "repeat" (or "say that again") replays the answer, and a new question gets a new answer. If what you said wasn't for Jarvis, or someone else spoke, it carries on by itself. A very short "stop" may only dip the volume and take effect a second later; if a bare "stop" is missed, "stop talking" or "Jarvis, stop" are caught more reliably. Settings: "Interrupt by speaking", "Interrupt sensitivity" (speech needed before pausing, default 0.4 s), "Volume while unsure" (default 30%). The follow-up countdown starts only after Jarvis has finished talking. Logic and tests: `src/audio/bargeIn.ts`, `test/bargeIn.test.ts` (`npm test`).
+
 ### History tab
 
 Every conversation is archived by apps/server. The History tab lists them newest first (date, device, speech time, size). Expand one to read each phrase and play its audio. "Keep forever" (whole conversation, or ★ per phrase) protects recordings from any future clean-up. Listening continues while you browse.
@@ -92,18 +94,20 @@ Start audio.cpp, then apps/server, then the client:
 
 ```bash
 cd apps/server && npm install && npm run dev    # API on http://127.0.0.1:5180
-cd apps/client && npm install && npm run dev    # http://127.0.0.1:5173
+cd apps/client && npm install && npm run dev    # https://127.0.0.1:5173 (and https://<LAN IP>:5173 from other devices)
 npm run typecheck
+npm test           # client logic tests (barge-in timing)
 ```
 
-Use Chrome, Edge or Firefox on the same machine. The microphone only works on `localhost`/`127.0.0.1` or HTTPS.
+Use Chrome, Edge or Firefox. The dev server listens on all network interfaces (`0.0.0.0`) over HTTPS with a self-signed certificate (`@vitejs/plugin-basic-ssl`), so a phone on the same network can use it: open `https://<LAN IP>:5173` and accept the certificate warning. Browsers only allow the microphone on secure pages, hence HTTPS. The API server stays on localhost; this dev server forwards `/api` to it. Add the LAN origin to the server's `ALLOWED_ORIGINS` (in `apps/server/.env.local`).
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
 | `vite/vadAssets.ts` | Serves the Silero model, VAD worklet and ONNX Runtime files from `node_modules` under `/vad/` (copied into the build too). |
-| `src/audio/speechPlayer.ts` | Plays Jarvis's spoken sentences back to back |
+| `src/audio/speechPlayer.ts` | Plays Jarvis's spoken sentences back to back; duck, pause, stop, continue, repeat |
+| `src/audio/bargeIn.ts` | When you talk over Jarvis: duck, pause, or carry on |
 | `src/audio/streamTranscriber.ts` | Mic + VAD + send rule + `/api/stream` WebSocket client |
 | `src/settings.ts` | Settings state, saved to localStorage |
 | `src/components/SettingsPanel.vue` | Sliders for the settings |

@@ -28,7 +28,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `PORT` | `5180` | |
 | `AUDIOCPP_URL` | `http://127.0.0.1:5552` | The audio.cpp server |
 | `ASR_MODEL` | `Qwen3-ASR` | audio.cpp model id for speech-to-text |
-| `ALLOWED_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | Browser origins allowed to call the API |
+| `ALLOWED_ORIGINS` | `https://127.0.0.1:5173,https://localhost:5173` | Browser origins allowed to call the API. For phone access add the client's LAN address in `.env.local`, e.g. `https://192.168.1.50:5173`. |
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
 | `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
 | `LLM_MODEL` | `Qwen3.6-35B-A3B` | Model id on that server |
@@ -73,6 +73,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | Binary: `[float32 LE speech probability 0–1][s16le mono PCM]` | One VAD frame (512 samples = 32 ms). |
 | `{"type":"settings","settings":{…}}` | Any time; applies immediately. |
 | `{"type":"stop"}` | Finish: the server ends the open phrase, sends its final text, `stopped`, then closes. |
+| `{"type":"playback","state":"playing"\|"paused"\|"stopped"\|"idle"}` | What the client's speech player is doing (Jarvis talking). The follow-up countdown waits while it's playing or paused, and short phrases are kept while Jarvis is talking. |
 
 **Server → client**
 
@@ -94,6 +95,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | `{"type":"assistant.delta","replyId":1,"delta":"…"}` | Reply text as it streams. |
 | `{"type":"assistant.done","replyId":1,"text":"…","kind":"reply"\|"wake"\|"dismiss"}` | Final reply text. `wake` = "Yes?" (just "Jarvis"), `dismiss` = "Okay." |
 | `{"type":"assistant.error","replyId":1,"message":"…"}` | The LLM couldn't answer. |
+| `{"type":"assistant.control","action":"stop"\|"continue"\|"repeat"\|"resume","replyId":1}` | Playback control: stop (resumable), continue (from the interrupted sentence), repeat (reply `replyId` from the start), resume (after a barge-in pause that wasn't for Jarvis). |
 | `{"type":"assistant.audio","replyId":1,"seq":0,"text":"…","wav":"<base64>","synthMs":370}` | One spoken sentence of a reply (24 kHz WAV), in order. Play them back to back; a newer `replyId` replaces an older one. Only sent when `speakReplies` is 1. |
 
 **The client's send rule** (all a client has to implement):
@@ -145,6 +147,7 @@ Milestone M5 step 1 of [docs/speaker-recognition.md](../../docs/speaker-recognit
 - **LLM:** streamed chat completions, thinking off (a short answer arrives in ~0.3–0.6 s), conversation history kept per conversation (last 24 messages) and cleared when it ends.
 - **Archive:** every reply is stored with the phrase it answers (`assistant_replies`), shown in History.
 - **Spoken replies:** each sentence is sent to audio.cpp's text-to-speech (Qwen3-TTS, voice `jarvis`) as soon as the LLM finishes writing it, so speech starts ~1 s after a request (LLM first words ~0.6 s + ~0.4 s synthesis) while the rest is still being written. Markdown and links are cleaned for speaking (`src/assistant/speech.ts`, tested in `test/speech.test.ts`). No echo handling yet: use headphones/an earpiece.
+- **Voice controls (`src/assistant/controls.ts`, tested in `test/controls.test.ts`):** short phrases "stop" / "quiet" / "wait", "continue" / "go on", "repeat" / "say that again" / "what was that" are handled in code, never by the LLM. They work from the owner and from short phrases whose speaker is unclear (a one-word voiceprint is unreliable); only a clearly different voice is ignored. While Jarvis is in a conversation or talking, phrases down to 60 ms of speech are kept so a quick "stop" isn't thrown away. A new question aborts an answer still being written. Anything heard during a barge-in that isn't for Jarvis (someone else, noise) sends `resume`.
 - Not yet: tools (naming people, grants, keep), permission grants for other people, echo handling for speakers.
 
 # Not in the MVP

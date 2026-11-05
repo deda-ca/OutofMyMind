@@ -26,6 +26,12 @@ export interface StreamSettings {
   followUpMs: number
   /** 1 = Jarvis speaks its replies, 0 = text only. */
   speakReplies: number
+  /** 1 = you can interrupt Jarvis by talking (client only; use headphones). */
+  bargeIn: number
+  /** Confident speech needed before Jarvis pauses for you (client only). */
+  bargeInMs: number
+  /** Jarvis's volume while it isn't sure yet whether you're talking (client only). */
+  duckVolume: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -39,6 +45,9 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakerChangeThreshold: 0.3,
   followUpMs: 30000,
   speakReplies: 1,
+  bargeIn: 1,
+  bargeInMs: 400,
+  duckVolume: 0.3,
 }
 
 /** Messages from Jarvis the assistant (server: apps/server/src/assistant/assistant.ts). */
@@ -49,6 +58,7 @@ export type AssistantMessage =
   | { type: 'assistant.done'; replyId: number; text: string; kind: 'reply' | 'wake' | 'dismiss' }
   | { type: 'assistant.error'; replyId: number; message: string }
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
+  | { type: 'assistant.control'; action: 'stop' | 'continue' | 'repeat' | 'resume'; replyId: number }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {
@@ -120,6 +130,7 @@ export interface TranscriberEvents {
   onSplit?(id: number, into: number[]): void
   /** Jarvis: state changes and replies. */
   onAssistant?(message: AssistantMessage): void
+
   /** Voice training mode: a clip was accepted or rejected. */
   onEnrollClip?(result: EnrollClipResult): void
 }
@@ -138,6 +149,7 @@ type ServerMessage =
   | AssistantMessage
 
 const FRAME_MS = 32
+
 const STOP_TIMEOUT_MS = 30000
 
 export class StreamTranscriber {
@@ -154,6 +166,7 @@ export class StreamTranscriber {
 
   private stopped?: () => void
   private closing = false
+
 
   constructor(
     private readonly options: {
@@ -179,6 +192,11 @@ export class StreamTranscriber {
       onFrameProcessed: (probs, frame) => this.handleFrame(frame, probs.isSpeech),
     })
     await this.vad.start()
+  }
+
+  /** Tell the server what Jarvis's speech player is doing. */
+  sendPlayback(state: 'idle' | 'playing' | 'paused' | 'stopped'): void {
+    this.sendJson({ type: 'playback', state })
   }
 
   updateSettings(settings: StreamSettings): void {
@@ -284,6 +302,7 @@ export class StreamTranscriber {
       case 'assistant.done':
       case 'assistant.error':
       case 'assistant.audio':
+      case 'assistant.control':
         this.events.onAssistant?.(message)
         break
     }
@@ -291,6 +310,7 @@ export class StreamTranscriber {
 
   /** The send gate: speech, plus pre-roll before it and a hangover after it. */
   private handleFrame(frame: Float32Array, probability: number): void {
+    const level = levelDb(frame)
     const packet = encodeFrame(frame, probability)
     const isSpeech = probability >= this.settings.speechThreshold
     let sent = false
@@ -315,7 +335,7 @@ export class StreamTranscriber {
     }
 
     this.upload.framesTotal++
-    this.events.onFrame?.({ probability, levelDb: levelDb(frame), sent }, { ...this.upload })
+    this.events.onFrame?.({ probability, levelDb: level, sent }, { ...this.upload })
   }
 
   private sendPacket(packet: ArrayBuffer): void {

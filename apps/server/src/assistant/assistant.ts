@@ -1,4 +1,4 @@
-// Jarvis the assistant, for one live session (docs/speaker-recognition.md, M5 step 1).
+// Jarvis the assistant, for one live session (docs/speaker-recognition.md, M5).
 //
 // Idle: only the owner saying "Jarvis" starts a conversation (anyone, until
 // the owner has trained their voice). In a conversation: the owner's phrases
@@ -7,10 +7,12 @@
 // people's phrases are given to the LLM as context, never as requests.
 //
 // Who may make requests is decided here, in code, from the speaker tag, never
-// by the LLM.
+// by the LLM. Playback controls (stop / continue / repeat) are matched here
+// too, never sent to the LLM (controls.ts).
 
 import { config } from '../config.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
+import { detectControl, type Control } from './controls.ts'
 import { LlmError, streamChat, type ChatMessage } from './llm.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
@@ -25,8 +27,17 @@ export type AssistantMessage =
   | { type: 'assistant.error'; replyId: number; message: string }
   /** One spoken sentence of a reply: base64 WAV, in order (seq) per reply. */
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
+  /**
+   * Playback control for the client: stop (resumable), continue (from the
+   * interrupted sentence), repeat (the whole reply `replyId`), resume (after
+   * a barge-in pause that turned out not to be for Jarvis).
+   */
+  | { type: 'assistant.control'; action: Control | 'resume'; replyId: number }
 
 export type ReplyKind = 'reply' | 'wake' | 'dismiss'
+
+/** What the client's speech player is doing (sent by the client). */
+export type Playback = 'idle' | 'playing' | 'paused' | 'stopped'
 
 export interface AssistantPhrase {
   /** Session phrase id (what the client knows it by). */
@@ -40,7 +51,7 @@ export interface AssistantPhrase {
 export interface AssistantOptions {
   emit: (message: AssistantMessage) => void
   /** Archives a reply. */
-  saveReply: (phraseArchiveId: number | null, kind: ReplyKind | 'error', text: string, latencyMs: number | null) => void
+  saveReply: (phraseArchiveId: number | null, kind: ReplyKind | 'error' | 'control', text: string, latencyMs: number | null) => void
   /** Whether the owner has trained their voice (otherwise anyone may talk to Jarvis). */
   ownerTrained: () => boolean
   /** How long Jarvis keeps listening for follow-ups without the wake word. */
@@ -65,7 +76,13 @@ export class Assistant {
   private nextReplyId = 1
   /** The reply being spoken; sentences of older replies are dropped. */
   private speakingReplyId = 0
+  /** The last real answer (not "Yes?"/"Okay."), for "repeat". */
+  private lastAnswerId = 0
   private speechQueue: Promise<void> = Promise.resolve()
+  /** The client's speech player state; the follow-up countdown waits while it's playing or paused. */
+  private playback: Playback = 'idle'
+  /** Aborts the reply still being generated when a new request comes in. */
+  private generating?: AbortController
   private closed = false
   private readonly o: AssistantOptions
 
@@ -82,38 +99,94 @@ export class Assistant {
   handle(phrase: AssistantPhrase): void {
     const text = phrase.text.trim()
     if (!text || this.closed) return
+    // If Jarvis was paused because someone started talking, and this phrase
+    // wasn't for Jarvis, it carries on talking.
+    if (!this.respond(phrase, text) && this.playback === 'paused') this.control('resume')
+  }
+
+  /**
+   * Something was heard that isn't for Jarvis (noise, or clearly someone
+   * else's voice): if Jarvis paused for it, carry on.
+   */
+  notForMe(): void {
+    if (this.playback === 'paused') this.control('resume')
+  }
+
+  /**
+   * Whether Jarvis is listening closely: in a conversation, or talking.
+   * Then even very short phrases ("stop") must be heard.
+   */
+  get attentive(): boolean {
+    return this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused'
+  }
+
+  /** The client's speech player changed state. */
+  setPlayback(state: Playback): void {
+    this.playback = state
+    if (this.state !== 'conversation') return
+    // The follow-up window counts from when Jarvis stops talking.
+    this.extendFollowUp()
+  }
+
+  /** Returns whether Jarvis reacted (answered, acknowledged, or obeyed a control). */
+  private respond(phrase: AssistantPhrase, text: string): boolean {
     const authorised = !this.o.ownerTrained() || phrase.speaker?.isOwner === true
     const who = phrase.speaker?.isOwner ? 'Owner' : (phrase.speaker?.name ?? 'Someone')
+
+    // Stop / continue / repeat: harmless, and a one-word "stop" is too short
+    // for a reliable voiceprint, so only a voice that's clearly someone else
+    // is ignored.
+    const control = detectControl(text)
+    const clearlySomeoneElse = this.o.ownerTrained() && phrase.speaker?.isOwner === false && phrase.speaker.confidence === 'high'
+    const listening = this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused' || hasWakeWord(text)
+    if (control && listening && !clearlySomeoneElse && this.lastAnswerId > 0) {
+      this.control(control)
+      this.o.saveReply(phrase.archiveId, 'control', control, 0)
+      return true
+    }
 
     if (this.state === 'conversation') {
       if (!authorised) {
         // Context, not a request.
         this.pushHistory({ role: 'user', content: `[${who} said, not to you]: ${text}` })
-        return
+        return false
       }
-      if (isDismissal(text, true)) return this.dismiss(phrase)
+      if (isDismissal(text, true)) {
+        this.dismiss(phrase)
+        return true
+      }
       this.extendFollowUp()
-      return this.request(phrase, text)
+      this.request(phrase, text)
+      return true
     }
 
     // Idle.
     this.remember(who, text)
-    if (!authorised || !hasWakeWord(text) || isDismissal(text, false)) return
+    if (!authorised || !hasWakeWord(text) || isDismissal(text, false)) return false
     this.state = 'conversation'
     this.history = this.contextMessage()
     this.extendFollowUp()
-    if (isWakeOnly(text)) return this.say(phrase, 'wake', 'Yes?')
-    this.request(phrase, text)
+    if (isWakeOnly(text)) this.say(phrase, 'wake', 'Yes?')
+    else this.request(phrase, text)
+    return true
+  }
+
+  private control(action: Control | 'resume'): void {
+    const replyId = action === 'repeat' ? this.lastAnswerId : this.speakingReplyId
+    this.o.emit({ type: 'assistant.control', action, replyId })
   }
 
   close(): void {
     this.closed = true
     clearTimeout(this.followUpTimer)
+    this.generating?.abort()
   }
 
   // ------------------------------------------------------------------ internals
 
   private request(phrase: AssistantPhrase, text: string): void {
+    // A new request replaces an answer that's still being written.
+    this.generating?.abort()
     this.queue = this.queue.then(() => this.reply(phrase, text)).catch((err: unknown) => this.o.log('assistant: reply failed', err))
   }
 
@@ -123,28 +196,43 @@ export class Assistant {
     const started = performance.now()
     let firstWordMs: number | null = null
     this.speakingReplyId = replyId
+    this.lastAnswerId = replyId
     this.o.emit({ type: 'assistant.start', replyId, toPhraseId: phrase.id })
     this.pushHistory({ role: 'user', content: text })
     const sentences = new SentenceSplitter()
     let seq = 0
+    let partial = ''
+    const abort = new AbortController()
+    this.generating = abort
     try {
       const answer = await streamChat([this.systemMessage(), ...this.history], (delta) => {
+        partial += delta
         firstWordMs ??= Math.round(performance.now() - started)
         if (this.closed) return
         this.o.emit({ type: 'assistant.delta', replyId, delta })
         for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
-      })
+      }, abort.signal)
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
       const clean = answer.trim()
       this.pushHistory({ role: 'assistant', content: clean })
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
       this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs)
     } catch (err) {
-      const message = err instanceof LlmError ? err.message : `Jarvis couldn't answer: ${(err as Error).message}`
-      if (!this.closed) this.o.emit({ type: 'assistant.error', replyId, message })
-      this.o.saveReply(phrase.archiveId, 'error', message, null)
+      if (abort.signal.aborted) {
+        // Interrupted by a new request: keep what was said so far.
+        const clean = `${partial.trim()} …`
+        this.pushHistory({ role: 'assistant', content: clean })
+        if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
+        this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs)
+      } else {
+        const message = err instanceof LlmError ? err.message : `Jarvis couldn't answer: ${(err as Error).message}`
+        if (!this.closed) this.o.emit({ type: 'assistant.error', replyId, message })
+        this.o.saveReply(phrase.archiveId, 'error', message, null)
+      }
+    } finally {
+      if (this.generating === abort) this.generating = undefined
     }
-    // The follow-up window counts from the end of the answer.
+    // The follow-up window counts from when Jarvis stops talking (see setPlayback).
     if (this.state === 'conversation') this.extendFollowUp()
   }
 
@@ -192,6 +280,12 @@ export class Assistant {
 
   private extendFollowUp(): void {
     clearTimeout(this.followUpTimer)
+    if (this.playback === 'playing' || this.playback === 'paused') {
+      // Jarvis is still talking: the countdown starts when it stops.
+      this.followUpEndsAt = null
+      this.announce()
+      return
+    }
     const ms = this.o.followUpMs()
     this.followUpEndsAt = Date.now() + ms
     this.followUpTimer = setTimeout(() => this.goIdle(), ms)

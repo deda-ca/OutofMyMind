@@ -17,7 +17,9 @@ npm --prefix apps/server run fetch-models   # first time: the 28 MB voiceprint m
 npm run dev        # starts apps/server (:5180) and apps/client (:5173) together
 ```
 
-Open http://127.0.0.1:5173. Ctrl+C stops both.
+Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C stops both.
+
+**From your phone (same network):** open `https://<this machine's LAN IP>:5173` (e.g. https://192.168.1.50:5173) and accept the certificate warning. The address must be listed in `ALLOWED_ORIGINS` in `apps/server/.env.local`. HTTPS is needed because browsers only allow the microphone on secure pages. ⚠️ There's no login yet: anyone on your network who opens that address can use Jarvis and see History and People.
 
 | Script | |
 | --- | --- |
@@ -37,5 +39,6 @@ Open http://127.0.0.1:5173. Ctrl+C stops both.
 | Speaker recognition: split phrases where the speaker changes (back-to-back turns) | ✅ Built (M4 part 1) |
 | Jarvis answers: wake word "Jarvis", flowing follow-ups, "thanks, Jarvis" to end; only the owner (local Qwen3.6 via llama.cpp) | ✅ Built (M5 step 1) |
 | Jarvis speaks its replies (Qwen3-TTS, sentence by sentence; headphones for now) | ✅ Built |
+| Interrupt Jarvis by talking; "stop", "continue", "repeat" by voice | ✅ Built |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Android app | Planned |
