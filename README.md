@@ -24,3 +24,11 @@ Open http://127.0.0.1:5173. Ctrl+C stops both.
 | `npm run dev:server` / `npm run dev:client` | Just one of them |
 | `npm run typecheck` | Typecheck both apps |
 | `npm run setup` | Install everything |
+
+## Roadmap
+
+| Feature | Status |
+| --- | --- |
+| Live speech transcription, on-device voice detection, streaming to the server | ✅ Built |
+| **Speaker recognition**: record and archive everyone in a conversation, know the owner's voice, tag who said what, learn other people over time; only the owner (or people they allow) can give commands | 📝 [Design](docs/speaker-recognition.md) |
+| Android app | Planned |
