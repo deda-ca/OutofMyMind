@@ -64,6 +64,30 @@ Tool: `tools/speaker-eval/src/grouping-eval.ts`. It replays the server's groupin
 - Learning only from clear matches (≥ 0.55, ≥ 2 s of speech) keeps libraries clean.
 - Groups whose voices score ≥ 0.35 against each other are shown as "might be the same person" so splits are easy to spot and combine.
 
+## Speaker changes inside a phrase (M4)
+
+People taking turns without a pause end up in one phrase. Tool: `tools/speaker-eval/src/change-eval.ts`; code: `apps/server/src/speaker/changes.ts`.
+
+**Test set:** 60 conversations built from LibriSpeech, 2–4 people taking 3–6 turns of 1.5–8 s with silence trimmed and 0–0.15 s between turns, up to 25 s (185 speaker changes, 18 min), plus 30 single-speaker phrases. Every speaker enrolled with 3 clips not used in the test; each piece identified among all 40.
+
+**Method:** compare a voiceprint of the window before each point (every 0.25 s) with the window after it; split at clear dips; re-join neighbouring pieces that still sound alike; snap cuts to the quietest moment within ±0.25 s; fold pieces under 1.5 s into the neighbour they sound more like.
+
+| Setting | Speech time credited to the right person | Changes found (±0.5 s) | Wrong cuts | False splits per single-speaker phrase |
+| --- | --- | --- | --- | --- |
+| No splitting (before M4) | 52.5% | – | – | – |
+| 1 s windows, split < 0.3, re-join ≥ 0.4 | 95.9% | 90.8% | 85 | 0.23 |
+| **1.5 s windows, split < 0.3, re-join ≥ 0.4** (chosen, before folding short pieces) | 97.0% | 89.2% | 40 | 0 |
+| **… plus folding pieces under 1.5 s** (final) | **96.8%** | 88.6% | **23** | **0** |
+| 2 s windows, split < 0.4, re-join ≥ 0.4 | 97.1% | 89.2% | 38 | 0 |
+| 1.5 s windows, split < 0.5, no re-join | 96.7% | 89.2% | 198 | 4.70 |
+
+- **Re-joining is what matters:** without it, one person's speech is chopped up (up to 12 false splits per phrase); with it, the split threshold barely matters between 0.3 and 0.6.
+- **Folding short pieces** removed blends at boundaries (which otherwise matched nobody and created a stray "Speaker X"); in a browser test a no-pause You → Bob → Speaker B → You conversation came out exactly right.
+- **Cost:** ~1.4–1.8 s of CPU per 18 s phrase (shorter phrases less), so split text appears a little after the phrase ends. Phrases under 3 s aren't scanned.
+- **Not covered:** people talking at the same time (needs a diarization model such as audio.cpp's Sortformer), and turns under ~1.5 s.
+
+Full sweep: `tools/speaker-eval/results-changes-sweep.txt`.
+
 ## Why not sherpa-onnx
 
 The design originally picked sherpa-onnx (`sherpa-onnx-node`) to run these models. On this machine its voiceprints were wrong, with both 2.0.1 and 1.13.8:

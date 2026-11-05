@@ -10,6 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
+import { DEFAULT_CHANGE_OPTIONS, findSpeakerChanges } from './changes.ts'
 import { VoiceprintModel, cosine, fromBlob, toBlob } from './voiceprint.ts'
 
 export type Confidence = 'high' | 'low' | 'uncertain'
@@ -74,6 +75,8 @@ const GROUP_JOIN = 0.45
 /** …and is added to their library (to learn from) only above this, with enough speech. */
 const GROUP_LEARN = 0.55
 const MIN_LIBRARY_SPEECH_MS = 2000
+/** A new "Speaker X" group is only started from a phrase with at least this much speech. */
+const MIN_NEW_GROUP_SPEECH_MS = 2000
 const LIBRARY_CAP = 50
 /** Groups this close (but under GROUP_JOIN) are suggested as possibly the same person. */
 const MAYBE_SAME = 0.35
@@ -105,6 +108,18 @@ export class Speakers {
 
   async voiceprint(pcm: Int16Array): Promise<Float32Array | null> {
     return this.model ? this.model.embed(pcm) : null
+  }
+
+  /**
+   * Where the speaker changes inside a phrase (sample offsets; empty = one
+   * speaker). `threshold` is the similarity below which the voice before and
+   * after a point counts as different.
+   */
+  async speakerChanges(pcm: Int16Array, threshold: number): Promise<number[]> {
+    const model = this.model
+    if (!model) return []
+    const samples = Float32Array.from(pcm, (v) => v / 32768)
+    return findSpeakerChanges(samples, (s) => model.embedSamples(s), { ...DEFAULT_CHANGE_OPTIONS, threshold })
   }
 
   /** The owner's person id, creating the row on first use. */
@@ -203,7 +218,11 @@ export class Speakers {
       const confidence: Confidence = best.score >= GROUP_LEARN ? 'high' : 'low'
       return this.tagFor(best.personId, similarity, best.score, confidence, isOwner)
     }
-    if (!commit) return { ...this.tagFor(null, similarity, null, 'low', isOwner), name: 'New voice' }
+    // A new person needs a clear sample: a short phrase is often a blend or a fragment.
+    if (!commit || speechMs < MIN_NEW_GROUP_SPEECH_MS) {
+      if (best && best.score >= GROUP_JOIN - LOW_CONFIDENCE_MARGIN) return this.tagFor(best.personId, similarity, best.score, 'uncertain', isOwner)
+      return { ...this.tagFor(null, similarity, null, commit ? 'uncertain' : 'low', isOwner), name: commit ? null : 'New voice' }
+    }
     return this.tagFor(this.createGroup(), similarity, null, 'high', isOwner)
   }
 

@@ -38,7 +38,11 @@ export class VoiceprintModel {
   /** L2-normalised voiceprint of 16 kHz mono s16le audio, or null if too short. */
   async embed(pcm: Int16Array): Promise<Float32Array | null> {
     if (pcm.length < MIN_VOICEPRINT_SECONDS * SAMPLE_RATE) return null
-    const samples = Float32Array.from(pcm, (v) => v / 32768)
+    return this.embedSamples(Float32Array.from(pcm, (v) => v / 32768))
+  }
+
+  /** L2-normalised voiceprint of 16 kHz mono audio in [-1, 1] (any length ≥ 0.1 s). */
+  async embedSamples(samples: Float32Array): Promise<Float32Array> {
     const f = kaldiFbank(samples)
     const result = await this.session.run({ [this.input]: new ort.Tensor('float32', f.data, [1, f.frames, NMEL]) }, [this.output])
     const v = result[this.output]!.data as Float32Array

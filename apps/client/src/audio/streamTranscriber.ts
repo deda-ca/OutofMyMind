@@ -20,6 +20,8 @@ export interface StreamSettings {
   partialIntervalMs: number
   /** Voiceprint similarity at or above which a phrase is the owner's. */
   speakerThreshold: number
+  /** Split a phrase where the voice changes (similarity below this); 0 = never. */
+  speakerChangeThreshold: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   maxPhraseMs: 25000,
   partialIntervalMs: 1000,
   speakerThreshold: 0.43,
+  speakerChangeThreshold: 0.3,
 }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
@@ -98,6 +101,8 @@ export interface TranscriberEvents {
   onRequest?(log: RequestLog): void
   /** Speaker guess (early, ~1.5 s in) or decision (final) for a phrase. */
   onSpeaker?(id: number, speaker: SpeakerTag, final: boolean): void
+  /** Phrase `id` held several speakers: it is replaced by phrases `into`, in order. */
+  onSplit?(id: number, into: number[]): void
   /** Voice training mode: a clip was accepted or rejected. */
   onEnrollClip?(result: EnrollClipResult): void
 }
@@ -106,6 +111,7 @@ type ServerMessage =
   | { type: 'ready' | 'settings'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'phrase'; id: number; text: string; final: boolean }
   | { type: 'phrase.dropped'; id: number }
+  | { type: 'phrase.split'; id: number; into: number[] }
   | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }
   | ({ type: 'enroll.clip' } & EnrollClipResult)
   | ({ type: 'state' } & PhraseState)
@@ -232,6 +238,9 @@ export class StreamTranscriber {
         break
       case 'phrase.dropped':
         this.events.onPhraseDropped(message.id)
+        break
+      case 'phrase.split':
+        this.events.onSplit?.(message.id, message.into)
         break
       case 'phrase.speaker':
         this.events.onSpeaker?.(message.id, message.speaker, message.final)

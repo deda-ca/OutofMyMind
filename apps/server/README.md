@@ -77,6 +77,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | `{"type":"settings","settings":{…},"sendHangoverMs":1500}` | After a settings change. |
 | `{"type":"phrase","id":3,"text":"…","final":false}` | Live text for phrase 3; replaces earlier text for that id. `final: true` = won't change again. |
 | `{"type":"phrase.dropped","id":3}` | Phrase 3 was noise or empty: remove it. |
+| `{"type":"phrase.split","id":3,"into":[7,8,9]}` | Phrase 3 held several speakers taking turns: replace it with phrases 7, 8, 9 (in that order), whose text and speakers follow. |
 | `{"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":4,"name":"Maria","named":true,"isOwner":false,"similarity":0.21,"match":0.68,"confidence":"high"}}` | Who said phrase 3: an early guess (`final: false`, after ~1.5 s of speech; only matches known people, `name: "New voice"` otherwise) or the decision (`final: true`; may create a new "Speaker X"). `name`: "You", a given name, or "Speaker A". `isOwner`: `true` / `false` / `null` (voice not trained). `similarity`: to the owner; `match`: to the matched person. `confidence`: `high`, `low` (close to a threshold) or `uncertain` (under 1 s of speech). |
 | `{"type":"enroll.clip","id":3,"accepted":true,"reason":null,"text":"…","clips":8}` | Enroll mode: a training clip was accepted or rejected (`reason`), and how many clips the owner's library now has. |
 | `{"type":"state","inPhrase":true,"phraseMs":…,"speechMs":…,"silenceMs":…}` | Phrase detection state, ~10×/s while a phrase is open (for monitoring). |
@@ -91,7 +92,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 3. On a frame with probability ≥ `speechThreshold`: send the kept frames, then this one, and start sending.
 4. Keep sending every frame until `sendHangoverMs` has passed with no speech frame. That's always longer than the pause setting, so the server sees enough silence to end the phrase itself.
 
-Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43.
+Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43, `speakerChangeThreshold` 0.3 (0 = never split by speaker).
 
 **How the server transcribes:** while a phrase is open, the whole phrase so far is re-transcribed every `partialIntervalMs`, skipped if nothing new was said. When the phrase ends (a pause of `pauseMs`), it is transcribed once more for the final text. Each request covers the full phrase, so punctuation flows. Server ↔ audio.cpp traffic stays on this machine.
 
@@ -119,7 +120,8 @@ Milestone M2 of [docs/speaker-recognition.md](../../docs/speaker-recognition.md)
 - **Voice training (`mode: "enroll"`):** each phrase is checked (≥ 1.5 s of speech, words recognised, and similar to the clips so far: at least threshold − 0.1) and, if accepted, added to the owner's `library` with its device. Training sessions are archived as conversations of kind `enrollment`.
 - **Other people (M3):** a phrase that isn't the owner's joins the person (named or not) whose 3 closest library clips average ≥ 0.45, otherwise it starts a new unnamed group ("Speaker A", "Speaker B", …). Only real speech (not noise) can start a group. Clear matches (≥ 0.55, ≥ 2 s of speech) are added to that person's library (capped at 50), so recognition improves as people talk. Tuned in [docs/speaker-model-eval.md](../../docs/speaker-model-eval.md#grouping-unknown-voices-m3).
 - **Naming, corrections, merges and forgetting** are the `/api/people` routes above, shaped like the AI tools in the design. The LLM will call the same `Speakers` methods; the server must check the request came from the owner's voice first (not built yet: no LLM).
-- Not yet: splitting phrases where two people talk over each other (M4).
+- **Speaker changes (M4):** when a phrase of 3 s or more ends, it's scanned for points where the voice changes (`src/speaker/changes.ts`, tuned in [docs/speaker-model-eval.md](../../docs/speaker-model-eval.md#speaker-changes-inside-a-phrase-m4)). If there are any, the client gets `phrase.split` and each piece is transcribed, identified and archived as its own phrase. A new "Speaker X" now needs ≥ 2 s of speech, so fragments don't create people.
+- Not yet: people talking at the same time (needs a diarization model).
 
 # Not in the MVP
 
@@ -152,5 +154,6 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/speaker/speakers.ts` | Voice libraries, tagging, grouping, enrollment checks, and the people tools |
 | `src/speaker/routes.ts` | Owner voice profile and people REST API |
 | `src/speaker/backfill.ts` | Tags older archived phrases |
+| `src/speaker/changes.ts` | Finds speaker changes inside a phrase |
 | `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |
 | `test/` | `node:test` tests |

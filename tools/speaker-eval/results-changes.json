@@ -1,0 +1,18 @@
+{
+ "conversations": 60,
+ "changes": 185,
+ "singles": 30,
+ "baseline": 0.5248226251169538,
+ "rows": [
+  {
+   "windowS": 1.5,
+   "threshold": 0.3,
+   "mergeThreshold": 0.4,
+   "timeRight": 0.9676188556404535,
+   "found": 0.8864864864864865,
+   "wrongCuts": 23,
+   "splitsPerSingle": 0,
+   "ms": 1812.281606755555
+  }
+ ]
+}

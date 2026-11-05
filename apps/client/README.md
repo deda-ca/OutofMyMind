@@ -49,6 +49,8 @@ Train Jarvis on your voice: read the sentences shown aloud (8 by default), once 
 
 Everyone Jarvis has heard. A new voice gets a label ("Speaker A"); name it and Jarvis recognises that person from then on (their tags turn green with the name). Expand a person to listen to their voice clips, rename them, combine two entries that are the same person (suggested automatically when voices are close), or forget them (optionally deleting their audio). "Heard in the last 10 minutes" shows who spoke recently. "Tag older recordings" gives phrases recorded before speaker recognition a speaker. In History, click any phrase's tag to change who said it.
 
+When people take turns without pausing, the phrase is shown under one tag while it's being spoken, then split into one line per speaker when it ends (setting: "Split when the speaker changes", 0 = off).
+
 ### Settings and Monitor panels
 
 - **Settings**: pause length, speech threshold, minimum speech, pre-speech audio, live update interval, maximum phrase length. Saved in the browser's localStorage and sent to the server, which applies them immediately, even mid-recording.

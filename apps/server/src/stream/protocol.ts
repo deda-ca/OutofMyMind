@@ -12,6 +12,7 @@
 //   {"type":"settings","settings":{…},"sendHangoverMs":1500}
 //   {"type":"phrase","id":3,"text":"…","final":false}
 //   {"type":"phrase.dropped","id":3}
+//   {"type":"phrase.split","id":3,"into":[7,8,9]}   phrase 3 had several speakers: it is now phrases 7, 8, 9 (in order)
 //   {"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":1,"isOwner":true,"similarity":0.71,"confidence":"high"}}
 //   {"type":"enroll.clip","id":3,"accepted":true,"reason":null,"text":"…","clips":4}   (enroll mode only)
 //   {"type":"state","inPhrase":true,"phraseMs":2300,"speechMs":1800,"silenceMs":400}
@@ -60,6 +61,7 @@ export type ServerMessage =
   | { type: 'settings'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'phrase'; id: number; text: string; final: boolean }
   | { type: 'phrase.dropped'; id: number }
+  | { type: 'phrase.split'; id: number; into: number[] }
   | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }
   | { type: 'enroll.clip'; id: number; accepted: boolean; reason: string | null; text: string; clips: number }
   | ({ type: 'state' } & PhraseState)

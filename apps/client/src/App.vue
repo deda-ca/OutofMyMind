@@ -26,6 +26,8 @@ const tab = ref<Tab>('live')
 
 interface Phrase {
   id: number
+  /** Position in the transcript (pieces of a split phrase sit where it was). */
+  order: number
   text: string
   final: boolean
   speaker?: SpeakerTag
@@ -74,11 +76,22 @@ function phraseFor(phrases: Phrase[], id: number): Phrase {
   let phrase = phrases.find((p) => p.id === id)
   if (!phrase) {
     // Phrases can finish out of order; keep them in speaking order.
-    phrases.push({ id, text: '', final: false })
-    phrases.sort((a, b) => a.id - b.id)
+    phrases.push({ id, order: id, text: '', final: false })
+    phrases.sort((a, b) => a.order - b.order)
     phrase = phrases.find((p) => p.id === id)!
   }
   return phrase
+}
+
+/** One phrase turned out to hold several speakers: replace it with its pieces, in place. */
+function splitPhrase(phrases: Phrase[], id: number, into: number[]): void {
+  const index = phrases.findIndex((p) => p.id === id)
+  const order = index === -1 ? id : phrases[index]!.order
+  const next = phrases.find((p) => p.order > order)?.order ?? order + 1
+  const pieces = into.map((pieceId, k) => ({ id: pieceId, order: order + ((next - order) * k) / into.length, text: '', final: false }))
+  if (index === -1) phrases.push(...pieces)
+  else phrases.splice(index, 1, ...pieces)
+  phrases.sort((a, b) => a.order - b.order)
 }
 
 function upsertPhrase(phrases: Phrase[], id: number, text: string, final: boolean): void {
@@ -118,6 +131,7 @@ async function start(): Promise<void> {
       onRequest: (log) => (requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]),
       onPhrase: (id, text, final) => upsertPhrase(current, id, text, final),
       onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
+      onSplit: (id, into) => splitPhrase(current, id, into),
       onPhraseDropped: (id) => {
         const index = current.findIndex((p) => p.id === id)
         if (index !== -1) current.splice(index, 1)

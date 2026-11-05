@@ -71,6 +71,15 @@ const sliders: Slider[] = [
     format: (v) => v.toFixed(2),
   },
   {
+    key: 'speakerChangeThreshold',
+    label: 'Split when the speaker changes',
+    help: 'When people take turns without pausing, Jarvis looks for the point where the voice changes and splits the phrase there. Higher splits more readily (catches quicker turns, but may occasionally split one person); lower splits only on clear changes. 0 turns it off.',
+    min: 0,
+    max: 0.6,
+    step: 0.05,
+    format: (v) => (v === 0 ? 'off' : v.toFixed(2)),
+  },
+  {
     key: 'maxPhraseMs',
     label: 'Maximum phrase length',
     help: 'A phrase is split here even if you never pause.',

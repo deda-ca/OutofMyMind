@@ -22,6 +22,8 @@ const MIN_PARTIAL_MS = 500
 const STATE_INTERVAL_MS = 100
 /** The early speaker guess is made once a phrase has this much speech. */
 const EARLY_GUESS_SPEECH_MS = 1500
+/** Shorter phrases can't hold two clear turns (each piece must be ≥ 1 s, plus the scan windows). */
+const MIN_SPLIT_SECONDS = 3
 
 export type SessionMode = 'conversation' | 'enroll'
 
@@ -237,6 +239,52 @@ export class StreamSession {
 
   private sendFinal(phrase: Phrase, audio: Int16Array, speechMs: number): void {
     phrase.final = true
+    const pending = this.splitBySpeaker(phrase, audio)
+      .then((pieces) =>
+        pieces
+          ? // One phrase per speaker, in order (each transcribed and identified on its own).
+            pieces.reduce<Promise<void>>((chain, p) => chain.then(() => this.finishPhrase(p.phrase, p.audio, p.audio.length / 16)), Promise.resolve())
+          : this.finishPhrase(phrase, audio, speechMs),
+      )
+      .catch((err: unknown) => this.log(`could not finish phrase ${phrase.id}`, err))
+      .finally(() => this.pendingFinals.delete(pending))
+    this.pendingFinals.add(pending)
+  }
+
+  /**
+   * People taking turns without a pause end up in one phrase. If the voice
+   * changes inside it, returns one piece per speaker (and tells the client);
+   * otherwise null.
+   */
+  private async splitBySpeaker(phrase: Phrase, audio: Int16Array): Promise<{ phrase: Phrase; audio: Int16Array }[] | null> {
+    const threshold = this.settings.speakerChangeThreshold
+    if (!this.speakers || this.mode !== 'conversation' || threshold <= 0 || audio.length < MIN_SPLIT_SECONDS * STREAM_SAMPLE_RATE) return null
+    let cuts: number[]
+    try {
+      cuts = await this.speakers.speakerChanges(audio, threshold)
+    } catch (err) {
+      this.log(`speaker: change detection failed for phrase ${phrase.id}`, err)
+      return null
+    }
+    if (cuts.length === 0) return null
+    const bounds = [0, ...cuts, audio.length]
+    const pieces = bounds.slice(0, -1).map((start, k) => ({
+      phrase: {
+        id: this.nextId++,
+        startedAt: new Date(phrase.startedAt.getTime() + (start / STREAM_SAMPLE_RATE) * 1000),
+        appliedSeq: 0,
+        final: true,
+        speechMsAtLastPartial: 0,
+        earlyGuessStarted: true,
+      },
+      audio: audio.subarray(start, bounds[k + 1]),
+    }))
+    this.emit({ type: 'phrase.split', id: phrase.id, into: pieces.map((p) => p.phrase.id) })
+    return pieces
+  }
+
+  /** Final transcription, speaker decision and archiving of one phrase (or one piece of a split phrase). */
+  private async finishPhrase(phrase: Phrase, audio: Int16Array, speechMs: number): Promise<void> {
     const seq = this.nextSeq++
     const started = performance.now()
     // The voiceprint (CPU) is computed while audio.cpp transcribes (GPU).
@@ -247,7 +295,7 @@ export class StreamSession {
         })
       : Promise.resolve(null)
 
-    const pending = transcribePcm(pcmBuffer(audio), STREAM_SAMPLE_RATE, this.language)
+    const { text, status } = await transcribePcm(pcmBuffer(audio), STREAM_SAMPLE_RATE, this.language)
       .then((text) => {
         const noise = isNoise(text)
         this.logRequest(seq, phrase, 'final', audio, started, noise ? 'dropped' : 'ok', text)
@@ -262,16 +310,12 @@ export class StreamSession {
         // Keep the audio so it can be transcribed again later.
         return { text: '', status: 'error' as PhraseStatus }
       })
-      .then(async ({ text, status }) => {
-        const vector = await voiceprint
-        if (this.mode === 'enroll') return this.finishEnrollmentClip(phrase, audio, speechMs, text, status, vector)
-        // Only real speech may start a new "Speaker X" group, never noise or failures.
-        const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold, status === 'ok')
-        if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
-        await this.archive(phrase, audio, text, status, vector, tag, speechMs)
-      })
-      .finally(() => this.pendingFinals.delete(pending))
-    this.pendingFinals.add(pending)
+    const vector = await voiceprint
+    if (this.mode === 'enroll') return this.finishEnrollmentClip(phrase, audio, speechMs, text, status, vector)
+    // Only real speech may start a new "Speaker X" group, never noise or failures.
+    const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold, status === 'ok')
+    if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
+    await this.archive(phrase, audio, text, status, vector, tag, speechMs)
   }
 
   /** Voice training: check the clip, archive it, and add it to the owner's library if it's good. */

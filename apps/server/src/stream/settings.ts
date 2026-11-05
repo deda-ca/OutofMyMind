@@ -16,6 +16,11 @@ export interface StreamSettings {
   partialIntervalMs: number
   /** Voiceprint similarity (cosine) at or above which a phrase is the owner's. */
   speakerThreshold: number
+  /**
+   * Split a phrase where the voice before and after a point is less similar
+   * than this (people taking turns without a pause). 0 = never split.
+   */
+  speakerChangeThreshold: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -27,6 +32,8 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   partialIntervalMs: 1000,
   // CAM++ on LibriSpeech: 1% of other people's phrases pass at 0.43 (docs/speaker-model-eval.md).
   speakerThreshold: 0.43,
+  // Tuned with tools/speaker-eval/src/change-eval.ts (docs/speaker-model-eval.md).
+  speakerChangeThreshold: 0.3,
 }
 
 const RANGES: Record<keyof StreamSettings, [number, number]> = {
@@ -38,6 +45,7 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   maxPhraseMs: [3000, 28000],
   partialIntervalMs: [250, 5000],
   speakerThreshold: [0.1, 0.9],
+  speakerChangeThreshold: [0, 0.9],
 }
 
 export function mergeSettings(base: StreamSettings, update: unknown): StreamSettings {
