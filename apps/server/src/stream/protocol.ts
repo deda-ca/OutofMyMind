@@ -19,7 +19,13 @@
 //   {"type":"request", …RequestLog}
 //   {"type":"error","message":"…"}
 //   {"type":"stopped"}
+//   {"type":"assistant.state","state":"idle"|"conversation","followUpEndsAt":1762370000000|null,"ownerTrained":true}
+//   {"type":"assistant.start","replyId":1,"toPhraseId":3}
+//   {"type":"assistant.delta","replyId":1,"delta":"Ottawa"}
+//   {"type":"assistant.done","replyId":1,"text":"…","kind":"reply"|"wake"|"dismiss"}
+//   {"type":"assistant.error","replyId":1,"message":"…"}
 
+import type { AssistantMessage } from '../assistant/assistant.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import type { StreamSettings } from './settings.ts'
 
@@ -68,6 +74,7 @@ export type ServerMessage =
   | ({ type: 'request' } & RequestLog)
   | { type: 'error'; message: string }
   | { type: 'stopped' }
+  | AssistantMessage
 
 /** Parses a binary audio frame. Returns null if malformed. */
 export function parseFrame(data: Buffer): { probability: number; pcm: Int16Array } | null {

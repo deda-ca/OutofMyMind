@@ -37,6 +37,10 @@ The client is deliberately thin; the server does the work. Protocol: [../server/
 2. **Send rule**: audio is sent over one WebSocket only while there is speech, plus 300 ms from just before it and a hangover after it (the pause length + 0.3 s). Each frame is sent once. Silence is never sent.
 3. **apps/server** splits phrases at pauses (1.2 s by default), re-transcribes the phrase in progress about once a second (shown in grey), and transcribes it once more when it ends (black).
 
+### Talking to Jarvis
+
+Say "Jarvis, …" and Jarvis answers in the Live transcript (blue "Jarvis" lines, streamed as they're written). After an answer you can keep talking without saying "Jarvis" again: the header shows "Talking with Jarvis · follow-ups 30 s" and counts down (setting: "Jarvis follow-up window"). Say "thanks, Jarvis" or "that's all" to end the conversation. Until you've trained your voice, anyone can talk to Jarvis (the header says so); after that, only you. Replies are saved and shown in History.
+
 ### History tab
 
 Every conversation is archived by apps/server. The History tab lists them newest first (date, device, speech time, size). Expand one to read each phrase and play its audio. "Keep forever" (whole conversation, or ★ per phrase) protects recordings from any future clean-up. Listening continues while you browse.

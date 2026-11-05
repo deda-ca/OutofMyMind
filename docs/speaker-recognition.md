@@ -1,6 +1,6 @@
 # Speaker recognition (design)
 
-Status: written 2026-11-05 and revised the same day with the owner's decisions below. **Built so far:** the audio archive; **M1** (model comparison, [speaker-model-eval.md](speaker-model-eval.md): 3D-Speaker CAM++ chosen); **M2** core (owner voice training, every phrase tagged, voiceprints stored); **M3** core (unknown voices grouped as "Speaker A/B", naming, corrections, combining, forgetting, backfill; the AI-tool functions exist as REST routes). **M4** part 1 (phrases split where the speaker changes, for turns without a pause). Not built yet: M4 part 2 (people talking at the same time) and M5 (the agent: voice commands, permission check, grants).
+Status: written 2026-11-05 and revised the same day with the owner's decisions below. **Built so far:** the audio archive; **M1** (model comparison, [speaker-model-eval.md](speaker-model-eval.md): 3D-Speaker CAM++ chosen); **M2** core (owner voice training, every phrase tagged, voiceprints stored); **M3** core (unknown voices grouped as "Speaker A/B", naming, corrections, combining, forgetting, backfill; the AI-tool functions exist as REST routes). **M4** part 1 (phrases split where the speaker changes, for turns without a pause). **M5** step 1 (Jarvis answers the owner by wake word, with flowing follow-ups and dismissal; the owner check is in code). Not built yet: M4 part 2 (people talking at the same time); M5's tools, grants and spoken replies.
 
 ## Decisions
 
@@ -228,7 +228,7 @@ Whether its buttons can serve as Jarvis's button (push-to-talk) depends on what 
 | **M2. Know the owner + archive** ✅ core | Enrollment screen; every phrase tagged "you" or "someone else"; similarity in the Monitor; compressed audio archive with transcripts and tags. | In a two-person test conversation, your phrases are tagged correctly and everything is archived. |
 | **M3. Who's who** ✅ core | Grouping unknown voices, naming in the UI, merging, corrections, adapting, delete; the people page. | Over a few sessions, named people are tagged correctly. |
 | **M4. Conversations** ✅ part 1 | Split phrases when the voice changes; diarization for overlapping speech. | Quick back-and-forth and interruptions are tagged correctly. |
-| **M5. With the agent** | The permission check; grants; the AI tools above, so naming and granting work by voice. | "The person speaking now is Maria" and "answer her question" work, and nobody else can give commands. |
+| **M5. With the agent** ✅ step 1 (wake word, follow-ups, owner check) | The permission check; grants; the AI tools above, so naming and granting work by voice. | "The person speaking now is Maria" and "answer her question" work, and nobody else can give commands. |
 
 ## Open questions
 

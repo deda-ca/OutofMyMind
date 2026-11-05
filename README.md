@@ -9,7 +9,7 @@ A private, fully local voice assistant. Talk naturally; speech is transcribed li
 
 ## Running
 
-Requires Node.js 24 and audio.cpp running on `127.0.0.1:5552` with the `Qwen3-ASR` model.
+Requires Node.js 24, audio.cpp on `127.0.0.1:5552` with the `Qwen3-ASR` model, and llama.cpp's `llama-server` on `127.0.0.1:5550` with `Qwen3.6-35B-A3B` (for Jarvis's replies).
 
 ```bash
 npm run setup      # first time: installs the root tools and both apps
@@ -35,5 +35,6 @@ Open http://127.0.0.1:5173. Ctrl+C stops both.
 | Speaker recognition: know the owner's voice, tag every phrase "you" / "someone else" ([model comparison](docs/speaker-model-eval.md)) | ✅ Built (M1–M2) |
 | Speaker recognition: group unknown voices, name people, corrections (People tab) | ✅ Built (M3) |
 | Speaker recognition: split phrases where the speaker changes (back-to-back turns) | ✅ Built (M4 part 1) |
-| Speaker recognition: overlapping speech, voice commands and permissions | 📝 [Design](docs/speaker-recognition.md) (M4–M5) |
+| Jarvis answers: wake word "Jarvis", flowing follow-ups, "thanks, Jarvis" to end; only the owner (local Qwen3.6 via llama.cpp) | ✅ Built (M5 step 1) |
+| Jarvis: spoken replies, tools (name people, grants, keep), overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Android app | Planned |

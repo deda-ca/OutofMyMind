@@ -71,6 +71,15 @@ const sliders: Slider[] = [
     format: (v) => v.toFixed(2),
   },
   {
+    key: 'followUpMs',
+    label: 'Jarvis follow-up window',
+    help: 'After Jarvis answers, how long it keeps listening to you without needing “Jarvis” again. Say “thanks, Jarvis” or “that’s all” to end the conversation sooner.',
+    min: 5000,
+    max: 180000,
+    step: 5000,
+    format: seconds,
+  },
+  {
     key: 'speakerChangeThreshold',
     label: 'Split when the speaker changes',
     help: 'When people take turns without pausing, Jarvis looks for the point where the voice changes and splits the phrase there. Higher splits more readily (catches quicker turns, but may occasionally split one person); lower splits only on clear changes. 0 turns it off.',

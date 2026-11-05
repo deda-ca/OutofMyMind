@@ -21,6 +21,8 @@ export interface StreamSettings {
    * than this (people taking turns without a pause). 0 = never split.
    */
   speakerChangeThreshold: number
+  /** After Jarvis answers, how long it keeps listening for follow-ups without "Jarvis". */
+  followUpMs: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakerThreshold: 0.43,
   // Tuned with tools/speaker-eval/src/change-eval.ts (docs/speaker-model-eval.md).
   speakerChangeThreshold: 0.3,
+  followUpMs: 30000,
 }
 
 const RANGES: Record<keyof StreamSettings, [number, number]> = {
@@ -46,6 +49,7 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   partialIntervalMs: [250, 5000],
   speakerThreshold: [0.1, 0.9],
   speakerChangeThreshold: [0, 0.9],
+  followUpMs: [5000, 180000],
 }
 
 export function mergeSettings(base: StreamSettings, update: unknown): StreamSettings {

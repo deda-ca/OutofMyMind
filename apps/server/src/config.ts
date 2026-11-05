@@ -26,6 +26,11 @@ export const config = {
   asrModel: env('ASR_MODEL', 'Qwen3-ASR'),
   /** Database and audio archive. Contains private conversations: never commit it. */
   dataDir: path.resolve(env('DATA_DIR', 'data')),
+  /** OpenAI-compatible chat endpoint (llama.cpp's llama-server). */
+  llmUrl: env('LLM_URL', 'http://127.0.0.1:5550'),
+  llmModel: env('LLM_MODEL', 'Qwen3.6-35B-A3B'),
+  /** Optional: the owner's name, for the assistant's prompt. */
+  ownerName: env('OWNER_NAME', ''),
   /** Voiceprint model (npm run fetch-models). Speaker recognition is off if the file is missing. */
   voiceprintModel: path.resolve(env('VOICEPRINT_MODEL', 'models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx')),
 } as const

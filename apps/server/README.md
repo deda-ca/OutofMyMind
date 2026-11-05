@@ -30,6 +30,9 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `ASR_MODEL` | `Qwen3-ASR` | audio.cpp model id for speech-to-text |
 | `ALLOWED_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | Browser origins allowed to call the API |
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
+| `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
+| `LLM_MODEL` | `Qwen3.6-35B-A3B` | Model id on that server |
+| `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
 
@@ -84,6 +87,11 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | `{"type":"request","seq":…,"phraseId":…,"kind":"partial"\|"final","audioMs":…,"latencyMs":…,"status":…,"text":…}` | One transcription by audio.cpp (for monitoring). |
 | `{"type":"error","message":"…"}` | Protocol errors close the connection (1008). |
 | `{"type":"stopped"}` | After `stop`, once the last final text has been sent. |
+| `{"type":"assistant.state","state":"idle"\|"conversation","followUpEndsAt":…,"ownerTrained":true}` | Jarvis is idle (waiting for "Jarvis") or in a conversation, listening for follow-ups until `followUpEndsAt` (epoch ms). `ownerTrained: false` = anyone can talk to it. |
+| `{"type":"assistant.start","replyId":1,"toPhraseId":3}` | Jarvis starts answering phrase 3. |
+| `{"type":"assistant.delta","replyId":1,"delta":"…"}` | Reply text as it streams. |
+| `{"type":"assistant.done","replyId":1,"text":"…","kind":"reply"\|"wake"\|"dismiss"}` | Final reply text. `wake` = "Yes?" (just "Jarvis"), `dismiss` = "Okay." |
+| `{"type":"assistant.error","replyId":1,"message":"…"}` | The LLM couldn't answer. |
 
 **The client's send rule** (all a client has to implement):
 
@@ -92,7 +100,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 3. On a frame with probability ≥ `speechThreshold`: send the kept frames, then this one, and start sending.
 4. Keep sending every frame until `sendHangoverMs` has passed with no speech frame. That's always longer than the pause setting, so the server sees enough silence to end the phrase itself.
 
-Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43, `speakerChangeThreshold` 0.3 (0 = never split by speaker).
+Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43, `speakerChangeThreshold` 0.3 (0 = never split by speaker), `followUpMs` 30000 (5–180 s).
 
 **How the server transcribes:** while a phrase is open, the whole phrase so far is re-transcribed every `partialIntervalMs`, skipped if nothing new was said. When the phrase ends (a pause of `pauseMs`), it is transcribed once more for the final text. Each request covers the full phrase, so punctuation flows. Server ↔ audio.cpp traffic stays on this machine.
 
@@ -122,6 +130,18 @@ Milestone M2 of [docs/speaker-recognition.md](../../docs/speaker-recognition.md)
 - **Naming, corrections, merges and forgetting** are the `/api/people` routes above, shaped like the AI tools in the design. The LLM will call the same `Speakers` methods; the server must check the request came from the owner's voice first (not built yet: no LLM).
 - **Speaker changes (M4):** when a phrase of 3 s or more ends, it's scanned for points where the voice changes (`src/speaker/changes.ts`, tuned in [docs/speaker-model-eval.md](../../docs/speaker-model-eval.md#speaker-changes-inside-a-phrase-m4)). If there are any, the client gets `phrase.split` and each piece is transcribed, identified and archived as its own phrase. A new "Speaker X" now needs ≥ 2 s of speech, so fragments don't create people.
 - Not yet: people talking at the same time (needs a diarization model).
+
+## Jarvis (the assistant)
+
+Milestone M5 step 1 of [docs/speaker-recognition.md](../../docs/speaker-recognition.md): Jarvis answers, as text, using the local LLM (`src/assistant/`).
+
+- **Wake word "Jarvis".** Idle, Jarvis only reacts to the **owner's** voice saying "Jarvis" (anyone's, until the owner has trained their voice). Just "Jarvis" gets "Yes?".
+- **Conversations flow.** After an answer, the owner's next phrases go to Jarvis without the wake word, for the follow-up window (`followUpMs`, default 30 s, restarted by each exchange).
+- **Dismiss:** "thanks, Jarvis", "that's all, Jarvis", "goodbye, Jarvis", "Jarvis, go to sleep"; in a conversation also "that's all", "goodbye", "never mind", "stop listening" alone. Rules and tests: `src/assistant/wake.ts`, `test/wake.test.ts`.
+- **Who may ask** is decided in code from the speaker tag, never by the LLM. Other people's phrases during a conversation are given to the LLM as context ("[Maria said, not to you]"), never as requests. The last couple of minutes before "Jarvis" are included as context too.
+- **LLM:** streamed chat completions, thinking off (a short answer arrives in ~0.3–0.6 s), conversation history kept per conversation (last 24 messages) and cleared when it ends.
+- **Archive:** every reply is stored with the phrase it answers (`assistant_replies`), shown in History.
+- Not yet: spoken replies (TTS), tools (naming people, grants, keep), permission grants for other people.
 
 # Not in the MVP
 
@@ -155,5 +175,8 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/speaker/routes.ts` | Owner voice profile and people REST API |
 | `src/speaker/backfill.ts` | Tags older archived phrases |
 | `src/speaker/changes.ts` | Finds speaker changes inside a phrase |
+| `src/assistant/assistant.ts` | Jarvis: wake word, conversation state, follow-ups, replies |
+| `src/assistant/wake.ts` | Wake word and dismissal phrases |
+| `src/assistant/llm.ts` | Streaming chat client for llama-server |
 | `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |
 | `test/` | `node:test` tests |

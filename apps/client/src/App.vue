@@ -5,6 +5,7 @@ import {
   type FrameStats,
   type PhraseState,
   type RequestLog,
+  type AssistantMessage,
   type SpeakerTag,
   type UploadStats,
 } from './audio/streamTranscriber'
@@ -32,6 +33,8 @@ interface Phrase {
   final: boolean
   speaker?: SpeakerTag
   speakerFinal?: boolean
+  /** A line from Jarvis (reply, "Yes?", "Okay.", or an error), not something heard. */
+  jarvis?: 'reply' | 'wake' | 'dismiss' | 'error'
 }
 
 const status = ref<Status>('idle')
@@ -46,6 +49,14 @@ const phraseState = shallowRef<PhraseState | null>(null)
 const requests = shallowRef<RequestLog[]>([])
 /** Most recent final speaker decision, for the Monitor. */
 const lastSpeaker = shallowRef<SpeakerTag | null>(null)
+/** Jarvis: idle, or in a conversation (listening for follow-ups until followUpEndsAt). */
+const assistant = ref<{ state: 'idle' | 'conversation'; followUpEndsAt: number | null; ownerTrained: boolean } | null>(null)
+/** Ticks every second so the follow-up countdown updates. */
+const now = ref(Date.now())
+const ticker = setInterval(() => (now.value = Date.now()), 1000)
+const followUpSeconds = computed(() =>
+  assistant.value?.followUpEndsAt ? Math.max(0, Math.ceil((assistant.value.followUpEndsAt - now.value) / 1000)) : 0,
+)
 /** The server has a phrase open: you're talking, or in a pause it hasn't ended yet. */
 const speaking = computed(() => phraseState.value?.inPhrase ?? false)
 const MAX_REQUEST_LOG = 200
@@ -69,8 +80,10 @@ const buttonLabel = computed(() => {
 })
 
 const hasText = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.text)))
-/** Whether any phrase carries a speaker tag (i.e. your voice is trained). */
-const hasSpeakers = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.speaker?.isOwner != null || !!p.speaker?.name)))
+/** One line per phrase (with who said it, and Jarvis's replies) once there are speakers or replies; flowing text otherwise. */
+const hasSpeakers = computed(() =>
+  recordings.value.some((phrases) => phrases.some((p) => p.jarvis || p.speaker?.isOwner != null || !!p.speaker?.name)),
+)
 
 function phraseFor(phrases: Phrase[], id: number): Phrase {
   let phrase = phrases.find((p) => p.id === id)
@@ -98,6 +111,33 @@ function upsertPhrase(phrases: Phrase[], id: number, text: string, final: boolea
   const phrase = phraseFor(phrases, id)
   phrase.text = text
   phrase.final = final
+}
+
+/** Jarvis's replies sit right after the phrase they answer. Reply ids are negative so they never clash with phrase ids. */
+function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
+  if (message.type === 'assistant.state') {
+    assistant.value = { state: message.state, followUpEndsAt: message.followUpEndsAt, ownerTrained: message.ownerTrained }
+    return
+  }
+  const id = -message.replyId
+  if (message.type === 'assistant.start') {
+    const to = phrases.find((p) => p.id === message.toPhraseId)
+    phrases.push({ id, order: (to?.order ?? message.toPhraseId) + 0.001, text: '', final: false, jarvis: 'reply' })
+    phrases.sort((a, b) => a.order - b.order)
+    return
+  }
+  const line = phrases.find((p) => p.id === id)
+  if (!line) return
+  if (message.type === 'assistant.delta') line.text += message.delta
+  else if (message.type === 'assistant.done') {
+    line.text = message.text
+    line.final = true
+    line.jarvis = message.kind
+  } else {
+    line.text = message.message
+    line.final = true
+    line.jarvis = 'error'
+  }
 }
 
 function setSpeaker(phrases: Phrase[], id: number, speaker: SpeakerTag, final: boolean): void {
@@ -132,6 +172,7 @@ async function start(): Promise<void> {
       onPhrase: (id, text, final) => upsertPhrase(current, id, text, final),
       onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
       onSplit: (id, into) => splitPhrase(current, id, into),
+      onAssistant: (message) => onAssistant(current, message),
       onPhraseDropped: (id) => {
         const index = current.findIndex((p) => p.id === id)
         if (index !== -1) current.splice(index, 1)
@@ -164,6 +205,7 @@ async function stop(): Promise<void> {
   transcriber = undefined
   frame.value = null
   phraseState.value = null
+  assistant.value = null
   if (recordings.value.at(-1)?.length === 0) recordings.value.pop()
   status.value = 'idle'
 }
@@ -177,7 +219,10 @@ function clear(): void {
   recordings.value = []
 }
 
-onBeforeUnmount(() => transcriber?.cancel())
+onBeforeUnmount(() => {
+  transcriber?.cancel()
+  clearInterval(ticker)
+})
 </script>
 
 <template>
@@ -190,6 +235,15 @@ onBeforeUnmount(() => transcriber?.cancel())
             <span v-if="speaking" class="spinner-grow spinner-sm" aria-hidden="true"></span>
             {{ speaking ? 'Hearing you' : 'Listening' }}
           </span>
+          <template v-if="status === 'listening' && assistant">
+            <span v-if="assistant.state === 'conversation'" class="badge theme-info">
+              Talking with Jarvis · follow-ups {{ followUpSeconds }} s
+            </span>
+            <span v-else class="text-sm fg-3">Say “Jarvis” to talk to it</span>
+            <span v-if="!assistant.ownerTrained" class="badge theme-warning badge-subtle" title="Train your voice on the “Your voice” tab so only you can talk to Jarvis">
+              Anyone can talk to Jarvis until you train your voice
+            </span>
+          </template>
         </header>
 
         <ul class="nav nav-tabs">
@@ -251,8 +305,16 @@ onBeforeUnmount(() => transcriber?.cancel())
               <!-- Once your voice is trained, one line per phrase with who said it; before that, flowing text. -->
               <div v-if="phrases.length && hasSpeakers" class="vstack gap-2 mb-4">
                 <div v-for="phrase in phrases" :key="phrase.id" class="d-flex gap-3 align-items-baseline">
-                  <span class="text-nowrap"><SpeakerBadge :speaker="phrase.speaker" :early="!phrase.speakerFinal" /></span>
-                  <span :class="{ 'fg-3': !phrase.final }">{{ phrase.text }}</span>
+                  <template v-if="phrase.jarvis">
+                    <span class="text-nowrap"><span class="badge theme-info">Jarvis</span></span>
+                    <span :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">
+                      {{ phrase.text || '…' }}
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span class="text-nowrap"><SpeakerBadge :speaker="phrase.speaker" :early="!phrase.speakerFinal" /></span>
+                    <span :class="{ 'fg-3': !phrase.final }">{{ phrase.text }}</span>
+                  </template>
                 </div>
               </div>
               <p v-else-if="phrases.length">

@@ -23,6 +23,8 @@ export interface PhraseRecord {
   audioBytes: number | null
   keep: boolean
   keepNote: string | null
+  /** Jarvis's reply to this phrase, if it answered. */
+  reply: { kind: string; text: string } | null
   /** Who said it (null until speaker recognition has tagged it). */
   speaker: {
     speakerId: number | null
@@ -156,7 +158,10 @@ export class Archive {
   conversationPhrases(conversationId: number): PhraseRecord[] {
     const rows = this.db
       .prepare(
-        `SELECT p.*, pe.is_owner AS speaker_is_owner, pe.name AS speaker_name, pe.named AS speaker_named FROM phrases p
+        `SELECT p.*, pe.is_owner AS speaker_is_owner, pe.name AS speaker_name, pe.named AS speaker_named,
+                (SELECT kind FROM assistant_replies r WHERE r.phrase_id = p.id ORDER BY r.id DESC LIMIT 1) AS reply_kind,
+                (SELECT text FROM assistant_replies r WHERE r.phrase_id = p.id ORDER BY r.id DESC LIMIT 1) AS reply_text
+         FROM phrases p
          LEFT JOIN people pe ON pe.id = p.speaker_id
          WHERE p.conversation_id = ? ORDER BY p.seq`,
       )
@@ -174,6 +179,7 @@ export class Archive {
       audioBytes: r.audio_bytes === null ? null : Number(r.audio_bytes),
       keep: r.keep === 1,
       keepNote: r.keep_note === null ? null : String(r.keep_note),
+      reply: r.reply_text === null || r.reply_text === undefined ? null : { kind: String(r.reply_kind), text: String(r.reply_text) },
       speaker:
         r.speaker_confidence === null
           ? null
@@ -197,6 +203,12 @@ export class Archive {
     if (!row?.audio_path) return null
     const absolute = path.resolve(this.dataDir, row.audio_path)
     return absolute.startsWith(this.dataDir + path.sep) ? absolute : null
+  }
+
+  saveReply(reply: { conversationId: number | null; phraseId: number | null; kind: string; text: string; model: string | null; latencyMs: number | null }): void {
+    this.db
+      .prepare('INSERT INTO assistant_replies (conversation_id, phrase_id, kind, text, model, latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(reply.conversationId, reply.phraseId, reply.kind, reply.text, reply.model, reply.latencyMs, new Date().toISOString())
   }
 
   /** Returns false if there is no such conversation. */
@@ -238,6 +250,15 @@ export class ConversationRecorder {
       status,
       language,
     })
+  }
+
+  saveReply(phraseId: number | null, kind: string, text: string, model: string | null, latencyMs: number | null): void {
+    this.archive.saveReply({ conversationId: this.conversationId ?? null, phraseId, kind, text, model, latencyMs })
+  }
+
+  /** The archive's id for this conversation (once it has a phrase). */
+  get id(): number | null {
+    return this.conversationId ?? null
   }
 
   end(): void {

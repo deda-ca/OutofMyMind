@@ -25,6 +25,7 @@ interface Phrase {
   status: 'ok' | 'dropped' | 'error'
   hasAudio: boolean
   keep: boolean
+  reply: { kind: string; text: string } | null
   speaker: {
     speakerId: number | null
     name: string | null
@@ -225,6 +226,9 @@ onMounted(() => {
               </span>
               <div class="flex-grow-1 vstack gap-2">
                 <span v-if="p.status === 'ok'">{{ p.text }}</span>
+                <span v-if="p.reply" :class="p.reply.kind === 'error' ? 'fg-danger' : 'fg-info'">
+                  <span class="badge theme-info">Jarvis</span> {{ p.reply.text }}
+                </span>
                 <span v-else class="fg-3">
                   <span class="badge" :class="p.status === 'error' ? 'theme-danger' : 'theme-secondary'">
                     {{ p.status === 'error' ? 'transcription failed' : 'no speech recognised' }}

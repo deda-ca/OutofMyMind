@@ -92,6 +92,20 @@ const MIGRATIONS: string[] = [
   ALTER TABLE people ADD COLUMN last_heard_at TEXT;
   CREATE INDEX phrases_speaker ON phrases(speaker_id);
   `,
+  // 4: the assistant's replies (M5).
+  `
+  CREATE TABLE assistant_replies (
+    id               INTEGER PRIMARY KEY,
+    conversation_id  INTEGER REFERENCES conversations(id),
+    phrase_id        INTEGER REFERENCES phrases(id),   -- the request it answers
+    kind             TEXT NOT NULL,                   -- reply | wake | dismiss | error
+    text             TEXT NOT NULL,
+    model            TEXT,
+    latency_ms       INTEGER,                         -- request to first word
+    created_at       TEXT NOT NULL
+  );
+  CREATE INDEX assistant_replies_phrase ON assistant_replies(phrase_id);
+  `,
 ]
 
 export function openDatabase(dataDir: string): DatabaseSync {

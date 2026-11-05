@@ -22,6 +22,8 @@ export interface StreamSettings {
   speakerThreshold: number
   /** Split a phrase where the voice changes (similarity below this); 0 = never. */
   speakerChangeThreshold: number
+  /** After Jarvis answers, how long it listens for follow-ups without "Jarvis". */
+  followUpMs: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -33,7 +35,16 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   partialIntervalMs: 1000,
   speakerThreshold: 0.43,
   speakerChangeThreshold: 0.3,
+  followUpMs: 30000,
 }
+
+/** Messages from Jarvis the assistant (server: apps/server/src/assistant/assistant.ts). */
+export type AssistantMessage =
+  | { type: 'assistant.state'; state: 'idle' | 'conversation'; followUpEndsAt: number | null; ownerTrained: boolean }
+  | { type: 'assistant.start'; replyId: number; toPhraseId: number }
+  | { type: 'assistant.delta'; replyId: number; delta: string }
+  | { type: 'assistant.done'; replyId: number; text: string; kind: 'reply' | 'wake' | 'dismiss' }
+  | { type: 'assistant.error'; replyId: number; message: string }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {
@@ -103,6 +114,8 @@ export interface TranscriberEvents {
   onSpeaker?(id: number, speaker: SpeakerTag, final: boolean): void
   /** Phrase `id` held several speakers: it is replaced by phrases `into`, in order. */
   onSplit?(id: number, into: number[]): void
+  /** Jarvis: state changes and replies. */
+  onAssistant?(message: AssistantMessage): void
   /** Voice training mode: a clip was accepted or rejected. */
   onEnrollClip?(result: EnrollClipResult): void
 }
@@ -118,6 +131,7 @@ type ServerMessage =
   | ({ type: 'request' } & RequestLog)
   | { type: 'error'; message: string }
   | { type: 'stopped' }
+  | AssistantMessage
 
 const FRAME_MS = 32
 const STOP_TIMEOUT_MS = 30000
@@ -259,6 +273,13 @@ export class StreamTranscriber {
         break
       case 'stopped':
         this.stopped?.()
+        break
+      case 'assistant.state':
+      case 'assistant.start':
+      case 'assistant.delta':
+      case 'assistant.done':
+      case 'assistant.error':
+        this.events.onAssistant?.(message)
         break
     }
   }

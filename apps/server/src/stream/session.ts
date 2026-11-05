@@ -7,6 +7,8 @@
 // "is anyone talking", and each audio frame crosses the network once.
 
 import type { ConversationRecorder, PhraseStatus } from '../archive/archive.ts'
+import { Assistant } from '../assistant/assistant.ts'
+import { config } from '../config.ts'
 import { transcribePcm } from '../audiocpp.ts'
 import type { SpeakerTag, Speakers } from '../speaker/speakers.ts'
 import { PhraseSegmenter, type SegmenterEvent, type SegmenterOptions } from './phraseSegmenter.ts'
@@ -81,6 +83,8 @@ export class StreamSession {
   private readonly speakers: Speakers | undefined
   private readonly mode: SessionMode
   private readonly log: (message: string, err?: unknown) => void
+  /** Jarvis, in conversation mode. */
+  private readonly assistant: Assistant | undefined
 
   constructor(send: (message: ServerMessage) => void, options: SessionOptions = {}) {
     this.send = send
@@ -91,6 +95,17 @@ export class StreamSession {
     if (this.mode === 'enroll' && !this.speakers) {
       throw new Error('Voice training needs speaker recognition, which is off (the voiceprint model is missing on the server).')
     }
+    const speakers = this.speakers
+    this.assistant =
+      this.mode === 'conversation'
+        ? new Assistant({
+            emit: (message) => this.emit(message),
+            saveReply: (phraseId, kind, text, latencyMs) => this.recorder?.saveReply(phraseId, kind, text, config.llmModel, latencyMs),
+            ownerTrained: () => (speakers ? speakers.ownerClips().length > 0 : false),
+            followUpMs: () => this.settings.followUpMs,
+            log: this.log,
+          })
+        : undefined
     this.segmenter = new PhraseSegmenter({ sampleRate: STREAM_SAMPLE_RATE, ...segmenterOptions(this.settings) })
   }
 
@@ -102,6 +117,7 @@ export class StreamSession {
     this.applySettings(settings)
     this.restartPartialTimer()
     this.send({ type: 'ready', settings: this.settings, sendHangoverMs: sendHangoverMs(this.settings) })
+    this.assistant?.announce()
   }
 
   updateSettings(update: unknown): void {
@@ -134,6 +150,7 @@ export class StreamSession {
   close(): void {
     this.closed = true
     clearInterval(this.partialTimer)
+    this.assistant?.close()
     if (this.started) this.handleEvents(this.segmenter.flush())
     void Promise.allSettled([...this.pendingFinals]).then(() => this.recorder?.end())
   }
@@ -315,7 +332,8 @@ export class StreamSession {
     // Only real speech may start a new "Speaker X" group, never noise or failures.
     const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold, status === 'ok')
     if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
-    await this.archive(phrase, audio, text, status, vector, tag, speechMs)
+    const archiveId = await this.archive(phrase, audio, text, status, vector, tag, speechMs)
+    if (status === 'ok') this.assistant?.handle({ id: phrase.id, archiveId, text, speaker: tag })
   }
 
   /** Voice training: check the clip, archive it, and add it to the owner's library if it's good. */
