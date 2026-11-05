@@ -1,0 +1,89 @@
+{
+ "dataset": "tools/speaker-eval/data/librispeech",
+ "speakers": 40,
+ "utterances": 400,
+ "enrollClips": 3,
+ "results": [
+  {
+   "model": "3D-Speaker CAM++",
+   "file": "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+   "dim": 512,
+   "msPerPhrase": 129.9891670975,
+   "realTimeFactor": 0.016626093607471703,
+   "conditions": [
+    {
+     "condition": "car noise 10 dB",
+     "eer": 0.0023547008547008547,
+     "eerThreshold": 0.4673782719520824,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.4232825158817861,
+     "ownerEer": 0.00009157509157509158,
+     "identification": 1
+    },
+    {
+     "condition": "background talk 15 dB",
+     "eer": 0.005,
+     "eerThreshold": 0.45320655462451703,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.43048372493486275,
+     "ownerEer": 0.0005036630036630037,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "WeSpeaker ResNet34-LM",
+   "file": "wespeaker_en_voxceleb_resnet34_LM.onnx",
+   "dim": 256,
+   "msPerPhrase": 305.13026406500006,
+   "realTimeFactor": 0.039027285473812526,
+   "conditions": [
+    {
+     "condition": "car noise 10 dB",
+     "eer": 0.0017435897435897436,
+     "eerThreshold": 0.46158250596704353,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.405651212160099,
+     "ownerEer": 0.00009157509157509158,
+     "identification": 1
+    },
+    {
+     "condition": "background talk 15 dB",
+     "eer": 0.003957264957264957,
+     "eerThreshold": 0.42796651425639465,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.40206712980444825,
+     "ownerEer": 0.0029304029304029304,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "NeMo TitaNet large",
+   "file": "nemo_en_titanet_large.onnx",
+   "dim": 192,
+   "msPerPhrase": 309.1586306899998,
+   "realTimeFactor": 0.039542528413574,
+   "conditions": [
+    {
+     "condition": "car noise 10 dB",
+     "eer": 0.006113247863247863,
+     "eerThreshold": 0.38755927377316196,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.3636682602110152,
+     "ownerEer": 0.0035714285714285713,
+     "identification": 1
+    },
+    {
+     "condition": "background talk 15 dB",
+     "eer": 0.0056431623931623934,
+     "eerThreshold": 0.3617946962373464,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.34379252215055495,
+     "ownerEer": 0.0035714285714285713,
+     "identification": 0.9964285714285714
+    }
+   ]
+  }
+ ]
+}

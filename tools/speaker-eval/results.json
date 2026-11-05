@@ -1,0 +1,278 @@
+{
+ "dataset": "tools/speaker-eval/data/librispeech",
+ "speakers": 40,
+ "utterances": 400,
+ "enrollClips": 3,
+ "results": [
+  {
+   "model": "3D-Speaker CAM++",
+   "file": "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+   "dim": 512,
+   "msPerPhrase": 133.29601202,
+   "realTimeFactor": 0.01704905126197871,
+   "conditions": [
+    {
+     "condition": "whole phrase",
+     "eer": 0.0012414529914529914,
+     "eerThreshold": 0.47834741800314856,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.4321826613137103,
+     "ownerEer": 0,
+     "identification": 1
+    },
+    {
+     "condition": "first 3 s",
+     "eer": 0.009923076923076923,
+     "eerThreshold": 0.37226246949207903,
+     "ownerTprAt1": 0.9964285714285714,
+     "ownerThresholdAt1": 0.4162274737433409,
+     "ownerEer": 0.006593406593406593,
+     "identification": 1
+    },
+    {
+     "condition": "first 1.5 s",
+     "eer": 0.044446581196581195,
+     "eerThreshold": 0.260282446061972,
+     "ownerTprAt1": 0.9785714285714285,
+     "ownerThresholdAt1": 0.3894262108446028,
+     "ownerEer": 0.015018315018315017,
+     "identification": 0.9964285714285714
+    },
+    {
+     "condition": "whole, via Opus",
+     "eer": 0.0021111111111111113,
+     "eerThreshold": 0.4677086268383034,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.4293263582541283,
+     "ownerEer": 0,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "3D-Speaker ERes2Net",
+   "file": "3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx",
+   "dim": 192,
+   "msPerPhrase": 308.880927545,
+   "realTimeFactor": 0.03950700915772406,
+   "conditions": [
+    {
+     "condition": "whole phrase",
+     "eer": 0.002747863247863248,
+     "eerThreshold": 0.43376259832881986,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.39939084200605496,
+     "ownerEer": 0.0031135531135531138,
+     "identification": 1
+    },
+    {
+     "condition": "first 3 s",
+     "eer": 0.01277991452991453,
+     "eerThreshold": 0.3324187679715622,
+     "ownerTprAt1": 0.9964285714285714,
+     "ownerThresholdAt1": 0.3878982618985016,
+     "ownerEer": 0.0066849816849816855,
+     "identification": 1
+    },
+    {
+     "condition": "first 1.5 s",
+     "eer": 0.04007051282051282,
+     "eerThreshold": 0.24333594987508814,
+     "ownerTprAt1": 0.9821428571428571,
+     "ownerThresholdAt1": 0.3650190418636686,
+     "ownerEer": 0.014285714285714285,
+     "identification": 0.9892857142857143
+    },
+    {
+     "condition": "whole, via Opus",
+     "eer": 0.004446581196581196,
+     "eerThreshold": 0.40837693532418085,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.39610013995064447,
+     "ownerEer": 0.0005952380952380953,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "WeSpeaker ResNet34-LM",
+   "file": "wespeaker_en_voxceleb_resnet34_LM.onnx",
+   "dim": 256,
+   "msPerPhrase": 300.46035971749995,
+   "realTimeFactor": 0.03842998749465678,
+   "conditions": [
+    {
+     "condition": "whole phrase",
+     "eer": 0.00222008547008547,
+     "eerThreshold": 0.4451136289375702,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.4083058929090115,
+     "ownerEer": 0.0003663003663003663,
+     "identification": 1
+    },
+    {
+     "condition": "first 3 s",
+     "eer": 0.014446581196581196,
+     "eerThreshold": 0.3381088897918405,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.39117339086154873,
+     "ownerEer": 0.0035714285714285713,
+     "identification": 1
+    },
+    {
+     "condition": "first 1.5 s",
+     "eer": 0.03777991452991453,
+     "eerThreshold": 0.2564183407588003,
+     "ownerTprAt1": 0.9857142857142858,
+     "ownerThresholdAt1": 0.36750422406788724,
+     "ownerEer": 0.01076007326007326,
+     "identification": 0.9892857142857143
+    },
+    {
+     "condition": "whole, via Opus",
+     "eer": 0.0016666666666666668,
+     "eerThreshold": 0.44880640957659557,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.40338730948043394,
+     "ownerEer": 0.00018315018315018315,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "WeSpeaker CAM++-LM",
+   "file": "wespeaker_en_voxceleb_CAM++_LM.onnx",
+   "dim": 512,
+   "msPerPhrase": 128.85795708749995,
+   "realTimeFactor": 0.01648140767759062,
+   "conditions": [
+    {
+     "condition": "whole phrase",
+     "eer": 0.0017564102564102564,
+     "eerThreshold": 0.4815406009180403,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.43594784077326926,
+     "ownerEer": 0.00022893772893772894,
+     "identification": 1
+    },
+    {
+     "condition": "first 3 s",
+     "eer": 0.014014957264957264,
+     "eerThreshold": 0.369976867120191,
+     "ownerTprAt1": 0.9964285714285714,
+     "ownerThresholdAt1": 0.421422635793524,
+     "ownerEer": 0.006822344322344322,
+     "identification": 0.9964285714285714
+    },
+    {
+     "condition": "first 1.5 s",
+     "eer": 0.04833333333333333,
+     "eerThreshold": 0.2751068677649089,
+     "ownerTprAt1": 0.9821428571428571,
+     "ownerThresholdAt1": 0.39032994086128747,
+     "ownerEer": 0.014285714285714285,
+     "identification": 0.9821428571428571
+    },
+    {
+     "condition": "whole, via Opus",
+     "eer": 0.0021752136752136754,
+     "eerThreshold": 0.4737672642959417,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.43406304373074445,
+     "ownerEer": 0.00013736263736263736,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "NeMo TitaNet small",
+   "file": "nemo_en_titanet_small.onnx",
+   "dim": 192,
+   "msPerPhrase": 113.03974362750014,
+   "realTimeFactor": 0.01445819987065342,
+   "conditions": [
+    {
+     "condition": "whole phrase",
+     "eer": 0.008217948717948717,
+     "eerThreshold": 0.3552575715189952,
+     "ownerTprAt1": 0.9892857142857143,
+     "ownerThresholdAt1": 0.3691051007047777,
+     "ownerEer": 0.010714285714285714,
+     "identification": 1
+    },
+    {
+     "condition": "first 3 s",
+     "eer": 0.01222008547008547,
+     "eerThreshold": 0.3349418077750281,
+     "ownerTprAt1": 0.9857142857142858,
+     "ownerThresholdAt1": 0.361409782721271,
+     "ownerEer": 0.013415750915750917,
+     "identification": 0.9964285714285714
+    },
+    {
+     "condition": "first 1.5 s",
+     "eer": 0.025,
+     "eerThreshold": 0.2952408103311134,
+     "ownerTprAt1": 0.9678571428571429,
+     "ownerThresholdAt1": 0.3502128488138132,
+     "ownerEer": 0.024221611721611722,
+     "identification": 0.9857142857142858
+    },
+    {
+     "condition": "whole, via Opus",
+     "eer": 0.008886752136752137,
+     "eerThreshold": 0.35184719532363173,
+     "ownerTprAt1": 0.9892857142857143,
+     "ownerThresholdAt1": 0.369812257847741,
+     "ownerEer": 0.010714285714285714,
+     "identification": 1
+    }
+   ]
+  },
+  {
+   "model": "NeMo TitaNet large",
+   "file": "nemo_en_titanet_large.onnx",
+   "dim": 192,
+   "msPerPhrase": 303.3226073899999,
+   "realTimeFactor": 0.03879607952211825,
+   "conditions": [
+    {
+     "condition": "whole phrase",
+     "eer": 0.005553418803418803,
+     "eerThreshold": 0.35960708990407697,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.3547014592580834,
+     "ownerEer": 0.0035714285714285713,
+     "identification": 1
+    },
+    {
+     "condition": "first 3 s",
+     "eer": 0.0077799145299145295,
+     "eerThreshold": 0.31834596007509364,
+     "ownerTprAt1": 0.9964285714285714,
+     "ownerThresholdAt1": 0.3368638430050014,
+     "ownerEer": 0.004212454212454212,
+     "identification": 0.9964285714285714
+    },
+    {
+     "condition": "first 1.5 s",
+     "eer": 0.025482905982905986,
+     "eerThreshold": 0.24570010349993623,
+     "ownerTprAt1": 0.9928571428571429,
+     "ownerThresholdAt1": 0.3215408030283115,
+     "ownerEer": 0.010027472527472527,
+     "identification": 0.9964285714285714
+    },
+    {
+     "condition": "whole, via Opus",
+     "eer": 0.006068376068376069,
+     "eerThreshold": 0.3539131624658992,
+     "ownerTprAt1": 1,
+     "ownerThresholdAt1": 0.35389361152701543,
+     "ownerEer": 0.003663003663003663,
+     "identification": 1
+    }
+   ]
+  }
+ ]
+}
