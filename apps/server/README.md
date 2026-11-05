@@ -28,6 +28,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `PORT` | `5180` | |
 | `AUDIOCPP_URL` | `http://127.0.0.1:5552` | The audio.cpp server |
 | `ASR_MODEL` | `Qwen3-ASR` | audio.cpp model id for speech-to-text |
+| `ACCESS_KEY` | (generated) | Pass-key for the API. Unset: one is generated on first start, saved in `DATA_DIR/access-key` and printed in the log. Set your own in `.env.local`. |
 | `ALLOWED_ORIGINS` | `https://127.0.0.1:5173,https://localhost:5173` | Browser origins allowed to call the API. For phone access add the client's LAN address in `.env.local`, e.g. `https://192.168.1.50:5173`. |
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
 | `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
@@ -40,8 +41,13 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 
 # API
 
+Everything under `/api` needs the pass-key (see [Security](#security)), except `/api/login` and `/api/auth`.
+
 | Route | Purpose |
 | --- | --- |
+| `POST /api/login` | Body `{"key": "…"}`. Sets an HttpOnly, Secure, SameSite=Strict session cookie (valid a year). Case, spaces and dashes in the key don't matter. Throttled after 5 wrong keys per address. |
+| `GET /api/auth` | `{"signedIn": true\|false}` |
+| `POST /api/logout` | Clears the cookie. |
 | `GET /api/stream` (WebSocket) | **Live transcription.** Protocol below. |
 | `GET /api/health` | `{"status":"ok"\|"degraded","audiocpp":{"ok":…,"detail":…}}` |
 | `GET /api/conversations?limit=50&before=<id>` | Archived conversations, newest first, with phrase count, speech time, audio size, keep flag, preview. |
@@ -156,8 +162,10 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 
 # Security
 
+- **Pass-key:** every `/api` route, the live WebSocket and the recordings need either the session cookie (browsers, after `POST /api/login`) or `Authorization: Bearer <key>` (native clients). The cookie value is derived from the key, so changing `ACCESS_KEY` signs every device out. Keys are compared in constant time; 5 wrong keys from one address block it for 30 s, doubling each time (up to an hour). Code: `src/auth.ts`, tests: `test/auth.test.ts`.
+
 - A request carrying an `Origin` header not in `ALLOWED_ORIGINS` gets 403, so other websites open in a browser can't use the API.
-- Requests without `Origin` (native apps, curl) are allowed. That's safe only while the server listens on localhost. **Before exposing it to the network (e.g. for the Android app), add authentication.**
+- Requests without `Origin` (native apps, curl) pass the origin check, but still need the pass-key.
 
 # Layout
 
@@ -166,6 +174,7 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/main.ts` | Entry point |
 | `src/app.ts` | Fastify app and routes |
 | `src/config.ts` | Environment configuration |
+| `src/auth.ts` | Pass-key, sign-in, session cookie |
 | `src/audiocpp.ts` | audio.cpp client (WAV wrapping, `/v1/tasks/run`, health) |
 | `src/stream/protocol.ts` | `/api/stream` message types and frame parsing |
 | `src/stream/route.ts` | The WebSocket route |

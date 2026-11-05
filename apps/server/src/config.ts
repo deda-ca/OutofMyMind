@@ -32,6 +32,8 @@ export const config = {
   /** Text-to-speech model and voice on audio.cpp, for Jarvis's spoken replies. */
   ttsModel: env('TTS_MODEL', 'Qwen3-TTS'),
   ttsVoice: env('TTS_VOICE', 'jarvis'),
+  /** Pass-key for the API. Unset: one is generated and kept in DATA_DIR/access-key. */
+  accessKey: process.env.ACCESS_KEY,
   /** Optional: the owner's name, for the assistant's prompt. */
   ownerName: env('OWNER_NAME', ''),
   /** Voiceprint model (npm run fetch-models). Speaker recognition is off if the file is missing. */

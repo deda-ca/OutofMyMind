@@ -37,6 +37,10 @@ The client is deliberately thin; the server does the work. Protocol: [../server/
 2. **Send rule**: audio is sent over one WebSocket only while there is speech, plus 300 ms from just before it and a hangover after it (the pause length + 0.3 s). Each frame is sent once. Silence is never sent.
 3. **apps/server** splits phrases at pauses (1.2 s by default), re-transcribes the phrase in progress about once a second (shown in grey), and transcribes it once more when it ends (black).
 
+### Signing in
+
+The first time on each device, Jarvis asks for the **access key**. The server prints it in its log when it starts (and keeps it in `apps/server/data/access-key`), or set your own as `ACCESS_KEY` in `apps/server/.env.local`. Case, spaces and dashes don't matter. The browser then stays signed in (an HttpOnly cookie; the key itself isn't stored in the page). "Sign out" is at the top right. Changing the key signs every device out.
+
 ### Talking to Jarvis
 
 Say "Jarvis, …" and Jarvis answers in the Live transcript (blue "Jarvis" lines, streamed as they're written). After an answer you can keep talking without saying "Jarvis" again: the header shows "Talking with Jarvis · follow-ups 30 s" and counts down (setting: "Jarvis follow-up window"). Say "thanks, Jarvis" or "that's all" to end the conversation. Until you've trained your voice, anyone can talk to Jarvis (the header says so); after that, only you. Replies are saved and shown in History.
@@ -116,6 +120,7 @@ Use Chrome, Edge or Firefox. The dev server listens on all network interfaces (`
 | `src/components/VoicePanel.vue` | Voice training and the owner's voice clips |
 | `src/components/PeoplePanel.vue` | People: names, clips, combine, forget, recent speakers |
 | `src/components/SpeakerBadge.vue` | Speaker tag: You / name / Speaker A |
+| `src/auth.ts`, `src/components/SignInPanel.vue` | Signing in with the access key |
 | `src/App.vue` | UI: Live and History tabs, start/stop button, flowing transcript (grey = still changing), errors |
 
 A production build (`npm run build`) is static files; serve them from the same origin as apps/server's `/api`, or behind a proxy that forwards `/api` to it.

@@ -11,7 +11,9 @@ import {
 } from './audio/streamTranscriber'
 import { BargeIn } from './audio/bargeIn'
 import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
+import { signOut, signedIn } from './auth'
 import HistoryPanel from './components/HistoryPanel.vue'
+import SignInPanel from './components/SignInPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -288,7 +290,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="container py-6">
+  <main v-if="signedIn === false" class="container py-6">
+    <h1 class="text-3xl fw-semibold">Jarvis</h1>
+    <SignInPanel />
+  </main>
+  <main v-else-if="signedIn" class="container py-6">
     <div class="row justify-content-center">
       <div class="col-12 vstack gap-5">
         <header class="d-flex align-items-center gap-3">
@@ -314,6 +320,7 @@ onBeforeUnmount(() => {
               Anyone can talk to Jarvis until you train your voice
             </span>
           </template>
+          <button type="button" class="btn-text btn-sm ms-auto" :disabled="status !== 'idle'" @click="signOut">Sign out</button>
         </header>
 
         <ul class="nav nav-tabs">

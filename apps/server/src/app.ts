@@ -6,6 +6,7 @@ import { Archive } from './archive/archive.ts'
 import { openDatabase } from './archive/db.ts'
 import { archiveRoutes } from './archive/routes.ts'
 import { AudiocppError, audiocppHealth, transcribePcm } from './audiocpp.ts'
+import { registerAuth } from './auth.ts'
 import { config } from './config.ts'
 import { speakerRoutes } from './speaker/routes.ts'
 import { Speakers } from './speaker/speakers.ts'
@@ -15,7 +16,7 @@ import { streamRoute } from './stream/route.ts'
 /** 30 s of 16 kHz s16le mono is ~1 MB; anything far beyond that is a mistake. */
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
-export function buildApp(options: { voiceprintModel: VoiceprintModel | null }): FastifyInstance {
+export function buildApp(options: { voiceprintModel: VoiceprintModel | null; accessKey: string }): FastifyInstance {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
@@ -38,6 +39,9 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null }): 
       return reply.code(403).send({ error: `Origin not allowed: ${origin}` })
     }
   })
+
+  // Everything under /api needs the pass-key (after the origin check).
+  registerAuth(app, options.accessKey)
 
   app.get('/api/health', async () => {
     const audiocpp = await audiocppHealth()
