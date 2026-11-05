@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { FrameStats, PhraseState, RequestLog, UploadStats } from '../audio/streamTranscriber'
+import type { FrameStats, PhraseState, RequestLog, SpeakerTag, UploadStats } from '../audio/streamTranscriber'
 import { settings } from '../settings'
 
 const props = defineProps<{
@@ -9,7 +9,12 @@ const props = defineProps<{
   upload: UploadStats | null
   phraseState: PhraseState | null
   requests: RequestLog[]
+  lastSpeaker: SpeakerTag | null
 }>()
+
+/** Similarity is roughly 0–1 (cosine); clamp for the bar. */
+const voicePercent = computed(() => Math.max(0, Math.min(100, (props.lastSpeaker?.similarity ?? 0) * 100)))
+const voiceIsYou = computed(() => (props.lastSpeaker?.similarity ?? -1) >= settings.speakerThreshold)
 
 /** Map -70…0 dBFS onto 0…100 %. */
 const levelPercent = computed(() => {
@@ -107,6 +112,24 @@ const instant = '--bs-progress-bar-transition: none'
         </div>
         <div class="progress" role="progressbar" aria-label="Pause timer" :style="instant">
           <div class="progress-bar theme-warning" :style="{ width: `${pausePercent}%` }"></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="d-flex justify-content-between text-sm mb-1">
+          <span>
+            Voice match, last phrase <span class="fg-3">(you at ≥ {{ settings.speakerThreshold.toFixed(2) }})</span>
+          </span>
+          <span class="font-monospace">
+            {{ lastSpeaker?.similarity != null ? lastSpeaker.similarity.toFixed(2) : lastSpeaker ? 'voice not trained' : '–' }}
+          </span>
+        </div>
+        <div class="progress" role="progressbar" aria-label="Voice match" :style="instant">
+          <div
+            class="progress-bar"
+            :class="voiceIsYou ? 'theme-primary' : 'theme-secondary'"
+            :style="{ width: `${voicePercent}%` }"
+          ></div>
         </div>
       </div>
 

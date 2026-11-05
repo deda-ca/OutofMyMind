@@ -26,4 +26,6 @@ export const config = {
   asrModel: env('ASR_MODEL', 'Qwen3-ASR'),
   /** Database and audio archive. Contains private conversations: never commit it. */
   dataDir: path.resolve(env('DATA_DIR', 'data')),
+  /** Voiceprint model (npm run fetch-models). Speaker recognition is off if the file is missing. */
+  voiceprintModel: path.resolve(env('VOICEPRINT_MODEL', 'models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx')),
 } as const

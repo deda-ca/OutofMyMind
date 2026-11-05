@@ -8,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { OPUS_FORMAT, encodeOggOpus } from './oggOpus.ts'
 
 export type PhraseStatus = 'ok' | 'dropped' | 'error'
+export type ConversationKind = 'conversation' | 'enrollment'
 
 export interface PhraseRecord {
   id: number
@@ -22,10 +23,13 @@ export interface PhraseRecord {
   audioBytes: number | null
   keep: boolean
   keepNote: string | null
+  /** Who said it (null until speaker recognition has tagged it). */
+  speaker: { isOwner: boolean | null; similarity: number | null; confidence: string | null } | null
 }
 
 export interface ConversationSummary {
   id: number
+  kind: ConversationKind
   startedAt: string
   endedAt: string | null
   device: string
@@ -50,14 +54,14 @@ export class Archive {
   }
 
   /** One per live session. The conversation row is created at the first phrase, so silent sessions leave nothing behind. */
-  recorder(device: string, userAgent: string | undefined): ConversationRecorder {
-    return new ConversationRecorder(this, device, userAgent)
+  recorder(device: string, userAgent: string | undefined, kind: ConversationKind = 'conversation'): ConversationRecorder {
+    return new ConversationRecorder(this, device, userAgent, kind)
   }
 
-  createConversation(startedAt: string, device: string, userAgent: string | undefined): number {
+  createConversation(startedAt: string, device: string, userAgent: string | undefined, kind: ConversationKind): number {
     const result = this.db
-      .prepare('INSERT INTO conversations (started_at, device, user_agent) VALUES (?, ?, ?)')
-      .run(startedAt, device, userAgent ?? null)
+      .prepare('INSERT INTO conversations (started_at, device, user_agent, kind) VALUES (?, ?, ?, ?)')
+      .run(startedAt, device, userAgent ?? null, kind)
     return Number(result.lastInsertRowid)
   }
 
@@ -117,7 +121,7 @@ export class Archive {
   listConversations(limit: number, before?: number): ConversationSummary[] {
     const rows = this.db
       .prepare(
-        `SELECT c.id, c.started_at, c.ended_at, c.device, c.keep, c.keep_note,
+        `SELECT c.id, c.kind, c.started_at, c.ended_at, c.device, c.keep, c.keep_note,
                 COUNT(p.id) AS phrase_count,
                 COALESCE(SUM(p.duration_ms), 0) AS speech_ms,
                 COALESCE(SUM(p.audio_bytes), 0) AS audio_bytes,
@@ -129,6 +133,7 @@ export class Archive {
       .all(before ?? null, before ?? null, limit) as Record<string, unknown>[]
     return rows.map((r) => ({
       id: Number(r.id),
+      kind: r.kind as ConversationKind,
       startedAt: String(r.started_at),
       endedAt: r.ended_at === null ? null : String(r.ended_at),
       device: String(r.device),
@@ -143,7 +148,11 @@ export class Archive {
 
   conversationPhrases(conversationId: number): PhraseRecord[] {
     const rows = this.db
-      .prepare('SELECT * FROM phrases WHERE conversation_id = ? ORDER BY seq')
+      .prepare(
+        `SELECT p.*, pe.is_owner AS speaker_is_owner FROM phrases p
+         LEFT JOIN people pe ON pe.id = p.speaker_id
+         WHERE p.conversation_id = ? ORDER BY p.seq`,
+      )
       .all(conversationId) as Record<string, unknown>[]
     return rows.map((r) => ({
       id: Number(r.id),
@@ -158,6 +167,15 @@ export class Archive {
       audioBytes: r.audio_bytes === null ? null : Number(r.audio_bytes),
       keep: r.keep === 1,
       keepNote: r.keep_note === null ? null : String(r.keep_note),
+      speaker:
+        r.speaker_confidence === null
+          ? null
+          : {
+              // A tagged phrase with no person attached is "someone else", unless nobody was enrolled (no similarity).
+              isOwner: r.speaker_is_owner === 1 ? true : r.speaker_similarity === null && r.speaker_id === null ? null : false,
+              similarity: r.speaker_similarity === null ? null : Number(r.speaker_similarity),
+              confidence: String(r.speaker_confidence),
+            },
     }))
   }
 
@@ -188,17 +206,19 @@ export class Archive {
 export class ConversationRecorder {
   private conversationId?: number
   private readonly archive: Archive
-  private readonly device: string
+  readonly device: string
   private readonly userAgent: string | undefined
+  private readonly kind: ConversationKind
 
-  constructor(archive: Archive, device: string, userAgent: string | undefined) {
+  constructor(archive: Archive, device: string, userAgent: string | undefined, kind: ConversationKind) {
     this.archive = archive
     this.device = device
     this.userAgent = userAgent
+    this.kind = kind
   }
 
   async savePhrase(seq: number, startedAt: Date, pcm: Int16Array, text: string, status: PhraseStatus, language: string) {
-    this.conversationId ??= this.archive.createConversation(startedAt.toISOString(), this.device, this.userAgent)
+    this.conversationId ??= this.archive.createConversation(startedAt.toISOString(), this.device, this.userAgent, this.kind)
     return this.archive.savePhrase({
       conversationId: this.conversationId,
       seq,

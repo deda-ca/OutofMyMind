@@ -7,15 +7,19 @@ import { openDatabase } from './archive/db.ts'
 import { archiveRoutes } from './archive/routes.ts'
 import { AudiocppError, audiocppHealth, transcribePcm } from './audiocpp.ts'
 import { config } from './config.ts'
+import { speakerRoutes } from './speaker/routes.ts'
+import { Speakers } from './speaker/speakers.ts'
+import type { VoiceprintModel } from './speaker/voiceprint.ts'
 import { streamRoute } from './stream/route.ts'
 
 /** 30 s of 16 kHz s16le mono is ~1 MB; anything far beyond that is a mistake. */
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
-export function buildApp(): FastifyInstance {
+export function buildApp(options: { voiceprintModel: VoiceprintModel | null }): FastifyInstance {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
+  const speakers = new Speakers(db, options.voiceprintModel)
   app.addHook('onClose', async () => db.close())
 
   // Audio arrives as raw bytes.
@@ -61,8 +65,9 @@ export function buildApp(): FastifyInstance {
     },
   )
 
-  void app.register(streamRoute, { archive })
+  void app.register(streamRoute, { archive, speakers })
   void app.register(archiveRoutes, { archive })
+  void app.register(speakerRoutes, { speakers })
 
   return app
 }

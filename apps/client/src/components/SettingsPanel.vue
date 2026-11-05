@@ -62,6 +62,15 @@ const sliders: Slider[] = [
     format: seconds,
   },
   {
+    key: 'speakerThreshold',
+    label: 'Voice match threshold',
+    help: 'How similar a voice must be to your trained voice to count as you. Higher means fewer strangers tagged as you, but more of your own phrases missed. Watch the Monitor while you and others talk to tune it.',
+    min: 0.2,
+    max: 0.8,
+    step: 0.01,
+    format: (v) => v.toFixed(2),
+  },
+  {
     key: 'maxPhraseMs',
     label: 'Maximum phrase length',
     help: 'A phrase is split here even if you never pause.',

@@ -5,18 +5,21 @@ import {
   type FrameStats,
   type PhraseState,
   type RequestLog,
+  type SpeakerTag,
   type UploadStats,
 } from './audio/streamTranscriber'
 import HistoryPanel from './components/HistoryPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import SpeakerBadge from './components/SpeakerBadge.vue'
+import VoicePanel from './components/VoicePanel.vue'
 import { settings } from './settings'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history'
+type Tab = 'live' | 'history' | 'voice'
 
 const tab = ref<Tab>('live')
 
@@ -24,6 +27,8 @@ interface Phrase {
   id: number
   text: string
   final: boolean
+  speaker?: SpeakerTag
+  speakerFinal?: boolean
 }
 
 const status = ref<Status>('idle')
@@ -36,6 +41,8 @@ const frame = shallowRef<FrameStats | null>(null)
 const upload = shallowRef<UploadStats | null>(null)
 const phraseState = shallowRef<PhraseState | null>(null)
 const requests = shallowRef<RequestLog[]>([])
+/** Most recent final speaker decision, for the Monitor. */
+const lastSpeaker = shallowRef<SpeakerTag | null>(null)
 /** The server has a phrase open: you're talking, or in a pause it hasn't ended yet. */
 const speaking = computed(() => phraseState.value?.inPhrase ?? false)
 const MAX_REQUEST_LOG = 200
@@ -59,17 +66,32 @@ const buttonLabel = computed(() => {
 })
 
 const hasText = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.text)))
+/** Whether any phrase carries a speaker tag (i.e. your voice is trained). */
+const hasSpeakers = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.speaker?.isOwner != null)))
+
+function phraseFor(phrases: Phrase[], id: number): Phrase {
+  let phrase = phrases.find((p) => p.id === id)
+  if (!phrase) {
+    // Phrases can finish out of order; keep them in speaking order.
+    phrases.push({ id, text: '', final: false })
+    phrases.sort((a, b) => a.id - b.id)
+    phrase = phrases.find((p) => p.id === id)!
+  }
+  return phrase
+}
 
 function upsertPhrase(phrases: Phrase[], id: number, text: string, final: boolean): void {
-  const existing = phrases.find((p) => p.id === id)
-  if (existing) {
-    existing.text = text
-    existing.final = final
-  } else {
-    // Phrases can finish out of order; keep them in speaking order.
-    phrases.push({ id, text, final })
-    phrases.sort((a, b) => a.id - b.id)
-  }
+  const phrase = phraseFor(phrases, id)
+  phrase.text = text
+  phrase.final = final
+}
+
+function setSpeaker(phrases: Phrase[], id: number, speaker: SpeakerTag, final: boolean): void {
+  const phrase = phraseFor(phrases, id)
+  if (phrase.speakerFinal && !final) return // never replace the decision with an early guess
+  phrase.speaker = speaker
+  phrase.speakerFinal = final
+  if (final) lastSpeaker.value = speaker
 }
 
 async function start(): Promise<void> {
@@ -83,6 +105,7 @@ async function start(): Promise<void> {
   upload.value = null
   phraseState.value = null
   requests.value = []
+  lastSpeaker.value = null
   const session = new StreamTranscriber(
     { language: LANGUAGE, settings: { ...toRaw(settings) } },
     {
@@ -93,6 +116,7 @@ async function start(): Promise<void> {
       onState: (state) => (phraseState.value = state),
       onRequest: (log) => (requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]),
       onPhrase: (id, text, final) => upsertPhrase(current, id, text, final),
+      onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
       onPhraseDropped: (id) => {
         const index = current.findIndex((p) => p.id === id)
         if (index !== -1) current.splice(index, 1)
@@ -162,6 +186,11 @@ onBeforeUnmount(() => transcriber?.cancel())
               History
             </button>
           </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'voice' }" @click="tab = 'voice'">
+              Your voice
+            </button>
+          </li>
         </ul>
       </div>
     </div>
@@ -199,7 +228,14 @@ onBeforeUnmount(() => transcriber?.cancel())
         <div class="card">
           <div class="card-body text-lg" aria-live="polite">
             <template v-for="(phrases, index) in recordings" :key="index">
-              <p v-if="phrases.length">
+              <!-- Once your voice is trained, one line per phrase with who said it; before that, flowing text. -->
+              <div v-if="phrases.length && hasSpeakers" class="vstack gap-2 mb-4">
+                <div v-for="phrase in phrases" :key="phrase.id" class="d-flex gap-3 align-items-baseline">
+                  <span class="text-nowrap"><SpeakerBadge :speaker="phrase.speaker" :early="!phrase.speakerFinal" /></span>
+                  <span :class="{ 'fg-3': !phrase.final }">{{ phrase.text }}</span>
+                </div>
+              </div>
+              <p v-else-if="phrases.length">
                 <template v-for="phrase in phrases" :key="phrase.id">
                   <span :class="{ 'fg-3': !phrase.final }">{{ phrase.text }}</span>{{ ' ' }}
                 </template>
@@ -221,6 +257,7 @@ onBeforeUnmount(() => transcriber?.cancel())
           :upload="upload"
           :phrase-state="phraseState"
           :requests="requests"
+          :last-speaker="lastSpeaker"
         />
       </div>
       <div class="col-12 lg:col-5">
@@ -231,6 +268,12 @@ onBeforeUnmount(() => transcriber?.cancel())
     <div v-if="tab === 'history'" class="row justify-content-center mt-5">
       <div class="col-12">
         <HistoryPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'voice'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <VoicePanel :live-busy="status !== 'idle'" />
       </div>
     </div>
   </main>

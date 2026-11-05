@@ -8,6 +8,7 @@
 
 import type { ConversationRecorder, PhraseStatus } from '../archive/archive.ts'
 import { transcribePcm } from '../audiocpp.ts'
+import type { SpeakerTag, Speakers } from '../speaker/speakers.ts'
 import { PhraseSegmenter, type SegmenterEvent, type SegmenterOptions } from './phraseSegmenter.ts'
 import { STREAM_SAMPLE_RATE, type RequestLog, type ServerMessage } from './protocol.ts'
 import { DEFAULT_SETTINGS, mergeSettings, sendHangoverMs, type StreamSettings } from './settings.ts'
@@ -19,6 +20,20 @@ const POST_SPEECH_PAD_MS = 200
 const MIN_PARTIAL_MS = 500
 /** How often phrase state is reported while a phrase is open. */
 const STATE_INTERVAL_MS = 100
+/** The early speaker guess is made once a phrase has this much speech. */
+const EARLY_GUESS_SPEECH_MS = 1500
+
+export type SessionMode = 'conversation' | 'enroll'
+
+export interface SessionOptions {
+  /** Archives every phrase. */
+  recorder?: ConversationRecorder
+  /** Speaker recognition; off when undefined or the model isn't loaded. */
+  speakers?: Speakers
+  /** "enroll": the owner is training their voice; accepted phrases join their library. */
+  mode?: SessionMode
+  log?: (message: string, err?: unknown) => void
+}
 
 function segmenterOptions(settings: StreamSettings): Omit<SegmenterOptions, 'sampleRate'> {
   return {
@@ -41,6 +56,8 @@ interface Phrase {
   final: boolean
   /** Speech in the phrase at the last partial; no new speech = no new partial. */
   speechMsAtLastPartial: number
+  /** The early speaker guess has been started (it's made once per phrase). */
+  earlyGuessStarted: boolean
 }
 
 export class StreamSession {
@@ -59,16 +76,19 @@ export class StreamSession {
   private pendingFinals = new Set<Promise<void>>()
   private readonly send: (message: ServerMessage) => void
   private readonly recorder: ConversationRecorder | undefined
+  private readonly speakers: Speakers | undefined
+  private readonly mode: SessionMode
   private readonly log: (message: string, err?: unknown) => void
 
-  constructor(
-    send: (message: ServerMessage) => void,
-    recorder?: ConversationRecorder,
-    log: (message: string, err?: unknown) => void = console.error,
-  ) {
+  constructor(send: (message: ServerMessage) => void, options: SessionOptions = {}) {
     this.send = send
-    this.recorder = recorder
-    this.log = log
+    this.recorder = options.recorder
+    this.speakers = options.speakers?.enabled ? options.speakers : undefined
+    this.mode = options.mode ?? 'conversation'
+    this.log = options.log ?? console.error
+    if (this.mode === 'enroll' && !this.speakers) {
+      throw new Error('Voice training needs speaker recognition, which is off (the voiceprint model is missing on the server).')
+    }
     this.segmenter = new PhraseSegmenter({ sampleRate: STREAM_SAMPLE_RATE, ...segmenterOptions(this.settings) })
   }
 
@@ -123,7 +143,10 @@ export class StreamSession {
 
   private restartPartialTimer(): void {
     clearInterval(this.partialTimer)
-    this.partialTimer = setInterval(() => this.sendPartial(), this.settings.partialIntervalMs)
+    this.partialTimer = setInterval(() => {
+      this.sendPartial()
+      this.earlySpeakerGuess()
+    }, this.settings.partialIntervalMs)
   }
 
   private reportState(force = false): void {
@@ -147,14 +170,21 @@ export class StreamSession {
       if (event.type === 'start') {
         // The segmenter has already included the pre-speech pad in the phrase.
         const startedAt = new Date(Date.now() - this.segmenter.currentDurationMs())
-        this.current = { id: this.nextId++, startedAt, appliedSeq: 0, final: false, speechMsAtLastPartial: 0 }
+        this.current = {
+          id: this.nextId++,
+          startedAt,
+          appliedSeq: 0,
+          final: false,
+          speechMsAtLastPartial: 0,
+          earlyGuessStarted: false,
+        }
       } else if (event.type === 'discard') {
         if (this.current) this.emit({ type: 'phrase.dropped', id: this.current.id })
         this.current = undefined
       } else {
         const phrase = this.current
         this.current = undefined
-        if (phrase) this.sendFinal(phrase, event.audio)
+        if (phrase) this.sendFinal(phrase, event.audio, event.speechMs)
       }
     }
   }
@@ -186,36 +216,111 @@ export class StreamSession {
       .finally(() => (this.partialInFlight = false))
   }
 
-  private sendFinal(phrase: Phrase, audio: Int16Array): void {
+  /** Once per phrase, after ~1.5 s of speech: who seems to be talking? (conversation mode) */
+  private earlySpeakerGuess(): void {
+    const phrase = this.current
+    const speakers = this.speakers
+    if (!phrase || !speakers || this.mode !== 'conversation' || phrase.earlyGuessStarted) return
+    const speechMs = this.segmenter.currentSpeechMs()
+    if (speechMs < EARLY_GUESS_SPEECH_MS) return
+    phrase.earlyGuessStarted = true
+    speakers
+      .voiceprint(this.segmenter.currentAudio())
+      .then((vector) => {
+        if (phrase.final) return // the final decision is on its way
+        this.emit({ type: 'phrase.speaker', id: phrase.id, final: false, speaker: speakers.identify(vector, speechMs, this.settings.speakerThreshold) })
+      })
+      .catch((err: unknown) => this.log(`speaker: early guess failed for phrase ${phrase.id}`, err))
+  }
+
+  private sendFinal(phrase: Phrase, audio: Int16Array, speechMs: number): void {
     phrase.final = true
     const seq = this.nextSeq++
     const started = performance.now()
+    // The voiceprint (CPU) is computed while audio.cpp transcribes (GPU).
+    const voiceprint: Promise<Float32Array | null> = this.speakers
+      ? this.speakers.voiceprint(audio).catch((err: unknown) => {
+          this.log(`speaker: voiceprint failed for phrase ${phrase.id}`, err)
+          return null
+        })
+      : Promise.resolve(null)
+
     const pending = transcribePcm(pcmBuffer(audio), STREAM_SAMPLE_RATE, this.language)
       .then((text) => {
         const noise = isNoise(text)
         this.logRequest(seq, phrase, 'final', audio, started, noise ? 'dropped' : 'ok', text)
         if (noise) this.emit({ type: 'phrase.dropped', id: phrase.id })
         else this.emit({ type: 'phrase', id: phrase.id, text, final: true })
-        return this.archive(phrase, audio, text, noise ? 'dropped' : 'ok')
+        return { text, status: (noise ? 'dropped' : 'ok') as PhraseStatus }
       })
       .catch((err: unknown) => {
         this.logRequest(seq, phrase, 'final', audio, started, 'error', errorMessage(err))
         this.emit({ type: 'phrase.dropped', id: phrase.id })
         this.emit({ type: 'error', message: errorMessage(err) })
         // Keep the audio so it can be transcribed again later.
-        return this.archive(phrase, audio, '', 'error')
+        return { text: '', status: 'error' as PhraseStatus }
+      })
+      .then(async ({ text, status }) => {
+        const vector = await voiceprint
+        if (this.mode === 'enroll') return this.finishEnrollmentClip(phrase, audio, speechMs, text, status, vector)
+        const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold)
+        if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
+        await this.archive(phrase, audio, text, status, vector, tag)
       })
       .finally(() => this.pendingFinals.delete(pending))
     this.pendingFinals.add(pending)
   }
 
-  /** Every phrase is archived, including noise and failed transcriptions. */
-  private async archive(phrase: Phrase, audio: Int16Array, text: string, status: PhraseStatus): Promise<void> {
-    if (!this.recorder) return
+  /** Voice training: check the clip, archive it, and add it to the owner's library if it's good. */
+  private async finishEnrollmentClip(
+    phrase: Phrase,
+    audio: Int16Array,
+    speechMs: number,
+    text: string,
+    status: PhraseStatus,
+    vector: Float32Array | null,
+  ): Promise<void> {
+    const speakers = this.speakers!
+    const reason =
+      status === 'error'
+        ? 'Transcription failed; try again.'
+        : status === 'dropped'
+          ? "Didn't catch any words; try again."
+          : speakers.checkEnrollmentClip(vector, speechMs, this.settings.speakerThreshold)
+    const phraseId = await this.archive(phrase, audio, text, status, vector, undefined)
+    if (reason === null && phraseId !== null) speakers.addToOwnerLibrary(phraseId, 'enrollment', this.recorder?.device ?? null)
+    this.emit({
+      type: 'enroll.clip',
+      id: phrase.id,
+      accepted: reason === null && phraseId !== null,
+      reason: phraseId === null ? 'Could not save the recording.' : reason,
+      text,
+      clips: speakers.ownerClips().length,
+    })
+  }
+
+  /**
+   * Every phrase is archived, including noise and failed transcriptions,
+   * with its voiceprint and speaker tag. Returns the phrase's archive id.
+   */
+  private async archive(
+    phrase: Phrase,
+    audio: Int16Array,
+    text: string,
+    status: PhraseStatus,
+    vector: Float32Array | null,
+    tag: SpeakerTag | undefined,
+  ): Promise<number | null> {
+    if (!this.recorder) return null
     try {
-      await this.recorder.savePhrase(phrase.id, phrase.startedAt, audio, text, status, this.language)
+      const phraseId = await this.recorder.savePhrase(phrase.id, phrase.startedAt, audio, text, status, this.language)
+      if (this.speakers && (vector || tag)) {
+        this.speakers.saveTag(phraseId, vector, tag ?? { speakerId: null, isOwner: null, similarity: null, confidence: 'uncertain' })
+      }
+      return phraseId
     } catch (err) {
       this.log(`archive: could not save phrase ${phrase.id}`, err)
+      return null
     }
   }
 

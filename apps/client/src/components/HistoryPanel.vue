@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import SpeakerBadge from './SpeakerBadge.vue'
 
 interface Conversation {
   id: number
+  kind: 'conversation' | 'enrollment'
   startedAt: string
   endedAt: string | null
   device: string
@@ -23,6 +25,7 @@ interface Phrase {
   status: 'ok' | 'dropped' | 'error'
   hasAudio: boolean
   keep: boolean
+  speaker: { isOwner: boolean | null; similarity: number | null; confidence: string } | null
 }
 
 const PAGE_SIZE = 30
@@ -126,6 +129,7 @@ onMounted(() => load())
             {{ open[c.id] ? '▾' : '▸' }} <span class="fw-semibold">{{ dateTime(c.startedAt) }}</span>
           </button>
           <span class="badge theme-secondary">{{ c.device }}</span>
+          <span v-if="c.kind === 'enrollment'" class="badge theme-info">voice training</span>
           <span class="text-sm fg-3">
             {{ c.phraseCount }} phrase{{ c.phraseCount === 1 ? '' : 's' }} · {{ seconds(c.speechMs) }} of speech ·
             {{ kb(c.audioBytes) }}
@@ -153,6 +157,7 @@ onMounted(() => load())
           <li v-for="p in phraseList(c.id)" :key="p.id" class="list-group-item">
             <div class="d-flex align-items-start gap-3">
               <span class="font-monospace text-sm fg-3 text-nowrap">{{ time(p.startedAt) }}</span>
+              <span class="text-nowrap"><SpeakerBadge :speaker="p.speaker" /></span>
               <div class="flex-grow-1 vstack gap-2">
                 <span v-if="p.status === 'ok'">{{ p.text }}</span>
                 <span v-else class="fg-3">

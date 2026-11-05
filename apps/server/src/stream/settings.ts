@@ -14,6 +14,8 @@ export interface StreamSettings {
   maxPhraseMs: number
   /** How often the phrase in progress is re-transcribed. */
   partialIntervalMs: number
+  /** Voiceprint similarity (cosine) at or above which a phrase is the owner's. */
+  speakerThreshold: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -23,6 +25,8 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   minSpeechMs: 250,
   maxPhraseMs: 25000,
   partialIntervalMs: 1000,
+  // CAM++ on LibriSpeech: 1% of other people's phrases pass at 0.43 (docs/speaker-model-eval.md).
+  speakerThreshold: 0.43,
 }
 
 const RANGES: Record<keyof StreamSettings, [number, number]> = {
@@ -33,6 +37,7 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   // audio.cpp is asked to transcribe up to 30 s in one piece.
   maxPhraseMs: [3000, 28000],
   partialIntervalMs: [250, 5000],
+  speakerThreshold: [0.1, 0.9],
 }
 
 export function mergeSettings(base: StreamSettings, update: unknown): StreamSettings {

@@ -41,6 +41,10 @@ The client is deliberately thin; the server does the work. Protocol: [../server/
 
 Every conversation is archived by apps/server. The History tab lists them newest first (date, device, speech time, size). Expand one to read each phrase and play its audio. "Keep forever" (whole conversation, or ★ per phrase) protects recordings from any future clean-up. Listening continues while you browse.
 
+### Your voice tab and speaker tags
+
+Train Jarvis on your voice: read the sentences shown aloud (8 by default), once on each device you use. Each clip is checked and saved; you can play or remove clips, or reset the profile. Once trained, the Live transcript shows each phrase on its own line tagged **You** or **Someone else** (lighter with "?" while it's an early guess or close to the threshold), and History shows the same tags. The Monitor's "Voice match" bar shows how similar the last phrase was to your voice, against the "Voice match threshold" setting.
+
 ### Settings and Monitor panels
 
 - **Settings**: pause length, speech threshold, minimum speech, pre-speech audio, live update interval, maximum phrase length. Saved in the browser's localStorage and sent to the server, which applies them immediately, even mid-recording.
@@ -91,7 +95,9 @@ Use Chrome, Edge or Firefox on the same machine. The microphone only works on `l
 | `src/settings.ts` | Settings state, saved to localStorage |
 | `src/components/SettingsPanel.vue` | Sliders for the settings |
 | `src/components/MonitorPanel.vue` | Live VAD/level meters, pause timer, request log |
-| `src/components/HistoryPanel.vue` | Archive browser: conversations, phrases, playback, keep |
+| `src/components/HistoryPanel.vue` | Archive browser: conversations, phrases, speakers, playback, keep |
+| `src/components/VoicePanel.vue` | Voice training and the owner's voice clips |
+| `src/components/SpeakerBadge.vue` | "You" / "Someone else" tag |
 | `src/App.vue` | UI: Live and History tabs, start/stop button, flowing transcript (grey = still changing), errors |
 
 A production build (`npm run build`) is static files; serve them from the same origin as apps/server's `/api`, or behind a proxy that forwards `/api` to it.

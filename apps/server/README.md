@@ -13,6 +13,7 @@ Same rules as the client: **totally private and local**. TypeScript only.
 
 ```bash
 npm install
+npm run fetch-models   # once: the voiceprint model (28 MB) for speaker recognition
 npm run dev        # watch mode, http://127.0.0.1:5180
 npm start          # no watch
 npm run typecheck
@@ -29,6 +30,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `ASR_MODEL` | `Qwen3-ASR` | audio.cpp model id for speech-to-text |
 | `ALLOWED_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | Browser origins allowed to call the API |
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
+| `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
 
 # API
@@ -40,6 +42,9 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `GET /api/conversations?limit=50&before=<id>` | Archived conversations, newest first, with phrase count, speech time, audio size, keep flag, preview. |
 | `GET /api/conversations/:id/phrases` | A conversation's phrases: time, duration, text, status (`ok` / `dropped` / `error`), keep flag. |
 | `GET /api/phrases/:id/audio` | The phrase's audio, `audio/ogg; codecs=opus`. |
+| `GET /api/owner` | Speaker recognition on/off, model, and the owner's voice-library clips (phrase id, device, text, date). |
+| `DELETE /api/owner/clips/:phraseId` | Remove one clip from the owner's voice library (the recording stays in the archive). |
+| `DELETE /api/owner/clips` | Empty the owner's voice library. |
 | `PUT /api/conversations/:id/keep`, `PUT /api/phrases/:id/keep` | Body `{"keep": true\|false, "note"?: "…"}`: "keep forever", so a future clean-up skips it. |
 | `POST /api/transcribe?sampleRate=16000&language=English` | One-off: body is one phrase of raw s16le mono PCM (`Content-Type: application/octet-stream`, max 8 MB). Returns `{"text": "…"}`. Handy for testing with curl. |
 
@@ -51,7 +56,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 
 | Message | When |
 | --- | --- |
-| `{"type":"start","sampleRate":16000,"language":"English","settings":{…}}` | First message. `sampleRate` must be 16000. `settings` optional. |
+| `{"type":"start","sampleRate":16000,"language":"English","device":"web","mode":"conversation","settings":{…}}` | First message. `sampleRate` must be 16000. `device`: a short label stored with recordings and voice clips. `mode`: `conversation` (default) or `enroll` (voice training, below). `settings` optional. |
 | Binary: `[float32 LE speech probability 0–1][s16le mono PCM]` | One VAD frame (512 samples = 32 ms). |
 | `{"type":"settings","settings":{…}}` | Any time; applies immediately. |
 | `{"type":"stop"}` | Finish: the server ends the open phrase, sends its final text, `stopped`, then closes. |
@@ -64,6 +69,8 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | `{"type":"settings","settings":{…},"sendHangoverMs":1500}` | After a settings change. |
 | `{"type":"phrase","id":3,"text":"…","final":false}` | Live text for phrase 3; replaces earlier text for that id. `final: true` = won't change again. |
 | `{"type":"phrase.dropped","id":3}` | Phrase 3 was noise or empty: remove it. |
+| `{"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":1,"isOwner":true,"similarity":0.71,"confidence":"high"}}` | Who said phrase 3: an early guess (`final: false`, after ~1.5 s of speech) or the decision (`final: true`). `isOwner`: `true` / `false` / `null` (voice not trained). `confidence`: `high`, `low` (within 0.1 of the threshold) or `uncertain` (under 1 s of speech). |
+| `{"type":"enroll.clip","id":3,"accepted":true,"reason":null,"text":"…","clips":8}` | Enroll mode: a training clip was accepted or rejected (`reason`), and how many clips the owner's library now has. |
 | `{"type":"state","inPhrase":true,"phraseMs":…,"speechMs":…,"silenceMs":…}` | Phrase detection state, ~10×/s while a phrase is open (for monitoring). |
 | `{"type":"request","seq":…,"phraseId":…,"kind":"partial"\|"final","audioMs":…,"latencyMs":…,"status":…,"text":…}` | One transcription by audio.cpp (for monitoring). |
 | `{"type":"error","message":"…"}` | Protocol errors close the connection (1008). |
@@ -76,7 +83,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 3. On a frame with probability ≥ `speechThreshold`: send the kept frames, then this one, and start sending.
 4. Keep sending every frame until `sendHangoverMs` has passed with no speech frame. That's always longer than the pause setting, so the server sees enough silence to end the phrase itself.
 
-Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000.
+Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43.
 
 **How the server transcribes:** while a phrase is open, the whole phrase so far is re-transcribed every `partialIntervalMs`, skipped if nothing new was said. When the phrase ends (a pause of `pauseMs`), it is transcribed once more for the final text. Each request covers the full phrase, so punctuation flows. Server ↔ audio.cpp traffic stays on this machine.
 
@@ -93,6 +100,16 @@ Everything said is kept: every phrase's transcript in SQLite (`DATA_DIR/jarvis.d
 - **Audio format:** Ogg Opus, 32 kbps, 16 kHz mono (~4 KB per second of speech, ~14 MB per hour), written by `src/archive/oggOpus.ts` around raw packets from `libopus-wasm`. Checked against an independent decoder (`npm test`) and Chrome; transcribing the decoded audio gives the same text as the original.
 - **Nothing is deleted.** `keep` flags (conversation or phrase) mark recordings a future clean-up must leave alone.
 - Schema migrations: numbered, in `src/archive/db.ts` (`PRAGMA user_version`).
+
+## Speaker recognition
+
+Milestone M2 of [docs/speaker-recognition.md](../../docs/speaker-recognition.md): **know the owner**. Model choice: [docs/speaker-model-eval.md](../../docs/speaker-model-eval.md).
+
+- **Voiceprints:** 3D-Speaker CAM++ (ONNX, 512 numbers per phrase), run with `onnxruntime-node` on the CPU, with Kaldi-style features computed in `src/speaker/features.ts`. ~130 ms per phrase. (Not sherpa-onnx: its voiceprints were wrong on this machine; see the eval doc.)
+- **Every phrase** gets a voiceprint, computed while audio.cpp transcribes it, stored in `phrase_voiceprints`.
+- **Tag:** best cosine similarity to the owner's library clips. `≥ speakerThreshold` (default 0.43) = the owner. An early guess goes out once a phrase has 1.5 s of speech; the decision when it ends. The current tag is on the phrase; every change is in `speaker_history`.
+- **Voice training (`mode: "enroll"`):** each phrase is checked (≥ 1.5 s of speech, words recognised, and similar to the clips so far: at least threshold − 0.1) and, if accepted, added to the owner's `library` with its device. Training sessions are archived as conversations of kind `enrollment`.
+- Not yet: naming other people, grouping unknown voices, corrections (M3); splitting overlapping speech (M4).
 
 # Not in the MVP
 
@@ -120,4 +137,9 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/archive/archive.ts` | Saving and reading conversations and phrases |
 | `src/archive/oggOpus.ts` | PCM → Ogg Opus file |
 | `src/archive/routes.ts` | Archive REST API |
+| `src/speaker/features.ts` | Kaldi fbank features (shared with tools/speaker-eval) |
+| `src/speaker/voiceprint.ts` | ONNX voiceprint model |
+| `src/speaker/speakers.ts` | Owner library, tagging, enrollment checks |
+| `src/speaker/routes.ts` | Owner voice-profile REST API |
+| `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |
 | `test/` | `node:test` tests |

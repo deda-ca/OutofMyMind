@@ -10,12 +10,14 @@
     "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch src/main.ts",
     "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "fetch-models": "node scripts/fetch-models.ts"
   },
   "dependencies": {
     "@fastify/websocket": "^11.3.7",
     "fastify": "^5.12.8",
-    "libopus-wasm": "^0.4.1"
+    "libopus-wasm": "^0.4.1",
+    "onnxruntime-node": "^1.31.1"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

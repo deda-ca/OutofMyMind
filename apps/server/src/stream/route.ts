@@ -2,6 +2,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import type { Archive } from '../archive/archive.ts'
+import type { Speakers } from '../speaker/speakers.ts'
 import { parseFrame, type ClientMessage, type ServerMessage } from './protocol.ts'
 import { StreamSession } from './session.ts'
 
@@ -14,7 +15,7 @@ function deviceLabel(value: unknown): string {
   return label || 'unknown'
 }
 
-export async function streamRoute(app: FastifyInstance, options: { archive: Archive }): Promise<void> {
+export async function streamRoute(app: FastifyInstance, options: { archive: Archive; speakers: Speakers }): Promise<void> {
   app.get('/api/stream', { websocket: true }, (socket, req) => {
     const send = (message: ServerMessage) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
@@ -41,9 +42,19 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
           case 'start': {
             if (started) return fail('Session already started')
             started = true
-            // The archive recorder needs the device label, which arrives with "start".
-            const recorder = options.archive.recorder(deviceLabel(message.device), req.headers['user-agent'])
-            session = new StreamSession(send, recorder, (msg, err) => req.log.error({ err }, msg))
+            // The archive recorder needs the device label and mode, which arrive with "start".
+            const mode = message.mode === 'enroll' ? 'enroll' : 'conversation'
+            const recorder = options.archive.recorder(
+              deviceLabel(message.device),
+              req.headers['user-agent'],
+              mode === 'enroll' ? 'enrollment' : 'conversation',
+            )
+            session = new StreamSession(send, {
+              recorder,
+              speakers: options.speakers,
+              mode,
+              log: (msg, err) => req.log.error({ err }, msg),
+            })
             session.start(Number(message.sampleRate), String(message.language ?? ''), message.settings)
             break
           }

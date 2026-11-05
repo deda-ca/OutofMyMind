@@ -2,7 +2,7 @@
 // client (web, Android) implements the client side of this.
 //
 // Client → server
-//   text   {"type":"start","sampleRate":16000,"language":"English","device":"web","settings":{…}}   first message
+//   text   {"type":"start","sampleRate":16000,"language":"English","device":"web","mode":"conversation"|"enroll","settings":{…}}   first message
 //   text   {"type":"settings","settings":{…}}                                       any time
 //   text   {"type":"stop"}                                                          finish and close
 //   binary [float32 LE speech probability][s16le mono PCM samples]                  one VAD frame
@@ -12,11 +12,14 @@
 //   {"type":"settings","settings":{…},"sendHangoverMs":1500}
 //   {"type":"phrase","id":3,"text":"…","final":false}
 //   {"type":"phrase.dropped","id":3}
+//   {"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":1,"isOwner":true,"similarity":0.71,"confidence":"high"}}
+//   {"type":"enroll.clip","id":3,"accepted":true,"reason":null,"text":"…","clips":4}   (enroll mode only)
 //   {"type":"state","inPhrase":true,"phraseMs":2300,"speechMs":1800,"silenceMs":400}
 //   {"type":"request", …RequestLog}
 //   {"type":"error","message":"…"}
 //   {"type":"stopped"}
 
+import type { SpeakerTag } from '../speaker/speakers.ts'
 import type { StreamSettings } from './settings.ts'
 
 export const STREAM_SAMPLE_RATE = 16000
@@ -40,7 +43,15 @@ export interface PhraseState {
 }
 
 export type ClientMessage =
-  | { type: 'start'; sampleRate: number; language?: string; device?: string; settings?: Partial<StreamSettings> }
+  | {
+      type: 'start'
+      sampleRate: number
+      language?: string
+      device?: string
+      /** "enroll": the owner is training their voice; phrases become library clips. */
+      mode?: 'conversation' | 'enroll'
+      settings?: Partial<StreamSettings>
+    }
   | { type: 'settings'; settings: Partial<StreamSettings> }
   | { type: 'stop' }
 
@@ -49,6 +60,8 @@ export type ServerMessage =
   | { type: 'settings'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'phrase'; id: number; text: string; final: boolean }
   | { type: 'phrase.dropped'; id: number }
+  | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }
+  | { type: 'enroll.clip'; id: number; accepted: boolean; reason: string | null; text: string; clips: number }
   | ({ type: 'state' } & PhraseState)
   | ({ type: 'request' } & RequestLog)
   | { type: 'error'; message: string }

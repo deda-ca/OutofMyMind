@@ -1,6 +1,6 @@
 # Speaker recognition (design)
 
-Status: **design.** Written 2026-11-05; revised the same day with the owner's decisions below. **Built so far:** the audio archive (see apps/server README, "Archive"). Speaker recognition itself is not built yet.
+Status: written 2026-11-05 and revised the same day with the owner's decisions below. **Built so far:** the audio archive; **M1** (model comparison, [speaker-model-eval.md](speaker-model-eval.md): 3D-Speaker CAM++ chosen); **M2** core (owner voice training, every phrase tagged "you" / "someone else", voiceprints stored). M3–M5 not built yet.
 
 ## Decisions
 
@@ -44,25 +44,12 @@ Same rules as the rest of Jarvis: everything runs locally, nothing leaves the ma
 - **audio.cpp** (already running) has *diarization* models (Sortformer, Nemotron 3 diarization: anonymous labels, up to ~4 speakers) and a `speaker` task name, but **no model that produces voiceprints**. Its CAM++/ECAPA speaker encoders exist only inside voice-cloning TTS models. So it can't identify people today. Its diarization models are useful later for overlapping speech.
 - **Silero VAD** (already in the client) only answers "speech or not".
 
-### Recommendation: sherpa-onnx on apps/server
+### Choice: ONNX Runtime + CAM++ on apps/server (decided in M1)
 
-[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (Apache-2.0, k2-fsa / Next-gen Kaldi):
-
-- npm package `sherpa-onnx-node` with **prebuilt native binaries** for Linux, macOS and Windows: no compiler, no Python.
-- Speaker embedding extraction, plus a built-in manager for registering and searching speakers.
-- Speaker diarization (for overlapping speech, later).
-- **Android library** with the same models, so the phone can run recognition on-device later.
-- Runs on CPU. A voiceprint for a few seconds of speech takes milliseconds, so it doesn't compete with the GPU doing transcription.
-
-Voiceprint models it runs (ONNX files, a few tens of MB each, downloaded once):
-
-| Model | Notes |
-| --- | --- |
-| **3D-Speaker CAM++** (VoxCeleb, English) | Small, fast, strong accuracy. **First choice to test.** |
-| WeSpeaker ResNet34 (VoxCeleb) | Widely used baseline. |
-| NeMo TitaNet (small/large) | NVIDIA; good accuracy, larger. |
-
-The first milestone measures these on real voices and your devices before committing. Each model's licence must be checked before use.
+- **Model: 3D-Speaker CAM++** (VoxCeleb, English, Apache-2.0 project), 28 MB, 512-number voiceprints. Of six models compared on LibriSpeech, it tied for most accurate (0.1% EER) and was among the fastest (~130 ms per phrase on one CPU thread). Full results: [speaker-model-eval.md](speaker-model-eval.md).
+- **Runtime: ONNX Runtime** (`onnxruntime-node`, Microsoft, MIT) with Kaldi-style features computed in our own TypeScript. ONNX Runtime also has an official Android library, so the phone can run the same model later.
+- **Not sherpa-onnx**, as originally planned: its Node package produced wrong voiceprints on this machine (27% EER instead of 0.1% for the same model files). Its diarization may still be worth testing for M4, with the same suspicion.
+- audio.cpp's diarization models (Sortformer, Nemotron 3) remain the first candidates for overlapping speech (M4).
 
 Storage: **SQLite built into Node 24** (`node:sqlite`) for people, voiceprints, permissions and transcripts; compressed audio files next to it.
 
@@ -100,7 +87,7 @@ Every phrase gets one of:
 
 All phrase audio is kept, compressed, linked to its transcript and speaker tag.
 
-- **Format: Opus at ~32 kbps mono, 16 kHz** (~14 MB per hour of speech; silence is never recorded, so an hour of conversation is usually much less). Good enough for replay, for recomputing voiceprints, and for training speech and speaker models. Lossless FLAC (~55 MB/hour) is the alternative if training needs it; to decide in M1 by comparing the two on the same clips.
+- **Format: Opus at ~32 kbps mono, 16 kHz** (~14 MB per hour of speech; silence is never recorded, so an hour of conversation is usually much less). Measured: transcription of decoded Opus is word-for-word identical to the original, and voiceprint accuracy barely changes (CAM++ EER 0.1% → 0.2%), so lossless FLAC (~55 MB/hour) isn't needed.
 - One file per phrase (or per conversation, with phrase offsets); exact layout decided at build time.
 - **Speaker tags can change later** (a correction, a merge, a new name), so the archive stores the audio and the *current* tag, plus a history of changes. That keeps the training data's labels accurate.
 - Encoding happens on the server. The Opus encoder library for Node is chosen at build time (several WebAssembly ones exist; nothing is installed yet).
@@ -237,8 +224,8 @@ Whether its buttons can serve as Jarvis's button (push-to-talk) depends on what 
 
 | # | What | Done when |
 | --- | --- | --- |
-| **M1. Spike** | Record ~2 min of you and a few other voices on the computer, the phone and a Bluetooth headset/speaker. Compare CAM++, WeSpeaker and TitaNet (accuracy, best threshold, speed), and Opus vs FLAC. | We know which model, threshold and audio format to use, with numbers. |
-| **M2. Know the owner + archive** | Enrollment screen; every phrase tagged "you" or "someone else"; similarity in the Monitor; compressed audio archive with transcripts and tags. | In a two-person test conversation, your phrases are tagged correctly and everything is archived. |
+| **M1. Spike** ✅ | Compare CAM++, WeSpeaker and TitaNet (accuracy, best threshold, speed, noise) and the effect of Opus. Done on LibriSpeech; real-device numbers come from M2 in use. | CAM++, threshold ~0.43, Opus 32 kbps is fine ([results](speaker-model-eval.md)). |
+| **M2. Know the owner + archive** ✅ core | Enrollment screen; every phrase tagged "you" or "someone else"; similarity in the Monitor; compressed audio archive with transcripts and tags. | In a two-person test conversation, your phrases are tagged correctly and everything is archived. |
 | **M3. Who's who** | Grouping unknown voices, naming in the UI, merging, corrections, adapting, delete; the people page. | Over a few sessions, named people are tagged correctly. |
 | **M4. Conversations** | Split phrases when the voice changes; diarization for overlapping speech. | Quick back-and-forth and interruptions are tagged correctly. |
 | **M5. With the agent** | The permission check; grants; the AI tools above, so naming and granting work by voice. | "The person speaking now is Maria" and "answer her question" work, and nobody else can give commands. |

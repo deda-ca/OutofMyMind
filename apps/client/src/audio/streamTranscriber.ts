@@ -18,6 +18,8 @@ export interface StreamSettings {
   minSpeechMs: number
   maxPhraseMs: number
   partialIntervalMs: number
+  /** Voiceprint similarity at or above which a phrase is the owner's. */
+  speakerThreshold: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -27,6 +29,24 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   minSpeechMs: 250,
   maxPhraseMs: 25000,
   partialIntervalMs: 1000,
+  speakerThreshold: 0.43,
+}
+
+/** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
+export interface SpeakerTag {
+  speakerId: number | null
+  /** true = you; false = someone else; null = can't tell (voice not trained yet). */
+  isOwner: boolean | null
+  similarity: number | null
+  confidence: 'high' | 'low' | 'uncertain'
+}
+
+export interface EnrollClipResult {
+  id: number
+  accepted: boolean
+  reason: string | null
+  text: string
+  clips: number
 }
 
 /** Local, per 32 ms frame. */
@@ -69,12 +89,18 @@ export interface TranscriberEvents {
   onFrame?(stats: FrameStats, upload: UploadStats): void
   onState?(state: PhraseState): void
   onRequest?(log: RequestLog): void
+  /** Speaker guess (early, ~1.5 s in) or decision (final) for a phrase. */
+  onSpeaker?(id: number, speaker: SpeakerTag, final: boolean): void
+  /** Voice training mode: a clip was accepted or rejected. */
+  onEnrollClip?(result: EnrollClipResult): void
 }
 
 type ServerMessage =
   | { type: 'ready' | 'settings'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'phrase'; id: number; text: string; final: boolean }
   | { type: 'phrase.dropped'; id: number }
+  | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }
+  | ({ type: 'enroll.clip' } & EnrollClipResult)
   | ({ type: 'state' } & PhraseState)
   | ({ type: 'request' } & RequestLog)
   | { type: 'error'; message: string }
@@ -99,7 +125,13 @@ export class StreamTranscriber {
   private closing = false
 
   constructor(
-    private readonly options: { language: string; settings: StreamSettings; assetPath?: string },
+    private readonly options: {
+      language: string
+      settings: StreamSettings
+      /** "enroll" = voice training: phrases become clips of the owner's voice. */
+      mode?: 'conversation' | 'enroll'
+      assetPath?: string
+    },
     private readonly events: TranscriberEvents,
   ) {
     this.settings = { ...options.settings }
@@ -158,6 +190,7 @@ export class StreamTranscriber {
           sampleRate: SAMPLE_RATE,
           language: this.options.language,
           device: 'web',
+          mode: this.options.mode ?? 'conversation',
           settings: this.settings,
         })
       socket.onerror = () => {
@@ -192,6 +225,12 @@ export class StreamTranscriber {
         break
       case 'phrase.dropped':
         this.events.onPhraseDropped(message.id)
+        break
+      case 'phrase.speaker':
+        this.events.onSpeaker?.(message.id, message.speaker, message.final)
+        break
+      case 'enroll.clip':
+        this.events.onEnrollClip?.(message)
         break
       case 'state':
         this.events.onState?.(message)

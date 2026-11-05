@@ -26,7 +26,7 @@ export interface SegmenterOptions {
 
 export type SegmenterEvent =
   | { type: 'start' }
-  | { type: 'end'; audio: Int16Array; reason: 'pause' | 'max-length' | 'flush' }
+  | { type: 'end'; audio: Int16Array; reason: 'pause' | 'max-length' | 'flush'; speechMs: number }
   | { type: 'discard' }
 
 export class PhraseSegmenter {
@@ -137,7 +137,8 @@ export class PhraseSegmenter {
     this.frames = []
     this.samples = 0
     // A forced split mid-speech is kept even if short: it's part of a longer phrase.
-    return enoughSpeech || reason === 'max-length' ? { type: 'end', audio, reason } : { type: 'discard' }
+    const speechMs = (this.speechSamples / this.options.sampleRate) * 1000
+    return enoughSpeech || reason === 'max-length' ? { type: 'end', audio, reason, speechMs } : { type: 'discard' }
   }
 
   private remember(frame: Int16Array): void {
