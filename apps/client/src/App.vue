@@ -9,6 +9,7 @@ import {
   type SpeakerTag,
   type UploadStats,
 } from './audio/streamTranscriber'
+import { SpeechPlayer } from './audio/speechPlayer'
 import HistoryPanel from './components/HistoryPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
@@ -54,6 +55,9 @@ const assistant = ref<{ state: 'idle' | 'conversation'; followUpEndsAt: number |
 /** Ticks every second so the follow-up countdown updates. */
 const now = ref(Date.now())
 const ticker = setInterval(() => (now.value = Date.now()), 1000)
+/** Jarvis is speaking a reply. */
+const jarvisSpeaking = ref(false)
+const player = new SpeechPlayer((speaking) => (jarvisSpeaking.value = speaking))
 const followUpSeconds = computed(() =>
   assistant.value?.followUpEndsAt ? Math.max(0, Math.ceil((assistant.value.followUpEndsAt - now.value) / 1000)) : 0,
 )
@@ -119,6 +123,10 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
     assistant.value = { state: message.state, followUpEndsAt: message.followUpEndsAt, ownerTrained: message.ownerTrained }
     return
   }
+  if (message.type === 'assistant.audio') {
+    player.play(message.replyId, message.wav)
+    return
+  }
   const id = -message.replyId
   if (message.type === 'assistant.start') {
     const to = phrases.find((p) => p.id === message.toPhraseId)
@@ -160,6 +168,8 @@ async function start(): Promise<void> {
   phraseState.value = null
   requests.value = []
   lastSpeaker.value = null
+  // Unlock audio output now, while we're handling the click.
+  void player.unlock()
   const session = new StreamTranscriber(
     { language: LANGUAGE, settings: { ...toRaw(settings) } },
     {
@@ -206,6 +216,7 @@ async function stop(): Promise<void> {
   frame.value = null
   phraseState.value = null
   assistant.value = null
+  player.stop()
   if (recordings.value.at(-1)?.length === 0) recordings.value.pop()
   status.value = 'idle'
 }
@@ -221,6 +232,7 @@ function clear(): void {
 
 onBeforeUnmount(() => {
   transcriber?.cancel()
+  player.close()
   clearInterval(ticker)
 })
 </script>
@@ -236,6 +248,10 @@ onBeforeUnmount(() => {
             {{ speaking ? 'Hearing you' : 'Listening' }}
           </span>
           <template v-if="status === 'listening' && assistant">
+            <span v-if="jarvisSpeaking" class="badge theme-info">
+              <span class="spinner-grow spinner-sm" aria-hidden="true"></span>
+              Jarvis speaking
+            </span>
             <span v-if="assistant.state === 'conversation'" class="badge theme-info">
               Talking with Jarvis · follow-ups {{ followUpSeconds }} s
             </span>

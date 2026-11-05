@@ -24,6 +24,7 @@
 //   {"type":"assistant.delta","replyId":1,"delta":"Ottawa"}
 //   {"type":"assistant.done","replyId":1,"text":"…","kind":"reply"|"wake"|"dismiss"}
 //   {"type":"assistant.error","replyId":1,"message":"…"}
+//   {"type":"assistant.audio","replyId":1,"seq":0,"text":"…","wav":"<base64 WAV>","synthMs":290}   one spoken sentence
 
 import type { AssistantMessage } from '../assistant/assistant.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'

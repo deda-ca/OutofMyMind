@@ -23,6 +23,8 @@ export interface StreamSettings {
   speakerChangeThreshold: number
   /** After Jarvis answers, how long it keeps listening for follow-ups without "Jarvis". */
   followUpMs: number
+  /** 1 = Jarvis speaks its replies (text-to-speech), 0 = text only. */
+  speakReplies: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -37,6 +39,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   // Tuned with tools/speaker-eval/src/change-eval.ts (docs/speaker-model-eval.md).
   speakerChangeThreshold: 0.3,
   followUpMs: 30000,
+  speakReplies: 1,
 }
 
 const RANGES: Record<keyof StreamSettings, [number, number]> = {
@@ -50,6 +53,7 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   speakerThreshold: [0.1, 0.9],
   speakerChangeThreshold: [0, 0.9],
   followUpMs: [5000, 180000],
+  speakReplies: [0, 1],
 }
 
 export function mergeSettings(base: StreamSettings, update: unknown): StreamSettings {

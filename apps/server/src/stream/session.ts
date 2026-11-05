@@ -103,6 +103,7 @@ export class StreamSession {
             saveReply: (phraseId, kind, text, latencyMs) => this.recorder?.saveReply(phraseId, kind, text, config.llmModel, latencyMs),
             ownerTrained: () => (speakers ? speakers.ownerClips().length > 0 : false),
             followUpMs: () => this.settings.followUpMs,
+            speak: () => this.settings.speakReplies >= 0.5,
             log: this.log,
           })
         : undefined

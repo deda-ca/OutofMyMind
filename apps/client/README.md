@@ -41,6 +41,8 @@ The client is deliberately thin; the server does the work. Protocol: [../server/
 
 Say "Jarvis, …" and Jarvis answers in the Live transcript (blue "Jarvis" lines, streamed as they're written). After an answer you can keep talking without saying "Jarvis" again: the header shows "Talking with Jarvis · follow-ups 30 s" and counts down (setting: "Jarvis follow-up window"). Say "thanks, Jarvis" or "that's all" to end the conversation. Until you've trained your voice, anyone can talk to Jarvis (the header says so); after that, only you. Replies are saved and shown in History.
 
+Jarvis also **speaks** its replies (Qwen3-TTS, voice "jarvis"), sentence by sentence as they're written; the header shows "Jarvis speaking". Turn it off with the "Speak replies" switch in Settings. There's no echo handling yet: use headphones or an earpiece, or the microphone will hear Jarvis.
+
 ### History tab
 
 Every conversation is archived by apps/server. The History tab lists them newest first (date, device, speech time, size). Expand one to read each phrase and play its audio. "Keep forever" (whole conversation, or ★ per phrase) protects recordings from any future clean-up. Listening continues while you browse.
@@ -101,6 +103,7 @@ Use Chrome, Edge or Firefox on the same machine. The microphone only works on `l
 | Path | Purpose |
 | --- | --- |
 | `vite/vadAssets.ts` | Serves the Silero model, VAD worklet and ONNX Runtime files from `node_modules` under `/vad/` (copied into the build too). |
+| `src/audio/speechPlayer.ts` | Plays Jarvis's spoken sentences back to back |
 | `src/audio/streamTranscriber.ts` | Mic + VAD + send rule + `/api/stream` WebSocket client |
 | `src/settings.ts` | Settings state, saved to localStorage |
 | `src/components/SettingsPanel.vue` | Sliders for the settings |

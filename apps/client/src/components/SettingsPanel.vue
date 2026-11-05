@@ -111,6 +111,20 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
       </div>
     </div>
     <div class="card-body vstack gap-4">
+      <div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="switch">
+            <input
+              id="setting-speakReplies"
+              type="checkbox"
+              :checked="settings.speakReplies >= 0.5"
+              @change="settings.speakReplies = ($event.target as HTMLInputElement).checked ? 1 : 0"
+            />
+          </div>
+          <label for="setting-speakReplies">Speak replies</label>
+        </div>
+        <div class="form-text">Jarvis reads its answers aloud (voice “jarvis”, Qwen3-TTS). Off = text only.</div>
+      </div>
       <div v-for="slider in sliders" :key="slider.key">
         <label :for="`setting-${slider.key}`" class="form-label d-flex justify-content-between gap-3 w-100">
           <span>{{ slider.label }}</span>

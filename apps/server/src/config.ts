@@ -29,6 +29,9 @@ export const config = {
   /** OpenAI-compatible chat endpoint (llama.cpp's llama-server). */
   llmUrl: env('LLM_URL', 'http://127.0.0.1:5550'),
   llmModel: env('LLM_MODEL', 'Qwen3.6-35B-A3B'),
+  /** Text-to-speech model and voice on audio.cpp, for Jarvis's spoken replies. */
+  ttsModel: env('TTS_MODEL', 'Qwen3-TTS'),
+  ttsVoice: env('TTS_VOICE', 'jarvis'),
   /** Optional: the owner's name, for the assistant's prompt. */
   ownerName: env('OWNER_NAME', ''),
   /** Voiceprint model (npm run fetch-models). Speaker recognition is off if the file is missing. */

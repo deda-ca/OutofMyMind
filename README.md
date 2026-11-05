@@ -36,5 +36,6 @@ Open http://127.0.0.1:5173. Ctrl+C stops both.
 | Speaker recognition: group unknown voices, name people, corrections (People tab) | ✅ Built (M3) |
 | Speaker recognition: split phrases where the speaker changes (back-to-back turns) | ✅ Built (M4 part 1) |
 | Jarvis answers: wake word "Jarvis", flowing follow-ups, "thanks, Jarvis" to end; only the owner (local Qwen3.6 via llama.cpp) | ✅ Built (M5 step 1) |
-| Jarvis: spoken replies, tools (name people, grants, keep), overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
+| Jarvis speaks its replies (Qwen3-TTS, sentence by sentence; headphones for now) | ✅ Built |
+| Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Android app | Planned |

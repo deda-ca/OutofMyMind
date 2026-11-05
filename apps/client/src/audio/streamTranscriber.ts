@@ -24,6 +24,8 @@ export interface StreamSettings {
   speakerChangeThreshold: number
   /** After Jarvis answers, how long it listens for follow-ups without "Jarvis". */
   followUpMs: number
+  /** 1 = Jarvis speaks its replies, 0 = text only. */
+  speakReplies: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -36,6 +38,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakerThreshold: 0.43,
   speakerChangeThreshold: 0.3,
   followUpMs: 30000,
+  speakReplies: 1,
 }
 
 /** Messages from Jarvis the assistant (server: apps/server/src/assistant/assistant.ts). */
@@ -45,6 +48,7 @@ export type AssistantMessage =
   | { type: 'assistant.delta'; replyId: number; delta: string }
   | { type: 'assistant.done'; replyId: number; text: string; kind: 'reply' | 'wake' | 'dismiss' }
   | { type: 'assistant.error'; replyId: number; message: string }
+  | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {
@@ -279,6 +283,7 @@ export class StreamTranscriber {
       case 'assistant.delta':
       case 'assistant.done':
       case 'assistant.error':
+      case 'assistant.audio':
         this.events.onAssistant?.(message)
         break
     }

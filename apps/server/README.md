@@ -32,6 +32,8 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
 | `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
 | `LLM_MODEL` | `Qwen3.6-35B-A3B` | Model id on that server |
+| `TTS_MODEL` | `Qwen3-TTS` | audio.cpp text-to-speech model for Jarvis's spoken replies |
+| `TTS_VOICE` | `jarvis` | Its voice (audio.cpp voice library) |
 | `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
@@ -92,6 +94,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | `{"type":"assistant.delta","replyId":1,"delta":"…"}` | Reply text as it streams. |
 | `{"type":"assistant.done","replyId":1,"text":"…","kind":"reply"\|"wake"\|"dismiss"}` | Final reply text. `wake` = "Yes?" (just "Jarvis"), `dismiss` = "Okay." |
 | `{"type":"assistant.error","replyId":1,"message":"…"}` | The LLM couldn't answer. |
+| `{"type":"assistant.audio","replyId":1,"seq":0,"text":"…","wav":"<base64>","synthMs":370}` | One spoken sentence of a reply (24 kHz WAV), in order. Play them back to back; a newer `replyId` replaces an older one. Only sent when `speakReplies` is 1. |
 
 **The client's send rule** (all a client has to implement):
 
@@ -100,7 +103,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 3. On a frame with probability ≥ `speechThreshold`: send the kept frames, then this one, and start sending.
 4. Keep sending every frame until `sendHangoverMs` has passed with no speech frame. That's always longer than the pause setting, so the server sees enough silence to end the phrase itself.
 
-Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43, `speakerChangeThreshold` 0.3 (0 = never split by speaker), `followUpMs` 30000 (5–180 s).
+Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `speechThreshold` 0.5, `pauseMs` 1200, `preSpeechPadMs` 300, `minSpeechMs` 250, `maxPhraseMs` 25000, `partialIntervalMs` 1000, `speakerThreshold` 0.43, `speakerChangeThreshold` 0.3 (0 = never split by speaker), `followUpMs` 30000 (5–180 s), `speakReplies` 1 (0 = text only).
 
 **How the server transcribes:** while a phrase is open, the whole phrase so far is re-transcribed every `partialIntervalMs`, skipped if nothing new was said. When the phrase ends (a pause of `pauseMs`), it is transcribed once more for the final text. Each request covers the full phrase, so punctuation flows. Server ↔ audio.cpp traffic stays on this machine.
 
@@ -141,7 +144,8 @@ Milestone M5 step 1 of [docs/speaker-recognition.md](../../docs/speaker-recognit
 - **Who may ask** is decided in code from the speaker tag, never by the LLM. Other people's phrases during a conversation are given to the LLM as context ("[Maria said, not to you]"), never as requests. The last couple of minutes before "Jarvis" are included as context too.
 - **LLM:** streamed chat completions, thinking off (a short answer arrives in ~0.3–0.6 s), conversation history kept per conversation (last 24 messages) and cleared when it ends.
 - **Archive:** every reply is stored with the phrase it answers (`assistant_replies`), shown in History.
-- Not yet: spoken replies (TTS), tools (naming people, grants, keep), permission grants for other people.
+- **Spoken replies:** each sentence is sent to audio.cpp's text-to-speech (Qwen3-TTS, voice `jarvis`) as soon as the LLM finishes writing it, so speech starts ~1 s after a request (LLM first words ~0.6 s + ~0.4 s synthesis) while the rest is still being written. Markdown and links are cleaned for speaking (`src/assistant/speech.ts`, tested in `test/speech.test.ts`). No echo handling yet: use headphones/an earpiece.
+- Not yet: tools (naming people, grants, keep), permission grants for other people, echo handling for speakers.
 
 # Not in the MVP
 
@@ -178,5 +182,6 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/assistant/assistant.ts` | Jarvis: wake word, conversation state, follow-ups, replies |
 | `src/assistant/wake.ts` | Wake word and dismissal phrases |
 | `src/assistant/llm.ts` | Streaming chat client for llama-server |
+| `src/assistant/speech.ts` | Text-to-speech, sentence splitting, cleaning text for speech |
 | `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |
 | `test/` | `node:test` tests |

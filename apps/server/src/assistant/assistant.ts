@@ -12,6 +12,7 @@
 import { config } from '../config.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import { LlmError, streamChat, type ChatMessage } from './llm.ts'
+import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
 export type AssistantState = 'idle' | 'conversation'
@@ -22,6 +23,8 @@ export type AssistantMessage =
   | { type: 'assistant.delta'; replyId: number; delta: string }
   | { type: 'assistant.done'; replyId: number; text: string; kind: ReplyKind }
   | { type: 'assistant.error'; replyId: number; message: string }
+  /** One spoken sentence of a reply: base64 WAV, in order (seq) per reply. */
+  | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
 
 export type ReplyKind = 'reply' | 'wake' | 'dismiss'
 
@@ -42,6 +45,8 @@ export interface AssistantOptions {
   ownerTrained: () => boolean
   /** How long Jarvis keeps listening for follow-ups without the wake word. */
   followUpMs: () => number
+  /** Whether replies are spoken (text-to-speech). */
+  speak: () => boolean
   log: (message: string, err?: unknown) => void
 }
 
@@ -58,6 +63,9 @@ export class Assistant {
   private followUpEndsAt: number | null = null
   private queue: Promise<void> = Promise.resolve()
   private nextReplyId = 1
+  /** The reply being spoken; sentences of older replies are dropped. */
+  private speakingReplyId = 0
+  private speechQueue: Promise<void> = Promise.resolve()
   private closed = false
   private readonly o: AssistantOptions
 
@@ -114,13 +122,19 @@ export class Assistant {
     const replyId = this.nextReplyId++
     const started = performance.now()
     let firstWordMs: number | null = null
+    this.speakingReplyId = replyId
     this.o.emit({ type: 'assistant.start', replyId, toPhraseId: phrase.id })
     this.pushHistory({ role: 'user', content: text })
+    const sentences = new SentenceSplitter()
+    let seq = 0
     try {
       const answer = await streamChat([this.systemMessage(), ...this.history], (delta) => {
         firstWordMs ??= Math.round(performance.now() - started)
-        if (!this.closed) this.o.emit({ type: 'assistant.delta', replyId, delta })
+        if (this.closed) return
+        this.o.emit({ type: 'assistant.delta', replyId, delta })
+        for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
       })
+      for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
       const clean = answer.trim()
       this.pushHistory({ role: 'assistant', content: clean })
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
@@ -137,9 +151,30 @@ export class Assistant {
   /** A fixed short reply, no LLM ("Yes?", "Okay."). */
   private say(phrase: AssistantPhrase, kind: ReplyKind, text: string): void {
     const replyId = this.nextReplyId++
+    this.speakingReplyId = replyId
     this.o.emit({ type: 'assistant.start', replyId, toPhraseId: phrase.id })
     this.o.emit({ type: 'assistant.done', replyId, text, kind })
+    this.speakSentence(replyId, 0, text)
     this.o.saveReply(phrase.archiveId, kind, text, 0)
+  }
+
+  /**
+   * Queues one sentence for text-to-speech. Sentences are synthesised one at
+   * a time, in order; those of a reply that's been superseded are dropped.
+   */
+  private speakSentence(replyId: number, seq: number, sentence: string): void {
+    if (!this.o.speak()) return
+    const text = forSpeech(sentence)
+    if (!/[\p{L}\p{N}]/u.test(text)) return
+    this.speechQueue = this.speechQueue
+      .then(async () => {
+        if (this.closed || replyId !== this.speakingReplyId) return
+        const started = performance.now()
+        const wav = await synthesize(text)
+        if (this.closed || replyId !== this.speakingReplyId) return
+        this.o.emit({ type: 'assistant.audio', replyId, seq, text, wav: wav.toString('base64'), synthMs: Math.round(performance.now() - started) })
+      })
+      .catch((err: unknown) => this.o.log(`assistant: could not speak "${text.slice(0, 40)}"`, err))
   }
 
   private dismiss(phrase: AssistantPhrase): void {
