@@ -1,0 +1,110 @@
+<script setup lang="ts">
+import { DEFAULT_SETTINGS, type StreamSettings as TranscriberSettings } from '../audio/streamTranscriber'
+import { resetSettings, settings } from '../settings'
+
+interface Slider {
+  key: keyof TranscriberSettings
+  label: string
+  help: string
+  min: number
+  max: number
+  step: number
+  format: (value: number) => string
+}
+
+const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+const millis = (ms: number) => `${ms} ms`
+
+const sliders: Slider[] = [
+  {
+    key: 'pauseMs',
+    label: 'Pause that ends a phrase',
+    help: 'How long you have to stop talking before the phrase is finished. Longer keeps sentences together across short pauses.',
+    min: 300,
+    max: 4000,
+    step: 100,
+    format: seconds,
+  },
+  {
+    key: 'speechThreshold',
+    label: 'Speech sensitivity threshold',
+    help: 'How sure the voice detector must be that it hears speech. Lower picks up quiet speech; higher ignores more noise.',
+    min: 0.1,
+    max: 0.95,
+    step: 0.05,
+    format: (v) => v.toFixed(2),
+  },
+  {
+    key: 'minSpeechMs',
+    label: 'Minimum speech',
+    help: 'Sounds shorter than this are thrown away (coughs, clicks, a door).',
+    min: 0,
+    max: 1500,
+    step: 50,
+    format: millis,
+  },
+  {
+    key: 'preSpeechPadMs',
+    label: 'Audio kept before speech',
+    help: 'Included from just before speech is detected, so the first syllable isn’t clipped.',
+    min: 0,
+    max: 1000,
+    step: 50,
+    format: millis,
+  },
+  {
+    key: 'partialIntervalMs',
+    label: 'Live update interval',
+    help: 'How often the phrase in progress is re-transcribed. Shorter feels faster but uses more GPU.',
+    min: 300,
+    max: 3000,
+    step: 100,
+    format: seconds,
+  },
+  {
+    key: 'maxPhraseMs',
+    label: 'Maximum phrase length',
+    help: 'A phrase is split here even if you never pause.',
+    min: 5000,
+    max: 28000,
+    step: 1000,
+    format: seconds,
+  },
+]
+
+const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_SETTINGS[key]
+</script>
+
+<template>
+  <div class="card">
+    <div class="card-header">
+      <div class="d-flex align-items-center justify-content-between gap-3 w-100">
+        <span class="fw-semibold">Settings</span>
+        <button type="button" class="btn-outline theme-secondary btn-sm" @click="resetSettings">Reset to defaults</button>
+      </div>
+    </div>
+    <div class="card-body vstack gap-4">
+      <div v-for="slider in sliders" :key="slider.key">
+        <label :for="`setting-${slider.key}`" class="form-label d-flex justify-content-between gap-3 w-100">
+          <span>{{ slider.label }}</span>
+          <span class="font-monospace" :class="{ 'fw-semibold': !isDefault(slider.key) }">
+            {{ slider.format(settings[slider.key]) }}
+          </span>
+        </label>
+        <div class="form-range">
+          <input
+            :id="`setting-${slider.key}`"
+            v-model.number="settings[slider.key]"
+            type="range"
+            class="form-range-input"
+            :min="slider.min"
+            :max="slider.max"
+            :step="slider.step"
+          />
+        </div>
+        <div class="form-text">{{ slider.help }} Default {{ slider.format(DEFAULT_SETTINGS[slider.key]) }}.</div>
+      </div>
+      <p class="text-sm fg-3 m-0">Changes apply immediately, even while listening, and are saved in this browser.</p>
+    </div>
+  </div>
+</template>

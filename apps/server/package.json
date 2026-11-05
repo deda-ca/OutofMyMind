@@ -1,0 +1,22 @@
+{
+  "name": "jarvis-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch src/main.ts",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/websocket": "^11.3.7",
+    "fastify": "^5.12.8"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
