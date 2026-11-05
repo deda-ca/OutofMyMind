@@ -33,5 +33,6 @@ Open http://127.0.0.1:5173. Ctrl+C stops both.
 | Live speech transcription, on-device voice detection, streaming to the server | ✅ Built |
 | Audio archive: every phrase kept with compressed audio; History tab | ✅ Built |
 | Speaker recognition: know the owner's voice, tag every phrase "you" / "someone else" ([model comparison](docs/speaker-model-eval.md)) | ✅ Built (M1–M2) |
-| Speaker recognition: learn other people's names over time, conversations, permissions | 📝 [Design](docs/speaker-recognition.md) (M3–M5) |
+| Speaker recognition: group unknown voices, name people, corrections (People tab) | ✅ Built (M3) |
+| Speaker recognition: conversations (overlapping speech), voice commands and permissions | 📝 [Design](docs/speaker-recognition.md) (M4–M5) |
 | Android app | Planned |

@@ -35,9 +35,16 @@ export const DEFAULT_SETTINGS: StreamSettings = {
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {
   speakerId: number | null
+  /** "You", a person's name, "Speaker A" for an unnamed voice, "New voice" (early guess), or null. */
+  name: string | null
+  /** Whether the name was given by you (false for "Speaker A"). */
+  named: boolean
   /** true = you; false = someone else; null = can't tell (voice not trained yet). */
   isOwner: boolean | null
+  /** Similarity to your voice. */
   similarity: number | null
+  /** Similarity to the person it was matched to. */
+  match: number | null
   confidence: 'high' | 'low' | 'uncertain'
 }
 

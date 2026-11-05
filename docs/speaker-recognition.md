@@ -1,6 +1,6 @@
 # Speaker recognition (design)
 
-Status: written 2026-11-05 and revised the same day with the owner's decisions below. **Built so far:** the audio archive; **M1** (model comparison, [speaker-model-eval.md](speaker-model-eval.md): 3D-Speaker CAM++ chosen); **M2** core (owner voice training, every phrase tagged "you" / "someone else", voiceprints stored). M3–M5 not built yet.
+Status: written 2026-11-05 and revised the same day with the owner's decisions below. **Built so far:** the audio archive; **M1** (model comparison, [speaker-model-eval.md](speaker-model-eval.md): 3D-Speaker CAM++ chosen); **M2** core (owner voice training, every phrase tagged, voiceprints stored); **M3** core (unknown voices grouped as "Speaker A/B", naming, corrections, combining, forgetting, backfill; the AI-tool functions exist as REST routes). Not built yet: M4 (conversations) and M5 (the agent: voice commands, permission check, grants).
 
 ## Decisions
 
@@ -226,7 +226,7 @@ Whether its buttons can serve as Jarvis's button (push-to-talk) depends on what 
 | --- | --- | --- |
 | **M1. Spike** ✅ | Compare CAM++, WeSpeaker and TitaNet (accuracy, best threshold, speed, noise) and the effect of Opus. Done on LibriSpeech; real-device numbers come from M2 in use. | CAM++, threshold ~0.43, Opus 32 kbps is fine ([results](speaker-model-eval.md)). |
 | **M2. Know the owner + archive** ✅ core | Enrollment screen; every phrase tagged "you" or "someone else"; similarity in the Monitor; compressed audio archive with transcripts and tags. | In a two-person test conversation, your phrases are tagged correctly and everything is archived. |
-| **M3. Who's who** | Grouping unknown voices, naming in the UI, merging, corrections, adapting, delete; the people page. | Over a few sessions, named people are tagged correctly. |
+| **M3. Who's who** ✅ core | Grouping unknown voices, naming in the UI, merging, corrections, adapting, delete; the people page. | Over a few sessions, named people are tagged correctly. |
 | **M4. Conversations** | Split phrases when the voice changes; diarization for overlapping speech. | Quick back-and-forth and interruptions are tagged correctly. |
 | **M5. With the agent** | The permission check; grants; the AI tools above, so naming and granting work by voice. | "The person speaking now is Maria" and "answer her question" work, and nobody else can give commands. |
 

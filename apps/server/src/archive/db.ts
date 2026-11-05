@@ -85,6 +85,13 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX speaker_history_phrase ON speaker_history(phrase_id);
   `,
+  // 3: other people (M3). Unnamed voices are people rows labelled "Speaker A", "Speaker B", …
+  `
+  ALTER TABLE people ADD COLUMN named INTEGER NOT NULL DEFAULT 1;   -- 0 = automatic label ("Speaker A")
+  ALTER TABLE people ADD COLUMN label_index INTEGER;                -- 1 = A, 2 = B, … (unnamed groups)
+  ALTER TABLE people ADD COLUMN last_heard_at TEXT;
+  CREATE INDEX phrases_speaker ON phrases(speaker_id);
+  `,
 ]
 
 export function openDatabase(dataDir: string): DatabaseSync {

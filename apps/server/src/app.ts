@@ -19,7 +19,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null }): 
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
-  const speakers = new Speakers(db, options.voiceprintModel)
+  const speakers = new Speakers(db, config.dataDir, options.voiceprintModel)
   app.addHook('onClose', async () => db.close())
 
   // Audio arrives as raw bytes.
@@ -67,7 +67,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null }): 
 
   void app.register(streamRoute, { archive, speakers })
   void app.register(archiveRoutes, { archive })
-  void app.register(speakerRoutes, { speakers })
+  void app.register(speakerRoutes, { speakers, dataDir: config.dataDir })
 
   return app
 }

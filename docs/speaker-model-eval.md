@@ -48,6 +48,22 @@ Owner recognition from whole phrases was 99–100% for every model.
 - **Opus 32 kbps barely matters** (CAM++ 0.1% → 0.2% EER), so archived audio is good for recomputing voiceprints and for training.
 - **LibriSpeech is easy.** Real conditions (your devices, rooms, Bluetooth, conversation) will be harder. The threshold is a starting point: tune it with the Monitor's "Voice match" bar and the Settings slider, and re-measure once there are real recordings of you and others.
 
+## Grouping unknown voices (M3)
+
+Tool: `tools/speaker-eval/src/grouping-eval.ts`. It replays the server's grouping rule on the same 40 speakers: one is the owner (3 enrolled clips), the 400 phrases arrive in a shuffled order (5 orders averaged), each is the owner, joins the best-matching group, or starts a new one.
+
+| Phrases | Rule | Groups per person (ideal 1.00) | Phrases in someone else's group | Owner missed | Others taken for the owner |
+| --- | --- | --- | --- | --- | --- |
+| Whole (4–10 s) | **mean of 3 closest clips ≥ 0.45, learn ≥ 0.55** | 1.07 | 1.2% | 0% | 0.9% |
+| Short (1.5–6 s) | same | 1.07 | 0.2% | 0% | 0.6% |
+| Short + background talk 15 dB | same | 1.30 | 0.6% | 0% | 0.7% |
+| Short + background talk 15 dB | best single clip ≥ 0.40, no learn margin | 1.09 | 14.7% | 0% | 0.7% |
+
+- A **low** join threshold merges different people; a **high** one splits a person into several groups. Splits are cheaper to fix (one "combine") than mixed groups (phrase-by-phrase corrections), so the rule leans towards splitting.
+- Averaging the 3 closest clips beats the single best clip (fewer wrong merges at the same split rate).
+- Learning only from clear matches (≥ 0.55, ≥ 2 s of speech) keeps libraries clean.
+- Groups whose voices score ≥ 0.35 against each other are shown as "might be the same person" so splits are easy to spot and combine.
+
 ## Why not sherpa-onnx
 
 The design originally picked sherpa-onnx (`sherpa-onnx-node`) to run these models. On this machine its voiceprints were wrong, with both 2.0.1 and 1.13.8:

@@ -10,6 +10,7 @@ import {
 } from './audio/streamTranscriber'
 import HistoryPanel from './components/HistoryPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
+import PeoplePanel from './components/PeoplePanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
 import VoicePanel from './components/VoicePanel.vue'
@@ -19,7 +20,7 @@ import { settings } from './settings'
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'voice'
+type Tab = 'live' | 'history' | 'people' | 'voice'
 
 const tab = ref<Tab>('live')
 
@@ -67,7 +68,7 @@ const buttonLabel = computed(() => {
 
 const hasText = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.text)))
 /** Whether any phrase carries a speaker tag (i.e. your voice is trained). */
-const hasSpeakers = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.speaker?.isOwner != null)))
+const hasSpeakers = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.speaker?.isOwner != null || !!p.speaker?.name)))
 
 function phraseFor(phrases: Phrase[], id: number): Phrase {
   let phrase = phrases.find((p) => p.id === id)
@@ -187,6 +188,11 @@ onBeforeUnmount(() => transcriber?.cancel())
             </button>
           </li>
           <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'people' }" @click="tab = 'people'">
+              People
+            </button>
+          </li>
+          <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'voice' }" @click="tab = 'voice'">
               Your voice
             </button>
@@ -268,6 +274,12 @@ onBeforeUnmount(() => transcriber?.cancel())
     <div v-if="tab === 'history'" class="row justify-content-center mt-5">
       <div class="col-12">
         <HistoryPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'people'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <PeoplePanel />
       </div>
     </div>
 

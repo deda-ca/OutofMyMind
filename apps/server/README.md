@@ -45,6 +45,14 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `GET /api/owner` | Speaker recognition on/off, model, and the owner's voice-library clips (phrase id, device, text, date). |
 | `DELETE /api/owner/clips/:phraseId` | Remove one clip from the owner's voice library (the recording stays in the archive). |
 | `DELETE /api/owner/clips` | Empty the owner's voice library. |
+| `GET /api/people` | **list_people**: everyone known (owner, named people, unnamed "Speaker A" groups) with clip/phrase counts, last heard, and `maybeSameAs` (possible duplicates). |
+| `GET /api/people/:id/clips` | A person's voice-library clips. |
+| `GET /api/speakers/recent?minutes=5` | **recent_speakers**: who spoke recently, most recent first, with their latest phrases. |
+| `PUT /api/people/:id/name` | **name_speaker**: body `{"name": "Maria"}`. `:id` may be `recent-other` (the most recent speaker other than the owner: "the person speaking now"). A name already in use merges the two. |
+| `PUT /api/phrases/:id/speaker` | **retag_phrase**: body `{"personId": 12}` or `{"personId": "new"}`. The phrase's clip moves to that voice library. |
+| `POST /api/people/:id/merge` | **merge_people**: body `{"into": 12}`. Everything moves to `into`. |
+| `DELETE /api/people/:id?deleteAudio=true` | **forget_person**: removes the person and their voice library; their phrases become unknown (and their audio is deleted with `deleteAudio=true`). |
+| `POST /api/speakers/backfill` | Tags archived phrases recorded before speaker recognition, oldest first. Refuses until the owner's voice is trained. |
 | `PUT /api/conversations/:id/keep`, `PUT /api/phrases/:id/keep` | Body `{"keep": true\|false, "note"?: "…"}`: "keep forever", so a future clean-up skips it. |
 | `POST /api/transcribe?sampleRate=16000&language=English` | One-off: body is one phrase of raw s16le mono PCM (`Content-Type: application/octet-stream`, max 8 MB). Returns `{"text": "…"}`. Handy for testing with curl. |
 
@@ -69,7 +77,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | `{"type":"settings","settings":{…},"sendHangoverMs":1500}` | After a settings change. |
 | `{"type":"phrase","id":3,"text":"…","final":false}` | Live text for phrase 3; replaces earlier text for that id. `final: true` = won't change again. |
 | `{"type":"phrase.dropped","id":3}` | Phrase 3 was noise or empty: remove it. |
-| `{"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":1,"isOwner":true,"similarity":0.71,"confidence":"high"}}` | Who said phrase 3: an early guess (`final: false`, after ~1.5 s of speech) or the decision (`final: true`). `isOwner`: `true` / `false` / `null` (voice not trained). `confidence`: `high`, `low` (within 0.1 of the threshold) or `uncertain` (under 1 s of speech). |
+| `{"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":4,"name":"Maria","named":true,"isOwner":false,"similarity":0.21,"match":0.68,"confidence":"high"}}` | Who said phrase 3: an early guess (`final: false`, after ~1.5 s of speech; only matches known people, `name: "New voice"` otherwise) or the decision (`final: true`; may create a new "Speaker X"). `name`: "You", a given name, or "Speaker A". `isOwner`: `true` / `false` / `null` (voice not trained). `similarity`: to the owner; `match`: to the matched person. `confidence`: `high`, `low` (close to a threshold) or `uncertain` (under 1 s of speech). |
 | `{"type":"enroll.clip","id":3,"accepted":true,"reason":null,"text":"…","clips":8}` | Enroll mode: a training clip was accepted or rejected (`reason`), and how many clips the owner's library now has. |
 | `{"type":"state","inPhrase":true,"phraseMs":…,"speechMs":…,"silenceMs":…}` | Phrase detection state, ~10×/s while a phrase is open (for monitoring). |
 | `{"type":"request","seq":…,"phraseId":…,"kind":"partial"\|"final","audioMs":…,"latencyMs":…,"status":…,"text":…}` | One transcription by audio.cpp (for monitoring). |
@@ -109,7 +117,9 @@ Milestone M2 of [docs/speaker-recognition.md](../../docs/speaker-recognition.md)
 - **Every phrase** gets a voiceprint, computed while audio.cpp transcribes it, stored in `phrase_voiceprints`.
 - **Tag:** best cosine similarity to the owner's library clips. `≥ speakerThreshold` (default 0.43) = the owner. An early guess goes out once a phrase has 1.5 s of speech; the decision when it ends. The current tag is on the phrase; every change is in `speaker_history`.
 - **Voice training (`mode: "enroll"`):** each phrase is checked (≥ 1.5 s of speech, words recognised, and similar to the clips so far: at least threshold − 0.1) and, if accepted, added to the owner's `library` with its device. Training sessions are archived as conversations of kind `enrollment`.
-- Not yet: naming other people, grouping unknown voices, corrections (M3); splitting overlapping speech (M4).
+- **Other people (M3):** a phrase that isn't the owner's joins the person (named or not) whose 3 closest library clips average ≥ 0.45, otherwise it starts a new unnamed group ("Speaker A", "Speaker B", …). Only real speech (not noise) can start a group. Clear matches (≥ 0.55, ≥ 2 s of speech) are added to that person's library (capped at 50), so recognition improves as people talk. Tuned in [docs/speaker-model-eval.md](../../docs/speaker-model-eval.md#grouping-unknown-voices-m3).
+- **Naming, corrections, merges and forgetting** are the `/api/people` routes above, shaped like the AI tools in the design. The LLM will call the same `Speakers` methods; the server must check the request came from the owner's voice first (not built yet: no LLM).
+- Not yet: splitting phrases where two people talk over each other (M4).
 
 # Not in the MVP
 
@@ -139,7 +149,8 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/archive/routes.ts` | Archive REST API |
 | `src/speaker/features.ts` | Kaldi fbank features (shared with tools/speaker-eval) |
 | `src/speaker/voiceprint.ts` | ONNX voiceprint model |
-| `src/speaker/speakers.ts` | Owner library, tagging, enrollment checks |
-| `src/speaker/routes.ts` | Owner voice-profile REST API |
+| `src/speaker/speakers.ts` | Voice libraries, tagging, grouping, enrollment checks, and the people tools |
+| `src/speaker/routes.ts` | Owner voice profile and people REST API |
+| `src/speaker/backfill.ts` | Tags older archived phrases |
 | `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |
 | `test/` | `node:test` tests |

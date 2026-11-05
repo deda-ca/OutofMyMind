@@ -37,8 +37,16 @@ export function vadAssets(root: string): Plugin {
         if (!pathname.startsWith(VAD_ASSET_PREFIX)) return next()
         const name = pathname.slice(VAD_ASSET_PREFIX.length)
         if (!Object.hasOwn(ASSETS, name)) return next()
+        const file = resolve(name)
+        if (!fs.existsSync(file)) {
+          res.statusCode = 404
+          res.end(`Missing ${name}: run npm install in apps/client`)
+          return
+        }
         res.setHeader('Content-Type', CONTENT_TYPES[path.extname(name)] ?? 'application/octet-stream')
-        fs.createReadStream(resolve(name)).pipe(res)
+        fs.createReadStream(file)
+          .on('error', () => res.destroy())
+          .pipe(res)
       })
     },
     generateBundle() {

@@ -24,7 +24,14 @@ export interface PhraseRecord {
   keep: boolean
   keepNote: string | null
   /** Who said it (null until speaker recognition has tagged it). */
-  speaker: { isOwner: boolean | null; similarity: number | null; confidence: string | null } | null
+  speaker: {
+    speakerId: number | null
+    name: string | null
+    named: boolean
+    isOwner: boolean | null
+    similarity: number | null
+    confidence: string
+  } | null
 }
 
 export interface ConversationSummary {
@@ -149,7 +156,7 @@ export class Archive {
   conversationPhrases(conversationId: number): PhraseRecord[] {
     const rows = this.db
       .prepare(
-        `SELECT p.*, pe.is_owner AS speaker_is_owner FROM phrases p
+        `SELECT p.*, pe.is_owner AS speaker_is_owner, pe.name AS speaker_name, pe.named AS speaker_named FROM phrases p
          LEFT JOIN people pe ON pe.id = p.speaker_id
          WHERE p.conversation_id = ? ORDER BY p.seq`,
       )
@@ -171,7 +178,10 @@ export class Archive {
         r.speaker_confidence === null
           ? null
           : {
-              // A tagged phrase with no person attached is "someone else", unless nobody was enrolled (no similarity).
+              speakerId: r.speaker_id === null ? null : Number(r.speaker_id),
+              name: r.speaker_is_owner === 1 ? 'You' : r.speaker_name === null ? null : String(r.speaker_name),
+              named: r.speaker_named === 1,
+              // No person and no similarity = nobody was enrolled yet: can't tell.
               isOwner: r.speaker_is_owner === 1 ? true : r.speaker_similarity === null && r.speaker_id === null ? null : false,
               similarity: r.speaker_similarity === null ? null : Number(r.speaker_similarity),
               confidence: String(r.speaker_confidence),

@@ -228,7 +228,9 @@ export class StreamSession {
       .voiceprint(this.segmenter.currentAudio())
       .then((vector) => {
         if (phrase.final) return // the final decision is on its way
-        this.emit({ type: 'phrase.speaker', id: phrase.id, final: false, speaker: speakers.identify(vector, speechMs, this.settings.speakerThreshold) })
+        // Early guesses only match people already known; they never create a group.
+        const speaker = speakers.identify(vector, speechMs, this.settings.speakerThreshold, false)
+        this.emit({ type: 'phrase.speaker', id: phrase.id, final: false, speaker })
       })
       .catch((err: unknown) => this.log(`speaker: early guess failed for phrase ${phrase.id}`, err))
   }
@@ -263,9 +265,10 @@ export class StreamSession {
       .then(async ({ text, status }) => {
         const vector = await voiceprint
         if (this.mode === 'enroll') return this.finishEnrollmentClip(phrase, audio, speechMs, text, status, vector)
-        const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold)
+        // Only real speech may start a new "Speaker X" group, never noise or failures.
+        const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold, status === 'ok')
         if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
-        await this.archive(phrase, audio, text, status, vector, tag)
+        await this.archive(phrase, audio, text, status, vector, tag, speechMs)
       })
       .finally(() => this.pendingFinals.delete(pending))
     this.pendingFinals.add(pending)
@@ -287,7 +290,7 @@ export class StreamSession {
         : status === 'dropped'
           ? "Didn't catch any words; try again."
           : speakers.checkEnrollmentClip(vector, speechMs, this.settings.speakerThreshold)
-    const phraseId = await this.archive(phrase, audio, text, status, vector, undefined)
+    const phraseId = await this.archive(phrase, audio, text, status, vector, undefined, speechMs)
     if (reason === null && phraseId !== null) speakers.addToOwnerLibrary(phraseId, 'enrollment', this.recorder?.device ?? null)
     this.emit({
       type: 'enroll.clip',
@@ -310,12 +313,14 @@ export class StreamSession {
     status: PhraseStatus,
     vector: Float32Array | null,
     tag: SpeakerTag | undefined,
+    speechMs: number,
   ): Promise<number | null> {
     if (!this.recorder) return null
     try {
       const phraseId = await this.recorder.savePhrase(phrase.id, phrase.startedAt, audio, text, status, this.language)
       if (this.speakers && (vector || tag)) {
-        this.speakers.saveTag(phraseId, vector, tag ?? { speakerId: null, isOwner: null, similarity: null, confidence: 'uncertain' })
+        const unknown: SpeakerTag = { speakerId: null, name: null, named: false, isOwner: null, similarity: null, match: null, confidence: 'uncertain' }
+        this.speakers.saveTag(phraseId, vector, tag ?? unknown, speechMs, this.recorder.device)
       }
       return phraseId
     } catch (err) {

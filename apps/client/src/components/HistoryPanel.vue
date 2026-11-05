@@ -25,7 +25,20 @@ interface Phrase {
   status: 'ok' | 'dropped' | 'error'
   hasAudio: boolean
   keep: boolean
-  speaker: { isOwner: boolean | null; similarity: number | null; confidence: string } | null
+  speaker: {
+    speakerId: number | null
+    name: string | null
+    named: boolean
+    isOwner: boolean | null
+    similarity: number | null
+    confidence: string
+  } | null
+}
+
+interface PersonOption {
+  id: number
+  name: string
+  isOwner: boolean
 }
 
 const PAGE_SIZE = 30
@@ -34,6 +47,10 @@ const conversations = ref<Conversation[]>([])
 const phrases = reactive<Record<number, Phrase[] | 'loading'>>({})
 const open = reactive<Record<number, boolean>>({})
 const loading = ref(false)
+/** Everyone Jarvis knows, for correcting who said a phrase. */
+const people = ref<PersonOption[]>([])
+/** Phrase whose speaker is being corrected. */
+const correcting = ref<number | null>(null)
 const hasMore = ref(false)
 const error = ref('')
 
@@ -60,6 +77,29 @@ async function load(more = false): Promise<void> {
     error.value = `Could not load history: ${(err as Error).message}`
   } finally {
     loading.value = false
+  }
+}
+
+async function loadPeople(): Promise<void> {
+  try {
+    people.value = (await api<{ people: PersonOption[] }>('/api/people')).people
+  } catch {
+    people.value = []
+  }
+}
+
+async function correct(conversationId: number, phrase: Phrase, value: string): Promise<void> {
+  correcting.value = null
+  if (!value || (value !== 'new' && Number(value) === phrase.speaker?.speakerId)) return
+  try {
+    await api(`/api/phrases/${phrase.id}/speaker`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personId: value === 'new' ? 'new' : Number(value) }),
+    })
+    await Promise.all([loadPhrases(conversationId), loadPeople()])
+  } catch (err) {
+    error.value = `Could not change the speaker: ${(err as Error).message}`
   }
 }
 
@@ -104,7 +144,10 @@ const seconds = (ms: number) => (ms >= 60000 ? `${Math.floor(ms / 60000)} min ${
 const kb = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`)
 
 defineExpose({ refresh: () => load() })
-onMounted(() => load())
+onMounted(() => {
+  void load()
+  void loadPeople()
+})
 </script>
 
 <template>
@@ -157,7 +200,29 @@ onMounted(() => load())
           <li v-for="p in phraseList(c.id)" :key="p.id" class="list-group-item">
             <div class="d-flex align-items-start gap-3">
               <span class="font-monospace text-sm fg-3 text-nowrap">{{ time(p.startedAt) }}</span>
-              <span class="text-nowrap"><SpeakerBadge :speaker="p.speaker" /></span>
+              <span class="text-nowrap">
+                <select
+                  v-if="correcting === p.id"
+                  class="form-control form-control-sm"
+                  aria-label="Who said this?"
+                  @change="correct(c.id, p, ($event.target as HTMLSelectElement).value)"
+                  @blur="correcting = null"
+                >
+                  <option value="">Who said this?</option>
+                  <option v-for="person in people" :key="person.id" :value="person.id">{{ person.name }}</option>
+                  <option value="new">Someone new</option>
+                </select>
+                <button
+                  v-else-if="p.status === 'ok'"
+                  type="button"
+                  class="btn-text btn-sm"
+                  title="Change who said this"
+                  @click="correcting = p.id"
+                >
+                  <SpeakerBadge v-if="p.speaker?.name || p.speaker?.isOwner != null" :speaker="p.speaker" />
+                  <span v-else class="fg-3 text-sm">who?</span>
+                </button>
+              </span>
               <div class="flex-grow-1 vstack gap-2">
                 <span v-if="p.status === 'ok'">{{ p.text }}</span>
                 <span v-else class="fg-3">
