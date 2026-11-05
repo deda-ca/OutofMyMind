@@ -37,6 +37,10 @@ The client is deliberately thin; the server does the work. Protocol: [../server/
 2. **Send rule**: audio is sent over one WebSocket only while there is speech, plus 300 ms from just before it and a hangover after it (the pause length + 0.3 s). Each frame is sent once. Silence is never sent.
 3. **apps/server** splits phrases at pauses (1.2 s by default), re-transcribes the phrase in progress about once a second (shown in grey), and transcribes it once more when it ends (black).
 
+### History tab
+
+Every conversation is archived by apps/server. The History tab lists them newest first (date, device, speech time, size). Expand one to read each phrase and play its audio. "Keep forever" (whole conversation, or ★ per phrase) protects recordings from any future clean-up. Listening continues while you browse.
+
 ### Settings and Monitor panels
 
 - **Settings**: pause length, speech threshold, minimum speech, pre-speech audio, live update interval, maximum phrase length. Saved in the browser's localStorage and sent to the server, which applies them immediately, even mid-recording.
@@ -87,6 +91,7 @@ Use Chrome, Edge or Firefox on the same machine. The microphone only works on `l
 | `src/settings.ts` | Settings state, saved to localStorage |
 | `src/components/SettingsPanel.vue` | Sliders for the settings |
 | `src/components/MonitorPanel.vue` | Live VAD/level meters, pause timer, request log |
-| `src/App.vue` | UI: start/stop button, flowing transcript (grey = still changing), errors |
+| `src/components/HistoryPanel.vue` | Archive browser: conversations, phrases, playback, keep |
+| `src/App.vue` | UI: Live and History tabs, start/stop button, flowing transcript (grey = still changing), errors |
 
 A production build (`npm run build`) is static files; serve them from the same origin as apps/server's `/api`, or behind a proxy that forwards `/api` to it.

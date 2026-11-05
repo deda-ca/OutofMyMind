@@ -6,6 +6,7 @@
 // more when it ends for the final text. The client stays thin: it only decides
 // "is anyone talking", and each audio frame crosses the network once.
 
+import type { ConversationRecorder, PhraseStatus } from '../archive/archive.ts'
 import { transcribePcm } from '../audiocpp.ts'
 import { PhraseSegmenter, type SegmenterEvent, type SegmenterOptions } from './phraseSegmenter.ts'
 import { STREAM_SAMPLE_RATE, type RequestLog, type ServerMessage } from './protocol.ts'
@@ -33,6 +34,8 @@ function segmenterOptions(settings: StreamSettings): Omit<SegmenterOptions, 'sam
 
 interface Phrase {
   id: number
+  /** When the phrase's audio starts (including the pre-speech pad). */
+  startedAt: Date
   /** Highest request number applied, so a slow old partial can't overwrite a newer one. */
   appliedSeq: number
   final: boolean
@@ -55,9 +58,17 @@ export class StreamSession {
   private lastInPhrase = false
   private pendingFinals = new Set<Promise<void>>()
   private readonly send: (message: ServerMessage) => void
+  private readonly recorder: ConversationRecorder | undefined
+  private readonly log: (message: string, err?: unknown) => void
 
-  constructor(send: (message: ServerMessage) => void) {
+  constructor(
+    send: (message: ServerMessage) => void,
+    recorder?: ConversationRecorder,
+    log: (message: string, err?: unknown) => void = console.error,
+  ) {
     this.send = send
+    this.recorder = recorder
+    this.log = log
     this.segmenter = new PhraseSegmenter({ sampleRate: STREAM_SAMPLE_RATE, ...segmenterOptions(this.settings) })
   }
 
@@ -93,11 +104,16 @@ export class StreamSession {
     this.send({ type: 'stopped' })
   }
 
-  /** Connection gone: stop everything, send nothing more. */
+  /**
+   * Connection gone: send nothing more. A phrase still in progress is
+   * finished and archived anyway (everything is recorded), and the
+   * conversation is closed once its last phrase is saved.
+   */
   close(): void {
     this.closed = true
     clearInterval(this.partialTimer)
-    this.current = undefined
+    if (this.started) this.handleEvents(this.segmenter.flush())
+    void Promise.allSettled([...this.pendingFinals]).then(() => this.recorder?.end())
   }
 
   private applySettings(update: unknown): void {
@@ -129,7 +145,9 @@ export class StreamSession {
   private handleEvents(events: SegmenterEvent[]): void {
     for (const event of events) {
       if (event.type === 'start') {
-        this.current = { id: this.nextId++, appliedSeq: 0, final: false, speechMsAtLastPartial: 0 }
+        // The segmenter has already included the pre-speech pad in the phrase.
+        const startedAt = new Date(Date.now() - this.segmenter.currentDurationMs())
+        this.current = { id: this.nextId++, startedAt, appliedSeq: 0, final: false, speechMsAtLastPartial: 0 }
       } else if (event.type === 'discard') {
         if (this.current) this.emit({ type: 'phrase.dropped', id: this.current.id })
         this.current = undefined
@@ -156,14 +174,14 @@ export class StreamSession {
     transcribePcm(pcmBuffer(audio), STREAM_SAMPLE_RATE, this.language)
       .then((text) => {
         const stale = phrase.final || seq < phrase.appliedSeq
-        this.log(seq, phrase, 'partial', audio, started, stale ? 'stale' : 'ok', text)
+        this.logRequest(seq, phrase, 'partial', audio, started, stale ? 'stale' : 'ok', text)
         if (stale) return
         phrase.appliedSeq = seq
         this.emit({ type: 'phrase', id: phrase.id, text, final: false })
       })
       .catch((err: unknown) => {
         // A failed partial is harmless: the next one or the final will replace it.
-        this.log(seq, phrase, 'partial', audio, started, 'error', errorMessage(err))
+        this.logRequest(seq, phrase, 'partial', audio, started, 'error', errorMessage(err))
       })
       .finally(() => (this.partialInFlight = false))
   }
@@ -175,20 +193,33 @@ export class StreamSession {
     const pending = transcribePcm(pcmBuffer(audio), STREAM_SAMPLE_RATE, this.language)
       .then((text) => {
         const noise = isNoise(text)
-        this.log(seq, phrase, 'final', audio, started, noise ? 'dropped' : 'ok', text)
+        this.logRequest(seq, phrase, 'final', audio, started, noise ? 'dropped' : 'ok', text)
         if (noise) this.emit({ type: 'phrase.dropped', id: phrase.id })
         else this.emit({ type: 'phrase', id: phrase.id, text, final: true })
+        return this.archive(phrase, audio, text, noise ? 'dropped' : 'ok')
       })
       .catch((err: unknown) => {
-        this.log(seq, phrase, 'final', audio, started, 'error', errorMessage(err))
+        this.logRequest(seq, phrase, 'final', audio, started, 'error', errorMessage(err))
         this.emit({ type: 'phrase.dropped', id: phrase.id })
         this.emit({ type: 'error', message: errorMessage(err) })
+        // Keep the audio so it can be transcribed again later.
+        return this.archive(phrase, audio, '', 'error')
       })
       .finally(() => this.pendingFinals.delete(pending))
     this.pendingFinals.add(pending)
   }
 
-  private log(
+  /** Every phrase is archived, including noise and failed transcriptions. */
+  private async archive(phrase: Phrase, audio: Int16Array, text: string, status: PhraseStatus): Promise<void> {
+    if (!this.recorder) return
+    try {
+      await this.recorder.savePhrase(phrase.id, phrase.startedAt, audio, text, status, this.language)
+    } catch (err) {
+      this.log(`archive: could not save phrase ${phrase.id}`, err)
+    }
+  }
+
+  private logRequest(
     seq: number,
     phrase: Phrase,
     kind: RequestLog['kind'],

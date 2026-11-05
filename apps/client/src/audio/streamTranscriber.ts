@@ -153,7 +153,13 @@ export class StreamTranscriber {
     return new Promise((resolve, reject) => {
       let ready = false
       socket.onopen = () =>
-        this.sendJson({ type: 'start', sampleRate: SAMPLE_RATE, language: this.options.language, settings: this.settings })
+        this.sendJson({
+          type: 'start',
+          sampleRate: SAMPLE_RATE,
+          language: this.options.language,
+          device: 'web',
+          settings: this.settings,
+        })
       socket.onerror = () => {
         if (!ready) reject(new Error('Could not connect to the Jarvis server. Is apps/server running?'))
       }

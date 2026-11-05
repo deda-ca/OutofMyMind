@@ -16,6 +16,7 @@ npm install
 npm run dev        # watch mode, http://127.0.0.1:5180
 npm start          # no watch
 npm run typecheck
+npm test           # node:test; set SPEECH_PCM=<16 kHz s16le file> to include a real-speech round trip
 ```
 
 Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
@@ -27,6 +28,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `AUDIOCPP_URL` | `http://127.0.0.1:5552` | The audio.cpp server |
 | `ASR_MODEL` | `Qwen3-ASR` | audio.cpp model id for speech-to-text |
 | `ALLOWED_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | Browser origins allowed to call the API |
+| `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
 | `LOG_LEVEL` | `info` | |
 
 # API
@@ -35,6 +37,10 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | --- | --- |
 | `GET /api/stream` (WebSocket) | **Live transcription.** Protocol below. |
 | `GET /api/health` | `{"status":"ok"\|"degraded","audiocpp":{"ok":…,"detail":…}}` |
+| `GET /api/conversations?limit=50&before=<id>` | Archived conversations, newest first, with phrase count, speech time, audio size, keep flag, preview. |
+| `GET /api/conversations/:id/phrases` | A conversation's phrases: time, duration, text, status (`ok` / `dropped` / `error`), keep flag. |
+| `GET /api/phrases/:id/audio` | The phrase's audio, `audio/ogg; codecs=opus`. |
+| `PUT /api/conversations/:id/keep`, `PUT /api/phrases/:id/keep` | Body `{"keep": true\|false, "note"?: "…"}`: "keep forever", so a future clean-up skips it. |
 | `POST /api/transcribe?sampleRate=16000&language=English` | One-off: body is one phrase of raw s16le mono PCM (`Content-Type: application/octet-stream`, max 8 MB). Returns `{"text": "…"}`. Handy for testing with curl. |
 
 ## Live transcription: `/api/stream`
@@ -78,6 +84,16 @@ Settings (all clamped by the server, defaults in `src/stream/settings.ts`): `spe
 
 Transcription goes to audio.cpp's `/v1/tasks/run` with `audio_chunk_seconds=30`, the only route that takes per-request options with uploaded audio (see `src/audiocpp.ts`).
 
+## Archive
+
+Everything said is kept: every phrase's transcript in SQLite (`DATA_DIR/jarvis.db`, Node's built-in `node:sqlite`) and its audio as a compressed file (`DATA_DIR/audio/YYYY/MM/DD/c<conversation>-p<phrase>.opus`).
+
+- **One conversation** = one live session that contained speech (silent sessions leave nothing).
+- **Every phrase is archived**, including ones dropped as noise (`dropped`) and ones whose transcription failed (`error`, audio kept so it can be redone). A phrase still in progress when the connection drops is finished and archived too.
+- **Audio format:** Ogg Opus, 32 kbps, 16 kHz mono (~4 KB per second of speech, ~14 MB per hour), written by `src/archive/oggOpus.ts` around raw packets from `libopus-wasm`. Checked against an independent decoder (`npm test`) and Chrome; transcribing the decoded audio gives the same text as the original.
+- **Nothing is deleted.** `keep` flags (conversation or phrase) mark recordings a future clean-up must leave alone.
+- Schema migrations: numbered, in `src/archive/db.ts` (`PRAGMA user_version`).
+
 # Not in the MVP
 
 Single user, one stream per connection, no authentication, localhost only. Before the server is reachable from a network (e.g. for the Android app): authentication, TLS, and reconnect handling. Opus compression (~10× less upload) when cellular matters.
@@ -100,3 +116,8 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/stream/session.ts` | One live session: phrases, live and final transcription |
 | `src/stream/phraseSegmenter.ts` | Pure logic: VAD-scored frames → phrases |
 | `src/stream/settings.ts` | Settings, defaults and allowed ranges |
+| `src/archive/db.ts` | SQLite database and migrations |
+| `src/archive/archive.ts` | Saving and reading conversations and phrases |
+| `src/archive/oggOpus.ts` | PCM → Ogg Opus file |
+| `src/archive/routes.ts` | Archive REST API |
+| `test/` | `node:test` tests |

@@ -1,13 +1,20 @@
 // GET /api/stream (WebSocket): live transcription. Protocol in protocol.ts.
 
 import type { FastifyInstance } from 'fastify'
+import type { Archive } from '../archive/archive.ts'
 import { parseFrame, type ClientMessage, type ServerMessage } from './protocol.ts'
 import { StreamSession } from './session.ts'
 
 /** One 32 ms frame is ~1 KB; this leaves plenty of room. */
 const MAX_MESSAGE_BYTES = 64 * 1024
 
-export async function streamRoute(app: FastifyInstance): Promise<void> {
+/** Free-text device label from the client, kept short and printable. */
+function deviceLabel(value: unknown): string {
+  const label = typeof value === 'string' ? value.replace(/[^\p{L}\p{N} ._-]/gu, '').trim().slice(0, 40) : ''
+  return label || 'unknown'
+}
+
+export async function streamRoute(app: FastifyInstance, options: { archive: Archive }): Promise<void> {
   app.get('/api/stream', { websocket: true }, (socket, req) => {
     const send = (message: ServerMessage) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
@@ -16,7 +23,8 @@ export async function streamRoute(app: FastifyInstance): Promise<void> {
       send({ type: 'error', message })
       socket.close(1008, 'protocol error')
     }
-    const session = new StreamSession(send)
+    let session = new StreamSession(send)
+    let started = false
     req.log.info('stream session opened')
 
     socket.on('message', (data: Buffer, isBinary: boolean) => {
@@ -30,9 +38,15 @@ export async function streamRoute(app: FastifyInstance): Promise<void> {
         }
         const message = JSON.parse(data.toString()) as ClientMessage
         switch (message.type) {
-          case 'start':
+          case 'start': {
+            if (started) return fail('Session already started')
+            started = true
+            // The archive recorder needs the device label, which arrives with "start".
+            const recorder = options.archive.recorder(deviceLabel(message.device), req.headers['user-agent'])
+            session = new StreamSession(send, recorder, (msg, err) => req.log.error({ err }, msg))
             session.start(Number(message.sampleRate), String(message.language ?? ''), message.settings)
             break
+          }
           case 'settings':
             session.updateSettings(message.settings)
             break

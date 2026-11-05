@@ -2,7 +2,7 @@
 // client (web, Android) implements the client side of this.
 //
 // Client → server
-//   text   {"type":"start","sampleRate":16000,"language":"English","settings":{…}}   first message
+//   text   {"type":"start","sampleRate":16000,"language":"English","device":"web","settings":{…}}   first message
 //   text   {"type":"settings","settings":{…}}                                       any time
 //   text   {"type":"stop"}                                                          finish and close
 //   binary [float32 LE speech probability][s16le mono PCM samples]                  one VAD frame
@@ -40,7 +40,7 @@ export interface PhraseState {
 }
 
 export type ClientMessage =
-  | { type: 'start'; sampleRate: number; language?: string; settings?: Partial<StreamSettings> }
+  | { type: 'start'; sampleRate: number; language?: string; device?: string; settings?: Partial<StreamSettings> }
   | { type: 'settings'; settings: Partial<StreamSettings> }
   | { type: 'stop' }
 

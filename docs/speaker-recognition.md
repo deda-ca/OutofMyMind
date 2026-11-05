@@ -1,6 +1,6 @@
 # Speaker recognition (design)
 
-Status: **design, not built yet.** Written 2026-11-05; revised the same day with the owner's decisions below.
+Status: **design.** Written 2026-11-05; revised the same day with the owner's decisions below. **Built so far:** the audio archive (see apps/server README, "Archive"). Speaker recognition itself is not built yet.
 
 ## Decisions
 

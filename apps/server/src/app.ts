@@ -2,6 +2,9 @@
 
 import websocket from '@fastify/websocket'
 import Fastify, { type FastifyInstance } from 'fastify'
+import { Archive } from './archive/archive.ts'
+import { openDatabase } from './archive/db.ts'
+import { archiveRoutes } from './archive/routes.ts'
 import { AudiocppError, audiocppHealth, transcribePcm } from './audiocpp.ts'
 import { config } from './config.ts'
 import { streamRoute } from './stream/route.ts'
@@ -11,6 +14,9 @@ const MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
+  const db = openDatabase(config.dataDir)
+  const archive = new Archive(db, config.dataDir)
+  app.addHook('onClose', async () => db.close())
 
   // Audio arrives as raw bytes.
   app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: MAX_AUDIO_BYTES }, (_req, body, done) =>
@@ -55,7 +61,8 @@ export function buildApp(): FastifyInstance {
     },
   )
 
-  void app.register(streamRoute)
+  void app.register(streamRoute, { archive })
+  void app.register(archiveRoutes, { archive })
 
   return app
 }

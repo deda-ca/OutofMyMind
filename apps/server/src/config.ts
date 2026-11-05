@@ -1,5 +1,7 @@
 // Server configuration from environment variables (.env, then .env.local).
 
+import path from 'node:path'
+
 function env(name: string, fallback: string): string {
   const value = process.env[name]?.trim()
   return value ? value : fallback
@@ -22,4 +24,6 @@ export const config = {
     .map((origin) => origin.trim())
     .filter(Boolean),
   asrModel: env('ASR_MODEL', 'Qwen3-ASR'),
+  /** Database and audio archive. Contains private conversations: never commit it. */
+  dataDir: path.resolve(env('DATA_DIR', 'data')),
 } as const

@@ -7,6 +7,7 @@ import {
   type RequestLog,
   type UploadStats,
 } from './audio/streamTranscriber'
+import HistoryPanel from './components/HistoryPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import { settings } from './settings'
@@ -15,6 +16,9 @@ import { settings } from './settings'
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
+type Tab = 'live' | 'history'
+
+const tab = ref<Tab>('live')
 
 interface Phrase {
   id: number
@@ -149,6 +153,22 @@ onBeforeUnmount(() => transcriber?.cancel())
           </span>
         </header>
 
+        <ul class="nav nav-tabs">
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'live' }" @click="tab = 'live'">Live</button>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'history' }" @click="tab = 'history'">
+              History
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Live stays mounted (v-show) so listening continues while browsing history. -->
+    <div v-show="tab === 'live'" class="row justify-content-center mt-5">
+      <div class="col-12 vstack gap-5">
         <div class="d-flex gap-3">
           <button
             type="button"
@@ -193,7 +213,7 @@ onBeforeUnmount(() => transcriber?.cancel())
       </div>
     </div>
 
-    <div class="row justify-content-center gy-5 mt-0">
+    <div v-show="tab === 'live'" class="row justify-content-center gy-5 mt-0">
       <div class="col-12 lg:col-7">
         <MonitorPanel
           :listening="status === 'listening' || status === 'finishing'"
@@ -205,6 +225,12 @@ onBeforeUnmount(() => transcriber?.cancel())
       </div>
       <div class="col-12 lg:col-5">
         <SettingsPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'history'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <HistoryPanel />
       </div>
     </div>
   </main>
