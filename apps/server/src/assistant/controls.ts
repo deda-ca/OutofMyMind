@@ -24,3 +24,20 @@ export function detectControl(text: string): Control | null {
   for (const [control, pattern] of PATTERNS) if (pattern.test(t)) return control
   return null
 }
+
+/** "Jarvis, use Hermes" / "Jarvis, switch to the local model": which brain answers. */
+export function detectBrainSwitch(text: string): 'hermes' | 'local' | null {
+  const t = text
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\b(hey |ok |okay )?jarvis\b/g, ' ')
+    .replace(/\b(please|now|instead)\b/g, ' ')
+    .replace(/[^a-z' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!t || t.split(' ').length > 8) return null
+  const verb = "(use|switch to|change to|go to|go back to|back to|talk to|let me talk to|connect (me )?to|hand (me )?over to|switch over to)"
+  if (new RegExp(`^(${verb} )?(the )?hermes( agent| mode)?$`).test(t) && t !== 'hermes') return 'hermes'
+  if (new RegExp(`^(${verb} )?(the )?(local|local model|local llm|local brain|normal mode|default model|regular model|llama)( model| mode)?$`).test(t) && t !== 'local') return 'local'
+  return null
+}

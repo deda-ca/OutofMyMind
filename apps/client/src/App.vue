@@ -39,6 +39,8 @@ interface Phrase {
   speakerFinal?: boolean
   /** A line from Jarvis (reply, "Yes?", "Okay.", or an error), not something heard. */
   jarvis?: 'reply' | 'wake' | 'dismiss' | 'error'
+  /** What the agent did while answering (Hermes tool use), or notes. */
+  activity?: { kind: string; label: string; emoji?: string }[]
 }
 
 const status = ref<Status>('idle')
@@ -159,6 +161,11 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
     assistant.value = { state: message.state, followUpEndsAt: message.followUpEndsAt, ownerTrained: message.ownerTrained }
     return
   }
+  if (message.type === 'assistant.tool') {
+    const line = phrases.find((p) => p.id === -message.replyId)
+    if (line) (line.activity ??= []).push({ kind: message.kind, label: message.label, emoji: message.emoji })
+    return
+  }
   if (message.type === 'assistant.audio') {
     player.add(message.replyId, message.seq, message.wav)
     return
@@ -235,6 +242,10 @@ async function start(): Promise<void> {
       onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
       onSplit: (id, into) => splitPhrase(current, id, into),
       onAssistant: (message) => onAssistant(current, message),
+      onServerSettings: (server) => {
+        // Only the brain is changed by the server itself (by voice); keep the switch in step.
+        if (server.brain !== settings.brain) settings.brain = server.brain
+      },
       onPhraseDropped: (id) => {
         const index = current.findIndex((p) => p.id === id)
         if (index !== -1) current.splice(index, 1)
@@ -316,6 +327,9 @@ onBeforeUnmount(() => {
               Talking with Jarvis{{ assistant.followUpEndsAt ? ` · follow-ups ${followUpSeconds} s` : '' }}
             </span>
             <span v-else class="text-sm fg-3">Say “Jarvis” to talk to it</span>
+            <span class="badge theme-secondary badge-subtle" :title="settings.brain >= 0.5 ? 'Answers come from Nous Hermes Agent (tools, memory)' : 'Answers come straight from the local LLM'">
+              {{ settings.brain >= 0.5 ? 'Brain: Hermes' : 'Brain: local LLM' }}
+            </span>
             <span v-if="!assistant.ownerTrained" class="badge theme-warning badge-subtle" title="Train your voice on the “Your voice” tab so only you can talk to Jarvis">
               Anyone can talk to Jarvis until you train your voice
             </span>
@@ -384,8 +398,12 @@ onBeforeUnmount(() => {
                 <div v-for="phrase in phrases" :key="phrase.id" class="d-flex gap-3 align-items-baseline">
                   <template v-if="phrase.jarvis">
                     <span class="text-nowrap"><span class="badge theme-info">Jarvis</span></span>
-                    <span :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">
-                      {{ phrase.text || '…' }}
+                    <span class="vstack gap-1">
+                      <span v-for="(a, i) in phrase.activity ?? []" :key="i" class="text-sm" :class="a.kind === 'approval' ? 'fg-warning' : 'fg-3'">
+                        {{ a.emoji ?? (a.kind === 'notice' ? 'ℹ️' : '⚙️') }}
+                        {{ a.kind === 'approval' ? `Hermes is asking for approval: ${a.label} (approve it in Hermes for now)` : a.label }}
+                      </span>
+                      <span :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>
                     </span>
                   </template>
                   <template v-else>

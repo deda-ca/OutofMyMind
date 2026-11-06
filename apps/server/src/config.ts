@@ -29,6 +29,11 @@ export const config = {
   /** OpenAI-compatible chat endpoint (llama.cpp's llama-server). */
   llmUrl: env('LLM_URL', 'http://127.0.0.1:5550'),
   llmModel: env('LLM_MODEL', 'Qwen3.6-35B-A3B'),
+  /** Nous Hermes Agent's OpenAI-compatible API server (the "Hermes" brain). */
+  hermesUrl: env('HERMES_URL', 'http://127.0.0.1:8642'),
+  hermesModel: env('HERMES_MODEL', 'hermes-agent'),
+  /** Its API_SERVER_KEY; put it in .env.local. */
+  hermesApiKey: process.env.HERMES_API_KEY?.trim() || undefined,
   /** Text-to-speech model and voice on audio.cpp, for Jarvis's spoken replies. */
   ttsModel: env('TTS_MODEL', 'Qwen3-TTS'),
   ttsVoice: env('TTS_VOICE', 'jarvis'),

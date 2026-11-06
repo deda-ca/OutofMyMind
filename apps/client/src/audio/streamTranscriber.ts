@@ -26,6 +26,8 @@ export interface StreamSettings {
   followUpMs: number
   /** 1 = Jarvis speaks its replies, 0 = text only. */
   speakReplies: number
+  /** Who answers: 0 = the local LLM, 1 = Nous Hermes Agent. */
+  brain: number
   /** 1 = you can interrupt Jarvis by talking (client only; use headphones). */
   bargeIn: number
   /** Confident speech needed before Jarvis pauses for you (client only). */
@@ -45,6 +47,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakerChangeThreshold: 0.3,
   followUpMs: 30000,
   speakReplies: 1,
+  brain: 0,
   bargeIn: 1,
   bargeInMs: 400,
   duckVolume: 0.3,
@@ -59,6 +62,7 @@ export type AssistantMessage =
   | { type: 'assistant.error'; replyId: number; message: string }
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
   | { type: 'assistant.control'; action: 'stop' | 'continue' | 'repeat' | 'resume'; replyId: number }
+  | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'approval' | 'notice'; label: string; emoji?: string }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {
@@ -130,6 +134,8 @@ export interface TranscriberEvents {
   onSplit?(id: number, into: number[]): void
   /** Jarvis: state changes and replies. */
   onAssistant?(message: AssistantMessage): void
+  /** The server's view of the settings (it may change some itself, e.g. the brain by voice). */
+  onServerSettings?(settings: StreamSettings): void
 
   /** Voice training mode: a clip was accepted or rejected. */
   onEnrollClip?(result: EnrollClipResult): void
@@ -268,6 +274,8 @@ export class StreamTranscriber {
       case 'settings':
         // The server may have clamped values; it decides how long we keep sending after speech.
         this.hangoverFrames = Math.ceil(message.sendHangoverMs / FRAME_MS)
+        // Settings changed on the server's side too (e.g. "Jarvis, use Hermes").
+        this.events.onServerSettings?.(message.settings)
         break
       case 'phrase':
         this.events.onPhrase(message.id, message.text, message.final)
@@ -303,6 +311,7 @@ export class StreamTranscriber {
       case 'assistant.error':
       case 'assistant.audio':
       case 'assistant.control':
+      case 'assistant.tool':
         this.events.onAssistant?.(message)
         break
     }

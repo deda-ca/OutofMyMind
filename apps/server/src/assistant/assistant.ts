@@ -12,8 +12,8 @@
 
 import { config } from '../config.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
-import { detectControl, type Control } from './controls.ts'
-import { LlmError, streamChat, type ChatMessage } from './llm.ts'
+import { detectBrainSwitch, detectControl, type Control } from './controls.ts'
+import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage } from './llm.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
@@ -33,6 +33,8 @@ export type AssistantMessage =
    * a barge-in pause that turned out not to be for Jarvis).
    */
   | { type: 'assistant.control'; action: Control | 'resume'; replyId: number }
+  /** What the agent is doing (Hermes tool use), or a note about the reply (e.g. fell back to the local model). Shown, not spoken. */
+  | { type: 'assistant.tool'; replyId: number; kind: AgentEvent['kind'] | 'notice'; label: string; emoji?: string }
 
 export type ReplyKind = 'reply' | 'wake' | 'dismiss'
 
@@ -51,7 +53,11 @@ export interface AssistantPhrase {
 export interface AssistantOptions {
   emit: (message: AssistantMessage) => void
   /** Archives a reply. */
-  saveReply: (phraseArchiveId: number | null, kind: ReplyKind | 'error' | 'control', text: string, latencyMs: number | null) => void
+  saveReply: (phraseArchiveId: number | null, kind: ReplyKind | 'error' | 'control', text: string, latencyMs: number | null, model: string | null) => void
+  /** Who answers: the local LLM or Hermes. */
+  brain: () => Brain
+  /** Change who answers (voice command); the session updates its settings and tells the client. */
+  setBrain: (brain: Brain) => void
   /** Whether the owner has trained their voice (otherwise anyone may talk to Jarvis). */
   ownerTrained: () => boolean
   /** How long Jarvis keeps listening for follow-ups without the wake word. */
@@ -65,6 +71,9 @@ export interface AssistantOptions {
 const CONTEXT_WINDOW_MS = 2 * 60_000
 const CONTEXT_MAX = 10
 const HISTORY_MAX = 24
+/** Say "One moment." if no words have come after this long (the agent may be running tools). */
+const HERMES_FILLER_MS = 1500
+const LOCAL_FILLER_MS = 4000
 
 export class Assistant {
   private state: AssistantState = 'idle'
@@ -136,12 +145,25 @@ export class Assistant {
     // Stop / continue / repeat: harmless, and a one-word "stop" is too short
     // for a reliable voiceprint, so only a voice that's clearly someone else
     // is ignored.
+    // "Jarvis, use Hermes" / "use the local model": the owner only, when talking to Jarvis.
+    const brainSwitch = authorised ? detectBrainSwitch(text) : null
+    if (brainSwitch && (this.state === 'conversation' || hasWakeWord(text))) {
+      if (this.state !== 'conversation') {
+        this.state = 'conversation'
+        this.history = this.contextMessage()
+      }
+      this.o.setBrain(brainSwitch)
+      this.say(phrase, 'wake', brainSwitch === 'hermes' ? 'Switched to Hermes.' : 'Using the local model.')
+      this.extendFollowUp()
+      return true
+    }
+
     const control = detectControl(text)
     const clearlySomeoneElse = this.o.ownerTrained() && phrase.speaker?.isOwner === false && phrase.speaker.confidence === 'high'
     const listening = this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused' || hasWakeWord(text)
     if (control && listening && !clearlySomeoneElse && this.lastAnswerId > 0) {
       this.control(control)
-      this.o.saveReply(phrase.archiveId, 'control', control, 0)
+      this.o.saveReply(phrase.archiveId, 'control', control, 0, null)
       return true
     }
 
@@ -204,32 +226,53 @@ export class Assistant {
     let partial = ''
     const abort = new AbortController()
     this.generating = abort
+    let target = chatTarget(this.o.brain())
+    // The agent may take a while (tools): say so rather than leave silence.
+    const filler = setTimeout(() => {
+      if (firstWordMs === null && !this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, 'One moment.')
+    }, target.brain === 'hermes' ? HERMES_FILLER_MS : LOCAL_FILLER_MS)
+    const onDelta = (delta: string) => {
+      partial += delta
+      firstWordMs ??= Math.round(performance.now() - started)
+      if (this.closed) return
+      this.o.emit({ type: 'assistant.delta', replyId, delta })
+      for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
+    }
+    const onEvent = (event: AgentEvent) => {
+      if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: event.kind, label: event.label, emoji: event.emoji })
+    }
+    const messages = [this.systemMessage(), ...this.history]
     try {
-      const answer = await streamChat([this.systemMessage(), ...this.history], (delta) => {
-        partial += delta
-        firstWordMs ??= Math.round(performance.now() - started)
-        if (this.closed) return
-        this.o.emit({ type: 'assistant.delta', replyId, delta })
-        for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
-      }, abort.signal)
+      let answer: string
+      try {
+        answer = await streamChat(target, messages, onDelta, abort.signal, onEvent)
+      } catch (err) {
+        // Hermes not running (or its API server off): answer with the local model instead.
+        if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && partial === '')) throw err
+        this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
+        this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label: "Hermes isn't reachable, so the local model answered." })
+        target = chatTarget('local')
+        answer = await streamChat(target, messages, onDelta, abort.signal)
+      }
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
       const clean = answer.trim()
       this.pushHistory({ role: 'assistant', content: clean })
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
-      this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs)
+      this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
     } catch (err) {
       if (abort.signal.aborted) {
         // Interrupted by a new request: keep what was said so far.
         const clean = `${partial.trim()} …`
         this.pushHistory({ role: 'assistant', content: clean })
         if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
-        this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs)
+        this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
       } else {
         const message = err instanceof LlmError ? err.message : `Jarvis couldn't answer: ${(err as Error).message}`
         if (!this.closed) this.o.emit({ type: 'assistant.error', replyId, message })
-        this.o.saveReply(phrase.archiveId, 'error', message, null)
+        this.o.saveReply(phrase.archiveId, 'error', message, null, `${target.brain}:${target.model}`)
       }
     } finally {
+      clearTimeout(filler)
       if (this.generating === abort) this.generating = undefined
     }
     // The follow-up window counts from when Jarvis stops talking (see setPlayback).
@@ -243,7 +286,7 @@ export class Assistant {
     this.o.emit({ type: 'assistant.start', replyId, toPhraseId: phrase.id })
     this.o.emit({ type: 'assistant.done', replyId, text, kind })
     this.speakSentence(replyId, 0, text)
-    this.o.saveReply(phrase.archiveId, kind, text, 0)
+    this.o.saveReply(phrase.archiveId, kind, text, 0, null)
   }
 
   /**

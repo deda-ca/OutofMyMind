@@ -40,5 +40,7 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 | Jarvis answers: wake word "Jarvis", flowing follow-ups, "thanks, Jarvis" to end; only the owner (local Qwen3.6 via llama.cpp) | ✅ Built (M5 step 1) |
 | Jarvis speaks its replies (Qwen3-TTS, sentence by sentence; headphones for now) | ✅ Built |
 | Interrupt Jarvis by talking; "stop", "continue", "repeat" by voice | ✅ Built |
+| Access key sign-in (phone access over the LAN) | ✅ Built |
+| Choose the brain: local LLM or Nous Hermes Agent (switch or by voice; falls back to local) | ✅ Built (Hermes's API server must be enabled) |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Android app | Planned |

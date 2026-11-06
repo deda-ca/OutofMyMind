@@ -25,6 +25,8 @@ export interface StreamSettings {
   followUpMs: number
   /** 1 = Jarvis speaks its replies (text-to-speech), 0 = text only. */
   speakReplies: number
+  /** Who answers: 0 = the local LLM (llama.cpp), 1 = Nous Hermes Agent (tools, memory). */
+  brain: number
 }
 
 export const DEFAULT_SETTINGS: StreamSettings = {
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakerChangeThreshold: 0.3,
   followUpMs: 30000,
   speakReplies: 1,
+  brain: 0,
 }
 
 const RANGES: Record<keyof StreamSettings, [number, number]> = {
@@ -54,6 +57,7 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   speakerChangeThreshold: [0, 0.9],
   followUpMs: [5000, 180000],
   speakReplies: [0, 1],
+  brain: [0, 1],
 }
 
 export function mergeSettings(base: StreamSettings, update: unknown): StreamSettings {

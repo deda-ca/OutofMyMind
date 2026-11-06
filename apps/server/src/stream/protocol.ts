@@ -27,6 +27,7 @@
 //   {"type":"assistant.error","replyId":1,"message":"…"}
 //   {"type":"assistant.audio","replyId":1,"seq":0,"text":"…","wav":"<base64 WAV>","synthMs":290}   one spoken sentence
 //   {"type":"assistant.control","action":"stop"|"continue"|"repeat"|"resume","replyId":1}   playback control
+//   {"type":"assistant.tool","replyId":1,"kind":"tool"|"approval"|"notice","label":"…","emoji":"🔎"}   agent activity (shown, not spoken)
 
 import type { AssistantMessage } from '../assistant/assistant.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
