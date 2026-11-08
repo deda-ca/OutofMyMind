@@ -3,6 +3,7 @@
 // with tools). Hermes adds named SSE events for tool progress and approvals.
 
 import { config } from '../config.ts'
+import { HERMES_SESSION_KEY, hermesSessionId } from './hermesSession.ts'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -16,13 +17,21 @@ export interface ChatTarget {
   url: string
   model: string
   apiKey?: string
+  /**
+   * Hermes: the session Jarvis talks in (X-Hermes-Session-Id). Hermes then
+   * keeps the conversation and loads its history itself, so only the system
+   * prompt and the new message are sent. Needs the API key.
+   */
+  sessionId?: string
   /** Extra request fields (e.g. llama.cpp's chat_template_kwargs). */
   extra?: Record<string, unknown>
 }
 
 export function chatTarget(brain: Brain): ChatTarget {
   if (brain === 'hermes') {
-    return { brain, url: config.hermesUrl, model: config.hermesModel, apiKey: config.hermesApiKey }
+    // Session continuity requires API-key auth on Hermes's side.
+    const sessionId = config.hermesApiKey ? hermesSessionId() : undefined
+    return { brain, url: config.hermesUrl, model: config.hermesModel, apiKey: config.hermesApiKey, sessionId }
   }
   // Thinking off: for spoken conversation a fast short answer beats a slow considered one (0.3 s vs 1.3 s+ measured).
   return { brain, url: config.llmUrl, model: config.llmModel, extra: { chat_template_kwargs: { enable_thinking: false } } }
@@ -39,9 +48,12 @@ export interface AgentEvent {
 export class LlmError extends Error {
   /** The server couldn't be reached or refused us (vs. failing mid-answer). */
   readonly unreachable: boolean
-  constructor(message: string, unreachable = false) {
+  /** Hermes no longer has the session we named (deleted there): start a new one. */
+  readonly sessionGone: boolean
+  constructor(message: string, unreachable = false, sessionGone = false) {
     super(message)
     this.unreachable = unreachable
+    this.sessionGone = sessionGone
   }
 }
 
@@ -64,6 +76,7 @@ export async function streamChat(
       headers: {
         'Content-Type': 'application/json',
         ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
+        ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
       },
       body: JSON.stringify({ model: target.model, messages, stream: true, max_tokens: 1024, temperature: 0.7, ...target.extra }),
       signal,
@@ -74,7 +87,12 @@ export async function streamChat(
   }
   if (!response.ok || !response.body) {
     const detail = (await response.text().catch(() => '')).slice(0, 300)
-    throw new LlmError(`${name} returned HTTP ${response.status}: ${detail}`, response.status === 401 || response.status === 403 || response.status === 404)
+    const sessionGone = !!target.sessionId && response.status === 404 && /not_found/.test(detail)
+    throw new LlmError(
+      `${name} returned HTTP ${response.status}: ${detail}`,
+      response.status === 401 || response.status === 403 || response.status === 404,
+      sessionGone,
+    )
   }
 
   let full = ''

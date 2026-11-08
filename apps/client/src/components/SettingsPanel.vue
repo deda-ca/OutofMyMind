@@ -1,6 +1,22 @@
 <script setup lang="ts">
 import { DEFAULT_SETTINGS, type StreamSettings as TranscriberSettings } from '../audio/streamTranscriber'
+import { ref } from 'vue'
 import { resetSettings, settings } from '../settings'
+
+const dialog = ref<HTMLDialogElement | null>(null)
+
+/** Shown as a modal dialog (gear button in the header); Esc, ✕ or a click outside closes it. */
+function open(): void {
+  dialog.value?.showModal()
+}
+function close(): void {
+  dialog.value?.close()
+}
+/** A click on the backdrop lands on the <dialog> itself, not its content. */
+function backdropClick(event: MouseEvent): void {
+  if (event.target === dialog.value) close()
+}
+defineExpose({ open })
 
 interface Slider {
   key: keyof TranscriberSettings
@@ -121,14 +137,13 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
 </script>
 
 <template>
-  <div class="card">
-    <div class="card-header">
-      <div class="d-flex align-items-center justify-content-between gap-3 w-100">
-        <span class="fw-semibold">Settings</span>
-        <button type="button" class="btn-outline theme-secondary btn-sm" @click="resetSettings">Reset to defaults</button>
-      </div>
+  <dialog ref="dialog" class="dialog dialog-lg dialog-scrollable" aria-labelledby="settings-title" @click="backdropClick">
+    <div class="dialog-header gap-3">
+      <h2 id="settings-title" class="dialog-title">Settings</h2>
+      <button type="button" class="btn-outline theme-secondary btn-sm ms-auto" @click="resetSettings">Reset to defaults</button>
+      <button type="button" class="btn-close ms-0" aria-label="Close" @click="close"></button>
     </div>
-    <div class="card-body vstack gap-4">
+    <div class="dialog-body vstack gap-4">
       <div>
         <div class="d-flex align-items-center gap-2">
           <div class="switch">
@@ -201,5 +216,5 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
       </div>
       <p class="text-sm fg-3 m-0">Changes apply immediately, even while listening, and are saved in this browser.</p>
     </div>
-  </div>
+  </dialog>
 </template>

@@ -13,7 +13,8 @@
 import { config } from '../config.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import { detectBrainSwitch, detectControl, type Control } from './controls.ts'
-import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage } from './llm.ts'
+import { newHermesSession } from './hermesSession.ts'
+import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage, type ChatTarget } from './llm.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
@@ -78,6 +79,14 @@ const LOCAL_FILLER_MS = 4000
 export class Assistant {
   private state: AssistantState = 'idle'
   private history: ChatMessage[] = []
+  /**
+   * What Hermes hasn't seen yet. Hermes keeps its own copy of the
+   * conversation (one long-lived session, hermesSession.ts) and ignores the
+   * history we'd send, so other people's lines, the context before Jarvis was
+   * called, and answers from the local model are passed along with the next
+   * Hermes request instead. Survives the end of a conversation.
+   */
+  private hermesBacklog: ChatMessage[] = []
   private recent: { at: number; who: string; text: string }[] = []
   private followUpTimer?: ReturnType<typeof setTimeout>
   private followUpEndsAt: number | null = null
@@ -111,6 +120,38 @@ export class Assistant {
     // If Jarvis was paused because someone started talking, and this phrase
     // wasn't for Jarvis, it carries on talking.
     if (!this.respond(phrase, text) && this.playback === 'paused') this.control('resume')
+  }
+
+  /**
+   * Text the owner typed, pasted or corrected on screen. It's always meant
+   * for Jarvis and always from the owner, so no wake word or voiceprint is
+   * needed: it starts (or continues) a conversation.
+   */
+  handleTyped(phrase: AssistantPhrase): void {
+    const text = phrase.text.trim()
+    if (!text || this.closed) return
+    if (this.state !== 'conversation') {
+      this.remember('Owner', text)
+      this.state = 'conversation'
+      this.startHistory()
+    }
+    const brainSwitch = detectBrainSwitch(text)
+    const control = detectControl(text)
+    if (brainSwitch) {
+      this.o.setBrain(brainSwitch)
+      this.say(phrase, 'wake', brainSwitch === 'hermes' ? 'Switched to Hermes.' : 'Using the local model.')
+    } else if (control && this.lastAnswerId > 0) {
+      this.control(control)
+      this.o.saveReply(phrase.archiveId, 'control', control, 0, null)
+    } else if (isDismissal(text, true)) {
+      this.dismiss(phrase)
+      return
+    } else if (isWakeOnly(text)) {
+      this.say(phrase, 'wake', 'Yes?')
+    } else {
+      this.request(phrase, text)
+    }
+    this.extendFollowUp()
   }
 
   /**
@@ -150,7 +191,7 @@ export class Assistant {
     if (brainSwitch && (this.state === 'conversation' || hasWakeWord(text))) {
       if (this.state !== 'conversation') {
         this.state = 'conversation'
-        this.history = this.contextMessage()
+        this.startHistory()
       }
       this.o.setBrain(brainSwitch)
       this.say(phrase, 'wake', brainSwitch === 'hermes' ? 'Switched to Hermes.' : 'Using the local model.')
@@ -186,7 +227,7 @@ export class Assistant {
     this.remember(who, text)
     if (!authorised || !hasWakeWord(text) || isDismissal(text, false)) return false
     this.state = 'conversation'
-    this.history = this.contextMessage()
+    this.startHistory()
     this.extendFollowUp()
     if (isWakeOnly(text)) this.say(phrase, 'wake', 'Yes?')
     else this.request(phrase, text)
@@ -241,29 +282,44 @@ export class Assistant {
     const onEvent = (event: AgentEvent) => {
       if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: event.kind, label: event.label, emoji: event.emoji })
     }
-    const messages = [this.systemMessage(), ...this.history]
+    // Everything in the backlog now (ending with this request) goes to Hermes with it.
+    let backlogSent = this.hermesBacklog.length
+    /** Whether Hermes got (and keeps) this turn in its session. */
+    const inHermesSession = () => !!target.sessionId
     try {
       let answer: string
       try {
-        answer = await streamChat(target, messages, onDelta, abort.signal, onEvent)
+        answer = await streamChat(target, this.messagesFor(target, text), onDelta, abort.signal, onEvent)
       } catch (err) {
-        // Hermes not running (or its API server off): answer with the local model instead.
-        if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && partial === '')) throw err
-        this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
-        this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label: "Hermes isn't reachable, so the local model answered." })
-        target = chatTarget('local')
-        answer = await streamChat(target, messages, onDelta, abort.signal)
+        if (err instanceof LlmError && err.sessionGone && partial === '') {
+          // The session was deleted in Hermes: start a new one and give it the conversation so far.
+          this.o.log(`assistant: Hermes session is gone, starting a new one: ${err.message}`)
+          newHermesSession()
+          this.hermesBacklog = [...this.history]
+          backlogSent = this.hermesBacklog.length
+          target = chatTarget('hermes')
+          answer = await streamChat(target, this.messagesFor(target, text), onDelta, abort.signal, onEvent)
+        } else {
+          // Hermes not running (or its API server off): answer with the local model instead.
+          if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && partial === '')) throw err
+          this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
+          this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label: "Hermes isn't reachable, so the local model answered." })
+          target = chatTarget('local')
+          answer = await streamChat(target, this.messagesFor(target, text), onDelta, abort.signal)
+        }
       }
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
       const clean = answer.trim()
-      this.pushHistory({ role: 'assistant', content: clean })
+      if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
+      this.pushHistory({ role: 'assistant', content: clean }, inHermesSession())
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
       this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
     } catch (err) {
       if (abort.signal.aborted) {
         // Interrupted by a new request: keep what was said so far.
         const clean = `${partial.trim()} …`
-        this.pushHistory({ role: 'assistant', content: clean })
+        if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
+        this.pushHistory({ role: 'assistant', content: clean }, inHermesSession())
         if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
         this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
       } else {
@@ -335,9 +391,39 @@ export class Assistant {
     this.announce()
   }
 
-  private pushHistory(message: ChatMessage): void {
+  /** `hermesKnows`: the message is already in Hermes's session (its own answer). */
+  private pushHistory(message: ChatMessage, hermesKnows = false): void {
     this.history.push(message)
     if (this.history.length > HISTORY_MAX) this.history.splice(0, this.history.length - HISTORY_MAX)
+    if (!hermesKnows) this.addToBacklog(message)
+  }
+
+  private addToBacklog(message: ChatMessage): void {
+    this.hermesBacklog.push(message)
+    if (this.hermesBacklog.length > HISTORY_MAX) this.hermesBacklog.splice(0, this.hermesBacklog.length - HISTORY_MAX)
+  }
+
+  /** A conversation starts: what was said just before is its context. */
+  private startHistory(): void {
+    this.history = this.contextMessage()
+    // Just the context itself, not the "Understood." that follows it.
+    if (this.history[0]) this.addToBacklog(this.history[0])
+  }
+
+  /**
+   * The request as sent. The local model gets the whole conversation. Hermes,
+   * in its own session, gets just the new message, with anything it hasn't
+   * seen yet (the backlog, minus this request at its end) in front of it.
+   */
+  private messagesFor(target: ChatTarget, text: string): ChatMessage[] {
+    if (!target.sessionId) return [this.systemMessage(), ...this.history]
+    const missed = this.hermesBacklog.slice(0, -1)
+    if (missed.length === 0) return [this.systemMessage(), { role: 'user', content: text }]
+    const lines = missed.map((m) => (m.role === 'assistant' ? `[You answered]: ${m.content}` : m.content))
+    return [
+      this.systemMessage(),
+      { role: 'user', content: `(Since my last message to you, for context, not requests:)\n${lines.join('\n')}\n\n${text}` },
+    ]
   }
 
   private remember(who: string, text: string): void {

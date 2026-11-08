@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, watch } from 'vue'
 import {
   StreamTranscriber,
   type FrameStats,
@@ -41,6 +41,8 @@ interface Phrase {
   jarvis?: 'reply' | 'wake' | 'dismiss' | 'error'
   /** What the agent did while answering (Hermes tool use), or notes. */
   activity?: { kind: string; label: string; emoji?: string }[]
+  /** Typed or pasted into the message box, not spoken. */
+  typed?: boolean
 }
 
 const status = ref<Status>('idle')
@@ -149,10 +151,36 @@ function splitPhrase(phrases: Phrase[], id: number, into: number[]): void {
   phrases.sort((a, b) => a.order - b.order)
 }
 
-function upsertPhrase(phrases: Phrase[], id: number, text: string, final: boolean): void {
+function upsertPhrase(phrases: Phrase[], id: number, text: string, final: boolean, typed?: boolean): void {
   const phrase = phraseFor(phrases, id)
   phrase.text = text
   phrase.final = final
+  if (typed) phrase.typed = true
+}
+
+/** The message box: type, paste, or fix a misheard phrase, then send it to Jarvis. */
+const draft = ref('')
+const composer = ref<HTMLTextAreaElement | null>(null)
+const canSend = computed(() => status.value === 'listening' && draft.value.trim().length > 0)
+
+function sendDraft(): void {
+  if (!canSend.value || !transcriber?.sendText(draft.value.trim())) return
+  draft.value = ''
+  // Show the message and Jarvis's answer, even if you'd scrolled up to copy something.
+  followTranscript.value = true
+}
+
+/** Enter sends; Shift+Enter is a new line (and Enter while an IME is composing is left alone). */
+function composerKey(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return
+  event.preventDefault()
+  sendDraft()
+}
+
+/** Put a phrase into the message box to correct it and send it again. */
+function editPhrase(phrase: Phrase): void {
+  draft.value = phrase.text
+  composer.value?.focus()
 }
 
 /** Jarvis's replies sit right after the phrase they answer. Reply ids are negative so they never clash with phrase ids. */
@@ -238,7 +266,7 @@ async function start(): Promise<void> {
         if (!state.inPhrase) ignoreUntilPhraseEnds = false
       },
       onRequest: (log) => (requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]),
-      onPhrase: (id, text, final) => upsertPhrase(current, id, text, final),
+      onPhrase: (id, text, final, typed) => upsertPhrase(current, id, text, final, typed),
       onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
       onSplit: (id, into) => splitPhrase(current, id, into),
       onAssistant: (message) => onAssistant(current, message),
@@ -293,6 +321,36 @@ function clear(): void {
   recordings.value = []
 }
 
+/** Opens the settings dialog (gear button). */
+const settingsPanel = ref<InstanceType<typeof SettingsPanel> | null>(null)
+
+/**
+ * The transcript fills the page and follows the conversation: while you're at
+ * the bottom it scrolls as text arrives. Scroll up to read back and it stays
+ * put; scroll down again (or press "Latest") and it follows again.
+ */
+const transcriptEl = ref<HTMLElement | null>(null)
+const followTranscript = ref(true)
+/** How close to the bottom still counts as "at the bottom" (a line or so). */
+const BOTTOM_SLACK_PX = 48
+
+function onTranscriptScroll(): void {
+  const el = transcriptEl.value
+  if (el) followTranscript.value = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX
+}
+
+function scrollTranscriptToEnd(): void {
+  const el = transcriptEl.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+  followTranscript.value = true
+}
+
+// Phrases, live text and Jarvis's streaming replies all change `recordings`.
+watch(recordings, () => followTranscript.value && scrollTranscriptToEnd(), { deep: true, flush: 'post' })
+// Back on the Live tab (it was hidden, so nothing could scroll).
+watch(tab, (value) => value === 'live' && followTranscript.value && nextTick(scrollTranscriptToEnd))
+
 onBeforeUnmount(() => {
   transcriber?.cancel()
   player.close()
@@ -334,7 +392,20 @@ onBeforeUnmount(() => {
               Anyone can talk to Jarvis until you train your voice
             </span>
           </template>
-          <button type="button" class="btn-text btn-sm ms-auto" :disabled="status !== 'idle'" @click="signOut">Sign out</button>
+          <button
+            type="button"
+            class="btn-text btn-sm ms-auto settings-button"
+            title="Settings"
+            aria-label="Settings"
+            aria-haspopup="dialog"
+            @click="settingsPanel?.open()"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+          <button type="button" class="btn-text btn-sm" :disabled="status !== 'idle'" @click="signOut">Sign out</button>
         </header>
 
         <ul class="nav nav-tabs">
@@ -390,8 +461,8 @@ onBeforeUnmount(() => {
 
         <div v-if="error" class="alert theme-danger" role="alert">{{ error }}</div>
 
-        <div class="card">
-          <div class="card-body text-lg" aria-live="polite">
+        <div class="card position-relative">
+          <div ref="transcriptEl" class="card-body text-lg transcript" aria-live="polite" @scroll.passive="onTranscriptScroll">
             <template v-for="(phrases, index) in recordings" :key="index">
               <!-- Once your voice is trained, one line per phrase with who said it; before that, flowing text. -->
               <div v-if="phrases.length && hasSpeakers" class="vstack gap-2 mb-4">
@@ -408,13 +479,31 @@ onBeforeUnmount(() => {
                   </template>
                   <template v-else>
                     <span class="text-nowrap"><SpeakerBadge :speaker="phrase.speaker" :early="!phrase.speakerFinal" /></span>
-                    <span :class="{ 'fg-3': !phrase.final }">{{ phrase.text }}</span>
+                    <span class="phrase" :class="{ 'fg-3': !phrase.final }">
+                      <span v-if="phrase.typed" class="fg-3 text-sm" title="Typed, not spoken">⌨️</span>
+                      {{ phrase.text }}
+                      <button
+                        v-if="phrase.final && phrase.text"
+                        type="button"
+                        class="btn-text btn-sm edit-phrase"
+                        title="Edit and send to Jarvis"
+                        aria-label="Edit and send to Jarvis"
+                        @click="editPhrase(phrase)"
+                      >
+                        ✎
+                      </button>
+                    </span>
                   </template>
                 </div>
               </div>
               <p v-else-if="phrases.length">
                 <template v-for="phrase in phrases" :key="phrase.id">
-                  <span :class="{ 'fg-3': !phrase.final }">{{ phrase.text }}</span>{{ ' ' }}
+                  <span
+                    class="phrase"
+                    :class="{ 'fg-3': !phrase.final, 'phrase-editable': phrase.final && phrase.text }"
+                    :title="phrase.final && phrase.text ? 'Click to edit and send to Jarvis' : undefined"
+                    @click="phrase.final && phrase.text && editPhrase(phrase)"
+                  >{{ phrase.text }}</span>{{ ' ' }}
                 </template>
               </p>
             </template>
@@ -422,12 +511,44 @@ onBeforeUnmount(() => {
               {{ status === 'listening' ? 'Speak now.' : 'Press “Start listening” and start talking.' }}
             </p>
           </div>
+          <button
+            v-if="!followTranscript"
+            type="button"
+            class="btn-solid theme-secondary btn-sm latest-button"
+            @click="scrollTranscriptToEnd"
+          >
+            ↓ Latest
+          </button>
         </div>
+
+        <form class="vstack gap-2" @submit.prevent="sendDraft">
+          <label for="composer" class="visually-hidden">Message to Jarvis</label>
+          <div class="d-flex gap-3 align-items-end">
+            <textarea
+              id="composer"
+              ref="composer"
+              v-model="draft"
+              class="form-control"
+              rows="2"
+              :disabled="status !== 'listening'"
+              :placeholder="
+                status === 'listening'
+                  ? 'Type or paste a message for Jarvis, or press ✎ on something you said to fix it…'
+                  : 'Start listening to talk or type to Jarvis.'
+              "
+              @keydown="composerKey"
+            ></textarea>
+            <button type="submit" class="btn-solid theme-primary" :disabled="!canSend">Send</button>
+          </div>
+          <div class="form-text m-0">
+            Enter sends, Shift+Enter adds a line. Typed messages always go to Jarvis, no “Jarvis” needed.
+          </div>
+        </form>
       </div>
     </div>
 
-    <div v-show="tab === 'live'" class="row justify-content-center gy-5 mt-0">
-      <div class="col-12 lg:col-7">
+    <div v-show="tab === 'live'" class="row justify-content-center mt-5">
+      <div class="col-12">
         <MonitorPanel
           :listening="status === 'listening' || status === 'finishing'"
           :frame="frame"
@@ -437,10 +558,9 @@ onBeforeUnmount(() => {
           :last-speaker="lastSpeaker"
         />
       </div>
-      <div class="col-12 lg:col-5">
-        <SettingsPanel />
-      </div>
     </div>
+
+    <SettingsPanel ref="settingsPanel" />
 
     <div v-if="tab === 'history'" class="row justify-content-center mt-5">
       <div class="col-12">
@@ -461,3 +581,46 @@ onBeforeUnmount(() => {
     </div>
   </main>
 </template>
+
+<style scoped>
+/* The ✎ on your phrases shows on hover (always on touch screens, which can't hover). */
+.edit-phrase {
+  padding-block: 0;
+  line-height: 1;
+}
+@media (hover: hover) {
+  .edit-phrase {
+    opacity: 0;
+  }
+  .phrase:hover .edit-phrase,
+  .edit-phrase:focus-visible {
+    opacity: 1;
+  }
+}
+/*
+ * The transcript fits the page: roughly the window height minus the header,
+ * tabs and buttons above it and the message box below, so the newest line and
+ * the box stay on screen. It scrolls inside itself (see followTranscript).
+ */
+.transcript {
+  height: max(14rem, calc(100dvh - 26rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.latest-button {
+  position: absolute;
+  inset-block-end: 0.75rem;
+  inset-inline-end: 1rem;
+  box-shadow: var(--bs-box-shadow);
+}
+.settings-button {
+  padding-inline: 0.375rem;
+}
+.phrase-editable {
+  cursor: text;
+  border-radius: 0.25rem;
+}
+.phrase-editable:hover {
+  text-decoration: underline dotted;
+}
+</style>

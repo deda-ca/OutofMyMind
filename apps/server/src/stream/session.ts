@@ -26,6 +26,12 @@ const EARLY_GUESS_SPEECH_MS = 1500
 /** Shorter phrases can't hold two clear turns (each piece must be ≥ 1 s, plus the scan windows). */
 const MIN_SPLIT_SECONDS = 3
 
+/** Typed messages longer than this are cut (a pasted document shouldn't flood the LLM). */
+const MAX_TYPED_CHARS = 8000
+
+/** Typed text comes from the signed-in owner's screen, not a voice. */
+const OWNER_TYPED: SpeakerTag = { speakerId: null, name: 'You', named: true, isOwner: true, similarity: null, match: null, confidence: 'high' }
+
 export type SessionMode = 'conversation' | 'enroll'
 
 export interface SessionOptions {
@@ -151,6 +157,31 @@ export class StreamSession {
   /** The client's speech player (Jarvis talking) changed state. */
   playback(state: 'playing' | 'paused' | 'stopped' | 'idle'): void {
     this.assistant?.setPlayback(state)
+  }
+
+  /**
+   * The owner typed, pasted or corrected text on screen: it becomes a phrase
+   * (echoed back so the client shows it in order), is archived without audio,
+   * and goes straight to Jarvis.
+   */
+  typed(text: string): void {
+    if (!this.started) throw new Error('Send "start" before text')
+    if (this.mode !== 'conversation' || !this.assistant) throw new Error('Typed messages are only for conversations')
+    const clean = text.trim().slice(0, MAX_TYPED_CHARS)
+    if (!clean) return
+    const id = this.nextId++
+    const startedAt = new Date()
+    this.emit({ type: 'phrase', id, text: clean, final: true, typed: true })
+    this.emit({ type: 'phrase.speaker', id, final: true, speaker: OWNER_TYPED })
+    const assistant = this.assistant
+    const pending = (this.recorder ? this.recorder.savePhrase(id, startedAt, new Int16Array(0), clean, 'ok', this.language) : Promise.resolve(null))
+      .catch((err: unknown) => {
+        this.log(`archive: could not save typed phrase ${id}`, err)
+        return null
+      })
+      .then((archiveId) => assistant.handleTyped({ id, archiveId, text: clean, speaker: OWNER_TYPED }))
+      .finally(() => this.pendingFinals.delete(pending))
+    this.pendingFinals.add(pending)
   }
 
   /** Finish the phrase in progress and wait for its final text. */

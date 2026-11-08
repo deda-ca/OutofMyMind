@@ -89,20 +89,23 @@ export class Archive {
   }): Promise<number> {
     const day = phrase.startedAt.slice(0, 10).replaceAll('-', '/')
     const relative = path.join('audio', day, `c${phrase.conversationId}-p${phrase.seq}.opus`)
-    let audioPath: string | null = relative
+    // Typed phrases have no audio.
+    let audioPath: string | null = phrase.pcm.length ? relative : null
     let audioBytes: number | null = null
-    try {
-      const file = await encodeOggOpus(phrase.pcm, {
-        title: `Jarvis conversation ${phrase.conversationId}, phrase ${phrase.seq}`,
-        date: phrase.startedAt,
-      })
-      await fs.mkdir(path.join(this.dataDir, path.dirname(relative)), { recursive: true })
-      await fs.writeFile(path.join(this.dataDir, relative), file)
-      audioBytes = file.length
-    } catch (err) {
-      // Keep the transcript even if the audio couldn't be written.
-      audioPath = null
-      console.error(`archive: could not save audio for ${relative}:`, err)
+    if (audioPath) {
+      try {
+        const file = await encodeOggOpus(phrase.pcm, {
+          title: `Jarvis conversation ${phrase.conversationId}, phrase ${phrase.seq}`,
+          date: phrase.startedAt,
+        })
+        await fs.mkdir(path.join(this.dataDir, path.dirname(relative)), { recursive: true })
+        await fs.writeFile(path.join(this.dataDir, relative), file)
+        audioBytes = file.length
+      } catch (err) {
+        // Keep the transcript even if the audio couldn't be written.
+        audioPath = null
+        console.error(`archive: could not save audio for ${relative}:`, err)
+      }
     }
 
     const result = this.db

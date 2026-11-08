@@ -6,12 +6,14 @@
 //   text   {"type":"settings","settings":{…}}                                       any time
 //   text   {"type":"stop"}                                                          finish and close
 //   text   {"type":"playback","state":"playing"|"paused"|"stopped"|"idle"}          the client's speech player (Jarvis talking)
+//   text   {"type":"text","text":"…"}                                               typed (or edited) text for Jarvis, from the owner
 //   binary [float32 LE speech probability][s16le mono PCM samples]                  one VAD frame
 //
 // Server → client
 //   {"type":"ready","settings":{…},"sendHangoverMs":1500}
 //   {"type":"settings","settings":{…},"sendHangoverMs":1500}
 //   {"type":"phrase","id":3,"text":"…","final":false}
+//   {"type":"phrase","id":4,"text":"…","final":true,"typed":true}   echo of a "text" message (always final, always the owner)
 //   {"type":"phrase.dropped","id":3}
 //   {"type":"phrase.split","id":3,"into":[7,8,9]}   phrase 3 had several speakers: it is now phrases 7, 8, 9 (in order)
 //   {"type":"phrase.speaker","id":3,"final":false,"speaker":{"speakerId":1,"isOwner":true,"similarity":0.71,"confidence":"high"}}
@@ -66,11 +68,12 @@ export type ClientMessage =
   | { type: 'settings'; settings: Partial<StreamSettings> }
   | { type: 'stop' }
   | { type: 'playback'; state: 'playing' | 'paused' | 'stopped' | 'idle' }
+  | { type: 'text'; text: string }
 
 export type ServerMessage =
   | { type: 'ready'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'settings'; settings: StreamSettings; sendHangoverMs: number }
-  | { type: 'phrase'; id: number; text: string; final: boolean }
+  | { type: 'phrase'; id: number; text: string; final: boolean; typed?: boolean }
   | { type: 'phrase.dropped'; id: number }
   | { type: 'phrase.split'; id: number; into: number[] }
   | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }

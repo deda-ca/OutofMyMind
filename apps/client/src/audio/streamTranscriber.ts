@@ -121,8 +121,8 @@ export interface UploadStats {
 }
 
 export interface TranscriberEvents {
-  /** A phrase was created or its text changed. `final` text won't change again. */
-  onPhrase(id: number, text: string, final: boolean): void
+  /** A phrase was created or its text changed. `final` text won't change again. `typed`: sent with sendText, not spoken. */
+  onPhrase(id: number, text: string, final: boolean, typed?: boolean): void
   onPhraseDropped(id: number): void
   onError(message: string): void
   onFrame?(stats: FrameStats, upload: UploadStats): void
@@ -143,7 +143,7 @@ export interface TranscriberEvents {
 
 type ServerMessage =
   | { type: 'ready' | 'settings'; settings: StreamSettings; sendHangoverMs: number }
-  | { type: 'phrase'; id: number; text: string; final: boolean }
+  | { type: 'phrase'; id: number; text: string; final: boolean; typed?: boolean }
   | { type: 'phrase.dropped'; id: number }
   | { type: 'phrase.split'; id: number; into: number[] }
   | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }
@@ -203,6 +203,13 @@ export class StreamTranscriber {
   /** Tell the server what Jarvis's speech player is doing. */
   sendPlayback(state: 'idle' | 'playing' | 'paused' | 'stopped'): void {
     this.sendJson({ type: 'playback', state })
+  }
+
+  /** Send typed (or corrected) text straight to Jarvis. Returns false if not connected. */
+  sendText(text: string): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN || this.closing) return false
+    this.sendJson({ type: 'text', text })
+    return true
   }
 
   updateSettings(settings: StreamSettings): void {
@@ -278,7 +285,7 @@ export class StreamTranscriber {
         this.events.onServerSettings?.(message.settings)
         break
       case 'phrase':
-        this.events.onPhrase(message.id, message.text, message.final)
+        this.events.onPhrase(message.id, message.text, message.final, message.typed)
         break
       case 'phrase.dropped':
         this.events.onPhraseDropped(message.id)

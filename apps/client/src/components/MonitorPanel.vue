@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { FrameStats, PhraseState, RequestLog, SpeakerTag, UploadStats } from '../audio/streamTranscriber'
 import { settings } from '../settings'
 
@@ -11,6 +11,24 @@ const props = defineProps<{
   requests: RequestLog[]
   lastSpeaker: SpeakerTag | null
 }>()
+
+/** Collapsed by default: just the state and a one-line summary. Remembered in this browser. */
+const EXPANDED_KEY = 'jarvis.monitorExpanded'
+const expanded = ref(readExpanded())
+watch(expanded, (value) => {
+  try {
+    localStorage.setItem(EXPANDED_KEY, value ? '1' : '0')
+  } catch {
+    // Storage blocked: it just won't be remembered.
+  }
+})
+function readExpanded(): boolean {
+  try {
+    return localStorage.getItem(EXPANDED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 /** Similarity is roughly 0–1 (cosine); clamp for the bar. */
 const voicePercent = computed(() => Math.max(0, Math.min(100, (props.lastSpeaker?.similarity ?? 0) * 100)))
@@ -73,12 +91,26 @@ const instant = '--bs-progress-bar-transition: none'
 <template>
   <div class="card">
     <div class="card-header">
-      <div class="d-flex align-items-center justify-content-between gap-3 w-100">
+      <div class="d-flex align-items-center gap-3 w-100">
         <span class="fw-semibold">Monitor</span>
         <span class="badge" :class="state.theme">{{ state.label }}</span>
+        <span v-if="!expanded" class="text-sm fg-3 font-monospace text-truncate d-none sm:d-inline">
+          {{ frame ? `${frame.levelDb.toFixed(0)} dB · speech ${frame.probability.toFixed(2)}` : '' }}
+          {{ counts.final ? ` · ${counts.final} final${counts.final === 1 ? '' : 's'} (${stats('final')})` : '' }}
+          {{ counts.errors ? ` · ${counts.errors} error${counts.errors === 1 ? '' : 's'}` : '' }}
+        </span>
+        <button
+          type="button"
+          class="btn-text btn-sm ms-auto"
+          :aria-expanded="expanded"
+          aria-controls="monitor-details"
+          @click="expanded = !expanded"
+        >
+          {{ expanded ? 'Collapse ▴' : 'Expand ▾' }}
+        </button>
       </div>
     </div>
-    <div class="card-body vstack gap-4">
+    <div v-if="expanded" id="monitor-details" class="card-body vstack gap-4">
       <div>
         <div class="d-flex justify-content-between text-sm mb-1">
           <span>Microphone level</span>

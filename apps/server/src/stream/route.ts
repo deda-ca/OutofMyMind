@@ -64,6 +64,10 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
           case 'playback':
             if (['playing', 'paused', 'stopped', 'idle'].includes(message.state)) session.playback(message.state)
             break
+          case 'text':
+            if (typeof message.text !== 'string') return fail('"text" needs a string')
+            session.typed(message.text)
+            break
           case 'stop':
             void session.stop().then(() => socket.close(1000, 'stopped'))
             break
