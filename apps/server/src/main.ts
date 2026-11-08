@@ -1,11 +1,14 @@
 import { buildApp } from './app.ts'
 import { loadAccessKey } from './auth.ts'
 import { config } from './config.ts'
+import { harness } from './harness/index.ts'
 import { VoiceprintModel } from './speaker/voiceprint.ts'
 
 const voiceprintModel = await VoiceprintModel.load(config.voiceprintModel, (message) => console.warn(message))
 const access = loadAccessKey(config.dataDir, config.accessKey)
 const app = buildApp({ voiceprintModel, accessKey: access.key })
+app.addHook('onClose', () => harness.close())
+await harness.start(config.mcpConfig, (message, err) => (err ? console.warn(message, err) : console.log(message)))
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

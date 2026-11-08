@@ -34,6 +34,8 @@ export const config = {
   hermesModel: env('HERMES_MODEL', 'hermes-agent'),
   /** Its API_SERVER_KEY; put it in .env.local. */
   hermesApiKey: process.env.HERMES_API_KEY?.trim() || undefined,
+  /** MCP plugins for the harness (tools for the local brain). See src/harness/config.ts. */
+  mcpConfig: path.resolve(env('MCP_CONFIG', 'mcp.json')),
   /** Text-to-speech model and voice on audio.cpp, for Jarvis's spoken replies. */
   ttsModel: env('TTS_MODEL', 'Qwen3-TTS'),
   ttsVoice: env('TTS_VOICE', 'jarvis'),

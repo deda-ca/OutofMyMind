@@ -11,9 +11,10 @@
 // too, never sent to the LLM (controls.ts).
 
 import { config } from '../config.ts'
+import { harness, type LoopMessage, type LoopResult } from '../harness/index.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import { detectBrainSwitch, detectControl, type Control } from './controls.ts'
-import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage } from './llm.ts'
+import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage, type ChatTarget } from './llm.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
@@ -77,7 +78,8 @@ const LOCAL_FILLER_MS = 4000
 
 export class Assistant {
   private state: AssistantState = 'idle'
-  private history: ChatMessage[] = []
+  /** The conversation, including the harness's tool calls and results (plain chat gets them stripped). */
+  private history: LoopMessage[] = []
   private recent: { at: number; who: string; text: string }[] = []
   private followUpTimer?: ReturnType<typeof setTimeout>
   private followUpEndsAt: number | null = null
@@ -241,22 +243,25 @@ export class Assistant {
     const onEvent = (event: AgentEvent) => {
       if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: event.kind, label: event.label, emoji: event.emoji })
     }
-    const messages = [this.systemMessage(), ...this.history]
+    const messages: LoopMessage[] = [this.systemMessage(), ...this.history]
+    const notice = (label: string) => {
+      if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label })
+    }
     try {
-      let answer: string
+      let answer: LoopResult
       try {
-        answer = await streamChat(target, messages, onDelta, abort.signal, onEvent)
+        answer = await this.ask(target, messages, onDelta, abort.signal, onEvent, notice, () => partial === '')
       } catch (err) {
         // Hermes not running (or its API server off): answer with the local model instead.
         if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && partial === '')) throw err
         this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
-        this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label: "Hermes isn't reachable, so the local model answered." })
+        notice("Hermes isn't reachable, so the local model answered.")
         target = chatTarget('local')
-        answer = await streamChat(target, messages, onDelta, abort.signal)
+        answer = await this.ask(target, messages, onDelta, abort.signal, onEvent, notice, () => partial === '')
       }
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
-      const clean = answer.trim()
-      this.pushHistory({ role: 'assistant', content: clean })
+      const clean = answer.text.trim()
+      this.pushHistory(...answer.steps.map(forHistory), { role: 'assistant', content: clean })
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
       this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
     } catch (err) {
@@ -277,6 +282,38 @@ export class Assistant {
     }
     // The follow-up window counts from when Jarvis stops talking (see setPlayback).
     if (this.state === 'conversation') this.extendFollowUp()
+  }
+
+  /**
+   * The local brain answers through the harness (with plugin tools) when any
+   * plugin is up; Hermes has its own tools. If the tool request is refused
+   * before anything was said (e.g. a llama-server without tool support), the
+   * reply is retried as plain chat: the client is told, and the model is told
+   * it has no tools this time, so it can't claim to have saved anything.
+   */
+  private async ask(
+    target: ChatTarget,
+    messages: LoopMessage[],
+    onDelta: (text: string) => void,
+    signal: AbortSignal,
+    onEvent: (event: AgentEvent) => void,
+    notice: (label: string) => void,
+    nothingSaid: () => boolean,
+  ): Promise<LoopResult> {
+    if (target.brain !== 'local' || !harness.active) return { text: await streamChat(target, plainChat(messages), onDelta, signal, onEvent), steps: [] }
+    try {
+      return await harness.run(target, messages, onDelta, signal, onEvent)
+    } catch (err) {
+      if (signal.aborted || !(err instanceof LlmError) || err.unreachable || !nothingSaid()) throw err
+      this.o.log(`assistant: the LLM refused the request with tools, answering without them: ${err.message}`)
+      notice("Tools aren't working right now, so this answer didn't use them.")
+      const [system, ...rest] = plainChat(messages)
+      const noTools: ChatMessage = {
+        role: 'system',
+        content: `${system.content}\nYour tools are unavailable for this reply. Don't say you saved, changed or looked anything up; if the request needs a tool, say you can't do it right now.`,
+      }
+      return { text: await streamChat(target, [noTools, ...rest], onDelta, signal), steps: [] }
+    }
   }
 
   /** A fixed short reply, no LLM ("Yes?", "Okay."). */
@@ -335,9 +372,11 @@ export class Assistant {
     this.announce()
   }
 
-  private pushHistory(message: ChatMessage): void {
-    this.history.push(message)
+  private pushHistory(...messages: LoopMessage[]): void {
+    this.history.push(...messages)
     if (this.history.length > HISTORY_MAX) this.history.splice(0, this.history.length - HISTORY_MAX)
+    // Tool results whose call was trimmed away would be invalid.
+    while (this.history[0]?.role === 'tool') this.history.shift()
   }
 
   private remember(who: string, text: string): void {
@@ -373,4 +412,17 @@ export class Assistant {
       ].join('\n'),
     }
   }
+}
+
+/** Longest tool result kept in the history (the full one was used for the reply). */
+const HISTORY_TOOL_CHARS = 2000
+
+function forHistory(message: LoopMessage): LoopMessage {
+  if (message.role !== 'tool' || message.content.length <= HISTORY_TOOL_CHARS) return message
+  return { ...message, content: `${message.content.slice(0, HISTORY_TOOL_CHARS)} … (cut)` }
+}
+
+/** The history for plain chat (Hermes, or no tools): tool calls and results left out. */
+function plainChat(messages: LoopMessage[]): ChatMessage[] {
+  return messages.filter((m): m is ChatMessage => m.role !== 'tool' && !('tool_calls' in m))
 }

@@ -46,16 +46,10 @@ export class LlmError extends Error {
 }
 
 /**
- * Streams a reply, calling `onDelta` with each piece of text as it arrives
- * (and `onEvent` for agent tool progress). Returns the full reply.
+ * Sends a streaming chat-completions request. Throws an LlmError if the server
+ * can't be reached or answers with an error.
  */
-export async function streamChat(
-  target: ChatTarget,
-  messages: ChatMessage[],
-  onDelta: (text: string) => void,
-  signal?: AbortSignal,
-  onEvent?: (event: AgentEvent) => void,
-): Promise<string> {
+export async function postChat(target: ChatTarget, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
   const name = target.brain === 'hermes' ? 'Hermes' : 'the LLM'
   let response: Response
   try {
@@ -65,7 +59,7 @@ export async function streamChat(
         'Content-Type': 'application/json',
         ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
       },
-      body: JSON.stringify({ model: target.model, messages, stream: true, max_tokens: 1024, temperature: 0.7, ...target.extra }),
+      body: JSON.stringify({ model: target.model, stream: true, max_tokens: 1024, temperature: 0.7, ...target.extra, ...body }),
       signal,
     })
   } catch (err) {
@@ -76,13 +70,16 @@ export async function streamChat(
     const detail = (await response.text().catch(() => '')).slice(0, 300)
     throw new LlmError(`${name} returned HTTP ${response.status}: ${detail}`, response.status === 401 || response.status === 403 || response.status === 404)
   }
+  return response
+}
 
-  let full = ''
+/** The server-sent events of a streaming response, until `[DONE]`. `event` is '' for plain data lines. */
+export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: Record<string, unknown> }> {
   let buffer = ''
   let event = ''
   const decoder = new TextDecoder()
-  for await (const chunk of response.body) {
-    buffer += decoder.decode(chunk as Uint8Array, { stream: true })
+  for await (const chunk of body) {
+    buffer += decoder.decode(chunk, { stream: true })
     let newline: number
     while ((newline = buffer.indexOf('\n')) !== -1) {
       const line = buffer.slice(0, newline).trim()
@@ -97,27 +94,43 @@ export async function streamChat(
       }
       if (!line.startsWith('data:')) continue
       const data = line.slice(5).trim()
-      if (data === '[DONE]') return full
-      let parsed: Record<string, unknown>
+      if (data === '[DONE]') return
       try {
-        parsed = JSON.parse(data) as Record<string, unknown>
+        yield { event, data: JSON.parse(data) as Record<string, unknown> }
       } catch {
-        continue // keep-alive or malformed
+        // keep-alive or malformed
       }
-      if (event === 'hermes.tool.progress') {
-        if (parsed.status === 'running') onEvent?.({ kind: 'tool', label: String(parsed.label ?? parsed.tool ?? 'working'), emoji: parsed.emoji as string | undefined, status: 'running' })
-        continue
-      }
-      if (event === 'approval.request') {
-        onEvent?.({ kind: 'approval', label: String(parsed.description ?? parsed.command ?? parsed.tool ?? 'an action'), status: 'waiting' })
-        continue
-      }
-      if (event) continue // other named events (status, …)
-      const delta = (parsed as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
-      if (delta) {
-        full += delta
-        onDelta(delta)
-      }
+    }
+  }
+}
+
+/**
+ * Streams a reply, calling `onDelta` with each piece of text as it arrives
+ * (and `onEvent` for agent tool progress). Returns the full reply.
+ */
+export async function streamChat(
+  target: ChatTarget,
+  messages: ChatMessage[],
+  onDelta: (text: string) => void,
+  signal?: AbortSignal,
+  onEvent?: (event: AgentEvent) => void,
+): Promise<string> {
+  const response = await postChat(target, { messages }, signal)
+  let full = ''
+  for await (const { event, data: parsed } of readSse(response.body!)) {
+    if (event === 'hermes.tool.progress') {
+      if (parsed.status === 'running') onEvent?.({ kind: 'tool', label: String(parsed.label ?? parsed.tool ?? 'working'), emoji: parsed.emoji as string | undefined, status: 'running' })
+      continue
+    }
+    if (event === 'approval.request') {
+      onEvent?.({ kind: 'approval', label: String(parsed.description ?? parsed.command ?? parsed.tool ?? 'an action'), status: 'waiting' })
+      continue
+    }
+    if (event) continue // other named events (status, …)
+    const delta = (parsed as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
+    if (delta) {
+      full += delta
+      onDelta(delta)
     }
   }
   return full
