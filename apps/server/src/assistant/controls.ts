@@ -41,3 +41,17 @@ export function detectBrainSwitch(text: string): 'hermes' | 'local' | null {
   if (new RegExp(`^(${verb} )?(the )?(local|local model|local llm|local brain|normal mode|default model|regular model|llama)( model| mode)?$`).test(t) && t !== 'local') return 'local'
   return null
 }
+
+/** "Jarvis, new session" / "start a new conversation" / "start over": Jarvis starts a fresh session. */
+export function detectNewSession(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\b(hey |ok |okay )?jarvis\b/g, ' ')
+    .replace(/\b(please|now)\b/g, ' ')
+    .replace(/[^a-z' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!t || t.split(' ').length > 7) return false
+  return /^((let's |let us |can we |can you )?(start|begin|open|make|create) )?(a )?(new|fresh) (session|conversation|chat)$/.test(t) || /^(let's )?start (over|afresh|fresh)$/.test(t)
+}

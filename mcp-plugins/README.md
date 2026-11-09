@@ -7,7 +7,7 @@ Same rules as the rest of Jarvis: local and private, TypeScript run directly by 
 | Plugin | Tools | Configuration |
 | --- | --- | --- |
 | [weather](weather/server.ts) | `get_weather`: now (temperature, feels-like, conditions, humidity, wind) and 1–7 days (min/max, conditions, chance of precipitation) for a city, with province/state and country to pick the right one ("Kingston, Ontario" vs Jamaica) | `WEATHER_HOME` (e.g. `Ottawa, Ontario, Canada`: used when no place is named) and `WEATHER_UNITS` (`celsius`, default, or `fahrenheit`); set them in `apps/server/.env.local`. Uses [Open-Meteo](https://open-meteo.com), free and keyless. ⚠️ Needs the internet: the place name and coordinates are sent to open-meteo.com. |
-| [notes](notes/server.ts) | `list_notes`, `read_note`, `search_notes`, `write_note`, `append_to_note` | `NOTES_DIR`: the folder of markdown notes (default in `mcp.json`: `apps/server/data/notes`). Paths can't leave it (no `..`, absolute paths or symlinks out); `.md` files only, 256 KB each. |
+| [notes](notes/server.ts) | `list_notes`, `read_note`, `search_notes`, `write_note`, `append_to_note` | `NOTES_DIR`: the folder of markdown notes (default in `mcp.json`: `notes/` inside the workspace folder, `apps/server/data/workspace/notes`). Paths can't leave it (no `..`, absolute paths or symlinks out); `.md` files only, 256 KB each. |
 
 ```bash
 npm install

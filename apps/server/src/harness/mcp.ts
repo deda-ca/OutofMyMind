@@ -11,6 +11,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { PluginConfig } from './config.ts'
+import { classify, type Crud, type CrudSource } from './crud.ts'
 
 /** A tool as the chat-completions API takes it. */
 export interface FunctionTool {
@@ -29,6 +30,19 @@ export interface PluginStatus {
   tools: string[]
   error?: string
 }
+
+/** A plugin and everything its tools take, for the Tools tab. */
+export interface PluginInfo {
+  name: string
+  transport: 'stdio' | 'http'
+  connected: boolean
+  connecting: boolean
+  error?: string
+  tools: { name: string; title?: string; description?: string; parameters: Record<string, unknown>; crud: Crud[]; crudSource: CrudSource }[]
+}
+
+/** Whether the LLM may use a plugin's tool (the owner's on/off switches), given what it does. */
+export type ToolFilter = (plugin: string, tool: string, crud: Crud[]) => boolean
 
 const CONNECT_TIMEOUT_MS = 15_000
 const RETRY_AFTER_MS = 30_000
@@ -50,11 +64,13 @@ export class McpHub {
   /** "<plugin>__<tool>" → where it lives. */
   private routes = new Map<string, { connection: Connection; tool: Tool }>()
   private readonly log: (message: string, err?: unknown) => void
+  private readonly allowed: ToolFilter
   private closed = false
 
-  constructor(plugins: PluginConfig[], log: (message: string, err?: unknown) => void) {
+  constructor(plugins: PluginConfig[], log: (message: string, err?: unknown) => void, allowed: ToolFilter = () => true) {
     this.connections = plugins.map((config) => ({ config, tools: [], connected: false, lastAttempt: 0 }))
     this.log = log
+    this.allowed = allowed
   }
 
   /** Connects every plugin (in parallel); failures are logged, not thrown. */
@@ -70,21 +86,40 @@ export class McpHub {
     return this.connections.map((c) => ({ name: c.config.name, connected: c.connected, tools: c.tools.map((t) => t.name), error: c.error }))
   }
 
-  /** The tools of every connected plugin. Kicks off a reconnect for plugins that are down. */
+  /** Every plugin with its tools' full descriptions (switched off or not). */
+  catalog(): PluginInfo[] {
+    return this.connections.map((c) => ({
+      name: c.config.name,
+      transport: c.config.transport.kind,
+      connected: c.connected,
+      connecting: !!c.connecting,
+      error: c.error,
+      tools: c.tools.map((t) => {
+        const tags = this.crud(c, t)
+        return { name: t.name, title: t.title, description: t.description, parameters: t.inputSchema as Record<string, unknown>, crud: tags.kinds, crudSource: tags.source }
+      }),
+    }))
+  }
+
+  /** The tools the LLM may use: of connected plugins, and switched on. Kicks off a reconnect for plugins that are down. */
   tools(): FunctionTool[] {
     for (const c of this.connections) {
       if (!this.closed && !c.connected && !c.connecting && Date.now() - c.lastAttempt > RETRY_AFTER_MS) void this.connect(c)
     }
-    return [...this.routes].map(([name, { tool }]) => ({
-      type: 'function',
-      function: { name, description: tool.description ?? tool.title, parameters: tool.inputSchema as Record<string, unknown> },
-    }))
+    return [...this.routes]
+      .filter(([, { connection, tool }]) => this.permitted(connection, tool))
+      .map(([name, { tool }]) => ({
+        type: 'function',
+        function: { name, description: tool.description ?? tool.title, parameters: tool.inputSchema as Record<string, unknown> },
+      }))
   }
 
   /** What each connected plugin says about itself (MCP `instructions`), for the system prompt. */
-  instructions(): string[] {
+  instructions(allow: (functionName: string) => boolean = () => true): string[] {
     return this.connections.flatMap((c) => {
-      const text = c.connected ? c.client?.getInstructions()?.trim() : undefined
+      const usable = c.connected && c.tools.some((t) => this.permitted(c, t) && allow(functionName(c.config.name, t.name)))
+      if (!usable) return []
+      const text = [c.client?.getInstructions()?.trim(), c.config.instructions].filter(Boolean).join(' ')
       return text ? [`${c.config.name}: ${text}`] : []
     })
   }
@@ -100,6 +135,7 @@ export class McpHub {
     const route = this.routes.get(name)
     if (!route || !route.connection.connected || !route.connection.client) return { text: `The tool "${name}" isn't available right now.`, isError: true }
     const { connection, tool } = route
+    if (!this.permitted(connection, tool)) return { text: `The tool "${name}" is switched off.`, isError: true }
     try {
       const result = await connection.client!.callTool({ name: tool.name, arguments: args }, undefined, { signal, timeout: connection.config.timeoutMs })
       const outcome = { text: truncate(resultText(result)), isError: result.isError === true }
@@ -167,6 +203,15 @@ export class McpHub {
       for (const line of chunk.toString().split('\n')) if (line.trim()) this.log(`[${config.name}] ${line}`)
     })
     return transport
+  }
+
+  /** What a tool does (create / read / update / delete). */
+  private crud(c: Connection, tool: Tool) {
+    return classify(tool, c.config.crud?.[tool.name])
+  }
+
+  private permitted(c: Connection, tool: Tool): boolean {
+    return this.allowed(c.config.name, tool.name, this.crud(c, tool).kinds)
   }
 
   private rebuildRoutes(): void {

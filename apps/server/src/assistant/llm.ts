@@ -4,6 +4,7 @@
 
 import { config } from '../config.ts'
 import { HERMES_SESSION_KEY, hermesSessionId } from './hermesSession.ts'
+import { llmTap, teeBody, traceHeaders } from './llmTap.ts'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -63,24 +64,55 @@ export class LlmError extends Error {
  */
 export async function postChat(target: ChatTarget, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
   const name = target.brain === 'hermes' ? 'Hermes' : 'the LLM'
+  const url = new URL('/v1/chat/completions', target.url)
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
+    ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
+  }
+  const json = { model: target.model, stream: true, max_tokens: 1024, temperature: 0.7, ...target.extra, ...body }
+
+  // The Debug tab: a copy of the exchange, only while a client is watching.
+  const traceId = llmTap.active ? llmTap.id() : 0
+  const sentAt = performance.now()
+  const traceResponse = (status: number, responseHeaders: Record<string, string>, raw: string, firstByteAt: number | null, ended?: string) => {
+    if (!traceId) return
+    const now = performance.now()
+    llmTap.emit('response', {
+      id: traceId,
+      at: new Date().toISOString(),
+      status,
+      headers: responseHeaders,
+      raw,
+      firstByteMs: firstByteAt === null ? null : Math.round(firstByteAt - sentAt),
+      durationMs: Math.round(now - sentAt),
+      ...(ended ? { ended } : {}),
+    })
+  }
+  if (traceId) {
+    llmTap.emit('request', { id: traceId, at: new Date().toISOString(), brain: target.brain, model: target.model, method: 'POST', url: url.href, headers: traceHeaders(headers), body: json })
+  }
+
   let response: Response
   try {
-    response = await fetch(new URL('/v1/chat/completions', target.url), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
-        ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
-      },
-      body: JSON.stringify({ model: target.model, stream: true, max_tokens: 1024, temperature: 0.7, ...target.extra, ...body }),
-      signal,
-    })
+    response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(json), signal })
   } catch (err) {
+    traceResponse(0, {}, '', null, signal?.aborted ? 'aborted' : (err as Error).message)
     if (signal?.aborted) throw err
     throw new LlmError(`Could not reach ${name} at ${target.url}: ${(err as Error).message}`, true)
   }
+  if (traceId && response.ok && response.body) {
+    const responseHeaders = traceHeaders(response.headers)
+    const status = response.status
+    response = new Response(
+      teeBody(response.body, signal, (raw, firstByteAt, ended) => traceResponse(status, responseHeaders, raw, firstByteAt, ended)),
+      { status: response.status, statusText: response.statusText, headers: response.headers },
+    )
+  }
   if (!response.ok || !response.body) {
-    const detail = (await response.text().catch(() => '')).slice(0, 300)
+    const fullDetail = await response.text().catch(() => '')
+    traceResponse(response.status, traceHeaders(response.headers), fullDetail, null)
+    const detail = fullDetail.slice(0, 300)
     const sessionGone = !!target.sessionId && response.status === 404 && /not_found/.test(detail)
     throw new LlmError(
       `${name} returned HTTP ${response.status}: ${detail}`,

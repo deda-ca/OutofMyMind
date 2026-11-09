@@ -6,7 +6,7 @@ import path from 'node:path'
 import { after, before, test } from 'node:test'
 import type { ChatTarget } from '../src/assistant/llm.ts'
 import { loadPluginConfig } from '../src/harness/config.ts'
-import { withToolGuidance } from '../src/harness/index.ts'
+import { toolGuidance } from '../src/harness/index.ts'
 import { runLoop, type LoopMessage, type ToolHost } from '../src/harness/loop.ts'
 import { McpHub } from '../src/harness/mcp.ts'
 
@@ -132,11 +132,8 @@ test('the hub runs the real notes plugin over stdio', async () => {
 })
 
 test('tool guidance and plugin instructions are added to the system message', () => {
-  const [system, user] = withToolGuidance([{ role: 'system', content: 'You are Jarvis.' }, { role: 'user', content: 'hi' }], ['weather: The owner lives in Ottawa.'])
-  assert.equal(system.role, 'system')
-  if (system.role !== 'system') return
-  assert.match(system.content, /^You are Jarvis\.\nYou have tools\..*never guess/s)
-  assert.match(system.content, /- weather: The owner lives in Ottawa\.$/)
-  assert.deepEqual(user, { role: 'user', content: 'hi' })
-  assert.equal(withToolGuidance([{ role: 'user', content: 'hi' }], [])[0].role, 'system')
+  const guidance = toolGuidance(['weather: The owner lives in Ottawa.'])
+  assert.match(guidance, /^You have tools\..*never guess/s)
+  assert.match(guidance, /- weather: The owner lives in Ottawa\.$/)
+  assert.doesNotMatch(toolGuidance([]), /About the tools/)
 })

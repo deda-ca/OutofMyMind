@@ -8,7 +8,10 @@
 
 import type { ConversationRecorder, PhraseStatus } from '../archive/archive.ts'
 import { Assistant } from '../assistant/assistant.ts'
+import { llmTap, type LlmRequestTrace, type LlmResponseTrace } from '../assistant/llmTap.ts'
 import { transcribePcm } from '../audiocpp.ts'
+import type { AgentLibrary } from '../agents/library.ts'
+import type { SessionStore } from '../sessions/store.ts'
 import type { SpeakerTag, Speakers } from '../speaker/speakers.ts'
 import { PhraseSegmenter, type SegmenterEvent, type SegmenterOptions } from './phraseSegmenter.ts'
 import { STREAM_SAMPLE_RATE, type RequestLog, type ServerMessage } from './protocol.ts'
@@ -41,6 +44,10 @@ export interface SessionOptions {
   speakers?: Speakers
   /** "enroll": the owner is training their voice; accepted phrases join their library. */
   mode?: SessionMode
+  /** Jarvis's saved sessions (conversations); without it the conversation is kept in memory only. */
+  sessions?: SessionStore
+  /** SYSTEM.md and the agents; the built-in defaults without it. */
+  agents?: AgentLibrary
   log?: (message: string, err?: unknown) => void
 }
 
@@ -119,10 +126,42 @@ export class StreamSession {
             ownerTrained: () => (speakers ? speakers.ownerClips().length > 0 : false),
             followUpMs: () => this.settings.followUpMs,
             speak: () => this.settings.speakReplies >= 0.5,
+            session: options.sessions && {
+              entries: () => options.sessions!.entries(),
+              agentId: () => options.sessions!.agentId(),
+              record: (entry) => options.sessions!.record(entry),
+              startNew: () => options.sessions!.startNew(),
+            },
+            agents: options.agents,
             log: this.log,
           })
         : undefined
     this.segmenter = new PhraseSegmenter({ sampleRate: STREAM_SAMPLE_RATE, ...segmenterOptions(this.settings) })
+    // Any session change (here, on another device, or in the client's session list) is passed on.
+    if (this.assistant && options.sessions) {
+      const store = options.sessions
+      const onChange = (activeId: string | null) => this.emit({ type: 'sessions.changed', activeId })
+      store.on('change', onChange)
+      this.unsubscribe = () => store.off('change', onChange)
+    }
+  }
+
+  private unsubscribe?: () => void
+  private stopDebug?: () => void
+
+  /** The Debug tab: pass on every LLM request and response (from any device) while on. */
+  setDebug(enabled: boolean): void {
+    this.stopDebug?.()
+    this.stopDebug = undefined
+    if (!enabled) return
+    const onRequest = (trace: LlmRequestTrace) => this.emit({ type: 'debug.llm.request', ...trace })
+    const onResponse = (trace: LlmResponseTrace) => this.emit({ type: 'debug.llm.response', ...trace })
+    llmTap.on('request', onRequest)
+    llmTap.on('response', onResponse)
+    this.stopDebug = () => {
+      llmTap.off('request', onRequest)
+      llmTap.off('response', onResponse)
+    }
   }
 
   start(sampleRate: number, language: string, settings: unknown): void {
@@ -184,6 +223,17 @@ export class StreamSession {
     this.pendingFinals.add(pending)
   }
 
+  /**
+   * The client muted: no more audio until it unmutes. The phrase in progress
+   * ends here (rather than waiting for a pause that won't come), and the
+   * next phrase gets no pre-pad from before the mute.
+   */
+  mute(): void {
+    if (!this.started) return
+    this.handleEvents(this.segmenter.cut())
+    this.reportState(true)
+  }
+
   /** Finish the phrase in progress and wait for its final text. */
   async stop(): Promise<void> {
     clearInterval(this.partialTimer)
@@ -201,6 +251,8 @@ export class StreamSession {
   close(): void {
     this.closed = true
     clearInterval(this.partialTimer)
+    this.unsubscribe?.()
+    this.stopDebug?.()
     this.assistant?.close()
     if (this.started) this.handleEvents(this.segmenter.flush())
     void Promise.allSettled([...this.pendingFinals]).then(() => this.recorder?.end())

@@ -12,20 +12,25 @@ import {
 import { BargeIn } from './audio/bargeIn'
 import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import { signOut, signedIn } from './auth'
+import DebugPanel from './components/DebugPanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import SignInPanel from './components/SignInPanel.vue'
 import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
+import SessionsPanel from './components/SessionsPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
+import ToolsPanel from './components/ToolsPanel.vue'
 import VoicePanel from './components/VoicePanel.vue'
+import { debugEnabled, onDebugMessage } from './debug'
+import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './sessions'
 import { settings } from './settings'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'debug'
 
 const tab = ref<Tab>('live')
 
@@ -103,6 +108,8 @@ const followUpSeconds = computed(() =>
 )
 /** The server has a phrase open: you're talking, or in a pause it hasn't ended yet. */
 const speaking = computed(() => phraseState.value?.inPhrase ?? false)
+/** Mic muted while listening: nothing is sent, but the session (and the conversation with Jarvis) stays open. */
+const muted = ref(false)
 const MAX_REQUEST_LOG = 200
 
 let transcriber: StreamTranscriber | undefined
@@ -123,9 +130,10 @@ const buttonLabel = computed(() => {
   }
 })
 
-const hasText = computed(() => recordings.value.some((phrases) => phrases.some((p) => p.text)))
+const hasText = computed(() => sessions.entries.length > 0 || recordings.value.some((phrases) => phrases.some((p) => p.text)))
 /** One line per phrase (with who said it, and Jarvis's replies) once there are speakers or replies; flowing text otherwise. */
 const hasSpeakers = computed(() =>
+  sessions.entries.length > 0 ||
   recordings.value.some((phrases) => phrases.some((p) => p.jarvis || p.speaker?.isOwner != null || !!p.speaker?.name)),
 )
 
@@ -274,6 +282,8 @@ async function start(): Promise<void> {
         // Only the brain is changed by the server itself (by voice); keep the switch in step.
         if (server.brain !== settings.brain) settings.brain = server.brain
       },
+      onSessionsChanged: (activeId) => void sessionsChanged(activeId),
+      onDebug: onDebugMessage,
       onPhraseDropped: (id) => {
         const index = current.findIndex((p) => p.id === id)
         if (index !== -1) current.splice(index, 1)
@@ -284,6 +294,7 @@ async function start(): Promise<void> {
   transcriber = session
   try {
     await session.start()
+    if (debugEnabled.value) session.setDebug(true)
     status.value = 'listening'
   } catch (err) {
     transcriber = undefined
@@ -304,6 +315,7 @@ async function stop(): Promise<void> {
   status.value = 'finishing'
   await transcriber.stop()
   transcriber = undefined
+  muted.value = false
   frame.value = null
   phraseState.value = null
   assistant.value = null
@@ -317,9 +329,48 @@ function toggle(): void {
   else if (status.value === 'listening') void stop()
 }
 
+// The Debug tab's switch: the server starts or stops sending LLM traffic on this connection.
+watch(debugEnabled, (on) => transcriber?.setDebug(on))
+
+function toggleMute(): void {
+  if (status.value !== 'listening' || !transcriber) return
+  muted.value = !muted.value
+  transcriber.setMuted(muted.value)
+}
+
 function clear(): void {
   recordings.value = []
 }
+
+/** Saved messages of the session on screen, as transcript lines. */
+function entryBadge(entry: SessionEntry): { label: string; theme: string } {
+  if (entry.kind === 'owner') return { label: 'You', theme: 'theme-primary' }
+  if (entry.kind === 'jarvis') return { label: 'Jarvis', theme: 'theme-info' }
+  if (entry.kind === 'context') return { label: entry.who, theme: 'theme-secondary' }
+  if (entry.kind === 'note') return { label: 'Note', theme: 'theme-warning badge-subtle' }
+  return { label: 'Before', theme: 'theme-secondary badge-subtle' }
+}
+
+/** "files__append_file" → "files: append_file". */
+const toolLabel = (name: string) => name.replace('__', ': ')
+
+// The current session survives a refresh: load it (and the list) once signed in.
+watch(signedIn, (yes) => yes && void loadSessions(), { immediate: true })
+
+// Another session was opened (or a new one started): the transcript starts over with its saved messages.
+watch(
+  () => sessions.generation,
+  () => {
+    if (status.value === 'idle') recordings.value = []
+    else {
+      // Keep the recording the live transcriber writes into, emptied.
+      const live = recordings.value.at(-1)
+      live?.splice(0)
+      recordings.value = live ? [live] : []
+    }
+    void nextTick(scrollTranscriptToEnd)
+  },
+)
 
 /** Opens the settings dialog (gear button). */
 const settingsPanel = ref<InstanceType<typeof SettingsPanel> | null>(null)
@@ -368,7 +419,8 @@ onBeforeUnmount(() => {
       <div class="col-12 vstack gap-5">
         <header class="d-flex align-items-center gap-3">
           <h1 class="text-3xl fw-semibold m-0">Jarvis</h1>
-          <span v-if="status === 'listening'" class="badge" :class="speaking ? 'theme-danger' : 'theme-secondary'">
+          <span v-if="status === 'listening' && muted" class="badge theme-warning" title="The mic is open but nothing is sent. Unmute to talk again.">Muted</span>
+          <span v-else-if="status === 'listening'" class="badge" :class="speaking ? 'theme-danger' : 'theme-secondary'">
             <span v-if="speaking" class="spinner-grow spinner-sm" aria-hidden="true"></span>
             {{ speaking ? 'Hearing you' : 'Listening' }}
           </span>
@@ -427,13 +479,26 @@ onBeforeUnmount(() => {
               Your voice
             </button>
           </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'tools' }" @click="tab = 'tools'">
+              Tools
+            </button>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'debug' }" @click="tab = 'debug'">
+              Debug<span v-if="debugEnabled" class="badge theme-warning badge-subtle ms-2" title="Capturing LLM traffic">on</span>
+            </button>
+          </li>
         </ul>
       </div>
     </div>
 
     <!-- Live stays mounted (v-show) so listening continues while browsing history. -->
-    <div v-show="tab === 'live'" class="row justify-content-center mt-5">
-      <div class="col-12 vstack gap-5">
+    <div v-show="tab === 'live'" class="row gx-5 gy-4 mt-3">
+      <div class="col-12 col-lg-3">
+        <SessionsPanel />
+      </div>
+      <div class="col-12 col-lg-9 vstack gap-5">
         <div class="d-flex gap-3">
           <button
             type="button"
@@ -450,6 +515,17 @@ onBeforeUnmount(() => {
             {{ buttonLabel }}
           </button>
           <button
+            v-if="status === 'listening'"
+            type="button"
+            class="btn-lg"
+            :class="muted ? 'btn-solid theme-warning' : 'btn-outline theme-secondary'"
+            :aria-pressed="muted"
+            :title="muted ? 'Start sending audio again' : 'Stop sending audio without ending the session (Jarvis keeps the conversation)'"
+            @click="toggleMute"
+          >
+            {{ muted ? 'Unmute' : 'Mute' }}
+          </button>
+          <button
             type="button"
             class="btn-outline theme-secondary btn-lg"
             :disabled="!hasText || status !== 'idle'"
@@ -463,6 +539,18 @@ onBeforeUnmount(() => {
 
         <div class="card position-relative">
           <div ref="transcriptEl" class="card-body text-lg transcript" aria-live="polite" @scroll.passive="onTranscriptScroll">
+            <!-- The session's saved messages (from its file), then what's live below. -->
+            <div v-if="sessions.entries.length" class="vstack gap-2 mb-4">
+              <div v-for="(entry, i) in sessions.entries" :key="i" class="d-flex gap-3 align-items-baseline">
+                <span class="text-nowrap"><span class="badge" :class="entryBadge(entry).theme">{{ entryBadge(entry).label }}</span></span>
+                <span class="vstack gap-1">
+                  <span v-for="(t, k) in entry.kind === 'jarvis' ? (entry.tools ?? []) : []" :key="k" class="text-sm fg-3" :title="t.args">
+                    ⚙️ {{ toolLabel(t.name) }}
+                  </span>
+                  <span class="saved-text" :class="entry.kind === 'jarvis' ? 'fg-info' : entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
+                </span>
+              </div>
+            </div>
             <template v-for="(phrases, index) in recordings" :key="index">
               <!-- Once your voice is trained, one line per phrase with who said it; before that, flowing text. -->
               <div v-if="phrases.length && hasSpeakers" class="vstack gap-2 mb-4">
@@ -579,6 +667,19 @@ onBeforeUnmount(() => {
         <VoicePanel :live-busy="status !== 'idle'" />
       </div>
     </div>
+
+    <div v-if="tab === 'tools'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <ToolsPanel />
+      </div>
+    </div>
+
+    <!-- v-show: keeps its open/closed state while you go back to Live and talk. -->
+    <div v-show="tab === 'debug'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <DebugPanel :connected="status === 'listening'" />
+      </div>
+    </div>
   </main>
 </template>
 
@@ -616,6 +717,10 @@ onBeforeUnmount(() => {
 .settings-button {
   padding-inline: 0.375rem;
 }
+.saved-text {
+  white-space: pre-line;
+}
+
 .phrase-editable {
   cursor: text;
   border-radius: 0.25rem;

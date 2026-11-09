@@ -6,6 +6,7 @@
 // crosses the network once. The server splits phrases, transcribes them and
 // sends the text back. Protocol: apps/server/src/stream/protocol.ts.
 
+import type { DebugMessage } from '../debug'
 import { MicVAD } from '@ricky0123/vad-web'
 
 export const SAMPLE_RATE = 16000
@@ -136,6 +137,10 @@ export interface TranscriberEvents {
   onAssistant?(message: AssistantMessage): void
   /** The server's view of the settings (it may change some itself, e.g. the brain by voice). */
   onServerSettings?(settings: StreamSettings): void
+  /** A session was added to, renamed, switched, … (here or on another device). */
+  onSessionsChanged?(activeId: string | null): void
+  /** Debug tab: an LLM request or response (after setDebug(true)). */
+  onDebug?(message: DebugMessage): void
 
   /** Voice training mode: a clip was accepted or rejected. */
   onEnrollClip?(result: EnrollClipResult): void
@@ -152,6 +157,8 @@ type ServerMessage =
   | ({ type: 'request' } & RequestLog)
   | { type: 'error'; message: string }
   | { type: 'stopped' }
+  | { type: 'sessions.changed'; activeId: string | null }
+  | DebugMessage
   | AssistantMessage
 
 const FRAME_MS = 32
@@ -169,6 +176,8 @@ export class StreamTranscriber {
   private sending = false
   private hangoverLeft = 0
   private upload: UploadStats = { framesTotal: 0, framesSent: 0, bytesSent: 0 }
+  /** Muted: the mic stays open (instant to unmute, conversation kept) but no audio is sent. */
+  private muted = false
 
   private stopped?: () => void
   private closing = false
@@ -210,6 +219,26 @@ export class StreamTranscriber {
     if (this.socket?.readyState !== WebSocket.OPEN || this.closing) return false
     this.sendJson({ type: 'text', text })
     return true
+  }
+
+  /**
+   * Mute or unmute. Muting drops the phrase being sent and any buffered
+   * pre-roll, and tells the server to finish that phrase now. Unlike stop(),
+   * the connection, the conversation and Jarvis's speech carry on.
+   */
+  setMuted(muted: boolean): void {
+    if (muted === this.muted) return
+    this.muted = muted
+    if (!muted) return
+    this.sending = false
+    this.hangoverLeft = 0
+    this.preRoll = []
+    this.sendJson({ type: 'mute' })
+  }
+
+  /** Debug tab: ask the server for a copy of every LLM request and response (or stop). */
+  setDebug(enabled: boolean): void {
+    this.sendJson({ type: 'debug', enabled })
   }
 
   updateSettings(settings: StreamSettings): void {
@@ -308,6 +337,13 @@ export class StreamTranscriber {
       case 'error':
         this.events.onError(message.message)
         break
+      case 'debug.llm.request':
+      case 'debug.llm.response':
+        this.events.onDebug?.(message)
+        break
+      case 'sessions.changed':
+        this.events.onSessionsChanged?.(message.activeId)
+        break
       case 'stopped':
         this.stopped?.()
         break
@@ -327,6 +363,12 @@ export class StreamTranscriber {
   /** The send gate: speech, plus pre-roll before it and a hangover after it. */
   private handleFrame(frame: Float32Array, probability: number): void {
     const level = levelDb(frame)
+    if (this.muted) {
+      // Nothing leaves the browser. Speech probability 0, so barge-in can't pause Jarvis either.
+      this.upload.framesTotal++
+      this.events.onFrame?.({ probability: 0, levelDb: level, sent: false }, { ...this.upload })
+      return
+    }
     const packet = encodeFrame(frame, probability)
     const isSpeech = probability >= this.settings.speechThreshold
     let sent = false

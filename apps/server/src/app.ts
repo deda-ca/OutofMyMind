@@ -1,5 +1,6 @@
 // The Jarvis HTTP API.
 
+import path from 'node:path'
 import websocket from '@fastify/websocket'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { Archive } from './archive/archive.ts'
@@ -7,7 +8,12 @@ import { openDatabase } from './archive/db.ts'
 import { archiveRoutes } from './archive/routes.ts'
 import { AudiocppError, audiocppHealth, transcribePcm } from './audiocpp.ts'
 import { registerAuth } from './auth.ts'
+import { AgentLibrary } from './agents/library.ts'
+import { agentRoutes } from './agents/routes.ts'
 import { config } from './config.ts'
+import { toolRoutes } from './harness/routes.ts'
+import { sessionRoutes } from './sessions/routes.ts'
+import { SessionStore } from './sessions/store.ts'
 import { speakerRoutes } from './speaker/routes.ts'
 import { Speakers } from './speaker/speakers.ts'
 import type { VoiceprintModel } from './speaker/voiceprint.ts'
@@ -21,6 +27,8 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
   const speakers = new Speakers(db, config.dataDir, options.voiceprintModel)
+  const agents = new AgentLibrary(config.workspaceDir)
+  const sessions = new SessionStore(path.join(config.workspaceDir, 'sessions'), path.join(config.dataDir, 'sessions.json'))
   app.addHook('onClose', async () => db.close())
 
   // Audio arrives as raw bytes.
@@ -69,9 +77,12 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
     },
   )
 
-  void app.register(streamRoute, { archive, speakers })
+  void app.register(streamRoute, { archive, speakers, sessions, agents })
   void app.register(archiveRoutes, { archive })
   void app.register(speakerRoutes, { speakers, dataDir: config.dataDir })
+  void app.register(toolRoutes)
+  void app.register(sessionRoutes, { sessions, agents })
+  void app.register(agentRoutes, { agents })
 
   return app
 }

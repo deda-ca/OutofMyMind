@@ -2,6 +2,8 @@
 
 import type { FastifyInstance } from 'fastify'
 import type { Archive } from '../archive/archive.ts'
+import type { AgentLibrary } from '../agents/library.ts'
+import type { SessionStore } from '../sessions/store.ts'
 import type { Speakers } from '../speaker/speakers.ts'
 import { parseFrame, type ClientMessage, type ServerMessage } from './protocol.ts'
 import { StreamSession } from './session.ts'
@@ -15,7 +17,7 @@ function deviceLabel(value: unknown): string {
   return label || 'unknown'
 }
 
-export async function streamRoute(app: FastifyInstance, options: { archive: Archive; speakers: Speakers }): Promise<void> {
+export async function streamRoute(app: FastifyInstance, options: { archive: Archive; speakers: Speakers; sessions: SessionStore; agents: AgentLibrary }): Promise<void> {
   app.get('/api/stream', { websocket: true }, (socket, req) => {
     const send = (message: ServerMessage) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
@@ -52,6 +54,8 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
             session = new StreamSession(send, {
               recorder,
               speakers: options.speakers,
+              sessions: options.sessions,
+              agents: options.agents,
               mode,
               log: (msg, err) => req.log.error({ err }, msg),
             })
@@ -67,6 +71,12 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
           case 'text':
             if (typeof message.text !== 'string') return fail('"text" needs a string')
             session.typed(message.text)
+            break
+          case 'mute':
+            session.mute()
+            break
+          case 'debug':
+            session.setDebug(message.enabled === true)
             break
           case 'stop':
             void session.stop().then(() => socket.close(1000, 'stopped'))

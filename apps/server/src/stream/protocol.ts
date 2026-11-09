@@ -31,6 +31,7 @@
 //   {"type":"assistant.control","action":"stop"|"continue"|"repeat"|"resume","replyId":1}   playback control
 //   {"type":"assistant.tool","replyId":1,"kind":"tool"|"approval"|"notice","label":"…","emoji":"🔎"}   agent activity (shown, not spoken)
 
+import type { LlmRequestTrace, LlmResponseTrace } from '../assistant/llmTap.ts'
 import type { AssistantMessage } from '../assistant/assistant.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import type { StreamSettings } from './settings.ts'
@@ -67,11 +68,20 @@ export type ClientMessage =
     }
   | { type: 'settings'; settings: Partial<StreamSettings> }
   | { type: 'stop' }
+  /** The client muted its mic: it stops sending audio until unmuted, so finish the phrase in progress now. */
+  | { type: 'mute' }
   | { type: 'playback'; state: 'playing' | 'paused' | 'stopped' | 'idle' }
   | { type: 'text'; text: string }
+  /** The Debug tab: send (or stop sending) a copy of every LLM request and response. */
+  | { type: 'debug'; enabled: boolean }
 
 export type ServerMessage =
   | { type: 'ready'; settings: StreamSettings; sendHangoverMs: number }
+  /** A session was added to, renamed, pinned, deleted, or another one became active (GET /api/sessions for the details). */
+  | { type: 'sessions.changed'; activeId: string | null }
+  /** Debug tab (only after { type: 'debug', enabled: true }): an LLM request exactly as sent, and its response as received. */
+  | ({ type: 'debug.llm.request' } & LlmRequestTrace)
+  | ({ type: 'debug.llm.response' } & LlmResponseTrace)
   | { type: 'settings'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'phrase'; id: number; text: string; final: boolean; typed?: boolean }
   | { type: 'phrase.dropped'; id: number }

@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import { AgentLibrary } from './agents/library.ts'
 import { buildApp } from './app.ts'
 import { loadAccessKey } from './auth.ts'
 import { config } from './config.ts'
@@ -8,6 +10,10 @@ const voiceprintModel = await VoiceprintModel.load(config.voiceprintModel, (mess
 const access = loadAccessKey(config.dataDir, config.accessKey)
 const app = buildApp({ voiceprintModel, accessKey: access.key })
 app.addHook('onClose', () => harness.close())
+// The file tools' folder must exist before their plugin starts (it refuses to run without it).
+fs.mkdirSync(config.workspaceDir, { recursive: true })
+// SYSTEM.md and the default agent, the first time.
+new AgentLibrary(config.workspaceDir).seed()
 await harness.start(config.mcpConfig, (message, err) => (err ? console.warn(message, err) : console.log(message)))
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

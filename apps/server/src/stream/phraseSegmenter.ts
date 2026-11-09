@@ -118,6 +118,14 @@ export class PhraseSegmenter {
     return this.active ? [this.finish('flush')] : []
   }
 
+  /** End the phrase in progress and forget the audio before it (muted: the next phrase starts clean). */
+  cut(): SegmenterEvent[] {
+    const events = this.flush()
+    this.preFrames.length = 0
+    this.preSamples = 0
+    return events
+  }
+
   private begin(withPrePad = true): void {
     this.active = true
     this.frames = withPrePad ? [...this.preFrames] : []

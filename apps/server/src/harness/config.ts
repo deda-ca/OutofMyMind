@@ -10,13 +10,16 @@
 //   }
 //
 // `${NAME}` in args, env, url and headers is replaced from the server's
-// environment (so secrets stay in .env.local), plus DATA_DIR. stdio plugins
+// environment (so secrets stay in .env.local), plus DATA_DIR and WORKSPACE_DIR.
+// An optional "instructions" string is extra guidance for the LLM about the
+// plugin (e.g. how the workspace folder is laid out), Jarvis-only. stdio plugins
 // run with the config file's folder as their working directory, and get only
 // a minimal environment plus their own `env`, not the server's secrets.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from '../config.ts'
+import { isCrud, type Crud } from './crud.ts'
 
 export type PluginTransport =
   | { kind: 'stdio'; command: string; args: string[]; env: Record<string, string>; cwd: string }
@@ -27,6 +30,10 @@ export interface PluginConfig {
   transport: PluginTransport
   /** Longest a single tool call may take. */
   timeoutMs: number
+  /** Extra guidance for the LLM about this plugin (mcp.json "instructions"), added to the plugin's own. */
+  instructions?: string
+  /** CRUD tags for tools whose names don't say what they do (mcp.json "crud": { "<tool>": ["read"] }). */
+  crud?: Record<string, Crud[]>
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -48,10 +55,14 @@ export function loadPluginConfig(file: string): PluginConfig[] {
     if (entry.enabled === false) continue
     if (!/^[A-Za-z0-9_-]{1,32}$/.test(name)) throw new Error(`${file}: plugin name "${name}" must be letters, digits, _ or - (at most 32)`)
     const timeoutMs = typeof entry.timeoutMs === 'number' && entry.timeoutMs > 0 ? entry.timeoutMs : DEFAULT_TIMEOUT_MS
+    const instructions = typeof entry.instructions === 'string' && entry.instructions.trim() ? expand(entry.instructions.trim()) : undefined
+    const crud = crudOverrides(entry.crud, `${file}: plugin "${name}" crud`)
     if (typeof entry.command === 'string') {
       plugins.push({
         name,
         timeoutMs,
+        instructions,
+        crud,
         transport: {
           kind: 'stdio',
           command: expand(entry.command),
@@ -61,7 +72,7 @@ export function loadPluginConfig(file: string): PluginConfig[] {
         },
       })
     } else if (typeof entry.url === 'string') {
-      plugins.push({ name, timeoutMs, transport: { kind: 'http', url: expand(entry.url), headers: mapValues(stringRecord(entry.headers, `${name}.headers`), expand) } })
+      plugins.push({ name, timeoutMs, instructions, crud, transport: { kind: 'http', url: expand(entry.url), headers: mapValues(stringRecord(entry.headers, `${name}.headers`), expand) } })
     } else {
       throw new Error(`${file}: plugin "${name}" needs a "command" (stdio) or a "url" (HTTP)`)
     }
@@ -69,8 +80,20 @@ export function loadPluginConfig(file: string): PluginConfig[] {
   return plugins
 }
 
+function crudOverrides(value: unknown, what: string): Record<string, Crud[]> | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null) throw new Error(`${what} must be an object of tool name → ["create" | "read" | "update" | "delete", …]`)
+  const out: Record<string, Crud[]> = {}
+  for (const [tool, kinds] of Object.entries(value)) {
+    const list = Array.isArray(kinds) ? kinds : [kinds]
+    if (!list.every(isCrud)) throw new Error(`${what}.${tool}: use "create", "read", "update" and/or "delete"`)
+    out[tool] = list
+  }
+  return out
+}
+
 function expand(value: string): string {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, key: string) => (key === 'DATA_DIR' ? config.dataDir : (process.env[key] ?? '')))
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, key: string) => (key === 'DATA_DIR' ? config.dataDir : key === 'WORKSPACE_DIR' ? config.workspaceDir : (process.env[key] ?? '')))
 }
 
 function stringArray(value: unknown, what: string): string[] {

@@ -40,6 +40,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `TTS_MODEL` | `Qwen3-TTS` | audio.cpp text-to-speech model for Jarvis's spoken replies |
 | `TTS_VOICE` | `jarvis` | Its voice (audio.cpp voice library) |
 | `MCP_CONFIG` | `mcp.json` | The harness's plugin list (MCP servers). See [Harness](#harness). |
+| `WORKSPACE_DIR` | `$DATA_DIR/workspace` | The folder the `files` plugin may read and write (to-dos, lists, …). Created at start-up; usable as `${WORKSPACE_DIR}` in `mcp.json`. |
 | `WEATHER_HOME`, `WEATHER_UNITS` | (none), `celsius` | For the weather plugin: your town (e.g. `Ottawa, Ontario, Canada`), used when no place is named; `fahrenheit` for °F/mph. |
 | `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
@@ -172,10 +173,34 @@ Jarvis's own agent loop (`src/harness/`), which gives the **local brain** tools 
 
 - **Loop (`loop.ts`):** ask the LLM with the tools offered; if it calls any, run them, add the results, ask again; stop when it answers in words (at most 6 calls to the LLM; the last one is sent without tools, so it always ends with an answer). Text streams as it comes, so "Let me check." is spoken while a tool runs. Each tool call is shown in the client (`assistant.tool`), not spoken, and logged in the server log (`harness: notes.write_note {…} → …`). Tool calls and their results stay in the conversation history (results cut to 2,000 characters there), so on the next turn the model sees what it really did; without them it saw only its own "I've saved it" and started claiming saves it never made. Plain chat (Hermes, or no tools) gets the history without them.
 - **MCP client (`mcp.ts`):** one connection per plugin, over stdio (child process) or streamable HTTP. Tools are offered as `<plugin>__<tool>`. A plugin that fails to start or crashes is left out and retried in the background (every 30 s at most); tool errors go back to the model as error results, never crash a reply. Results are cut at 8,000 characters.
-- **Plugins (`mcp.json`, or `MCP_CONFIG`):** the standard `mcpServers` format, so third-party MCP servers drop in as they are. `"enabled": false` turns one off; `${NAME}` is filled from the environment (keep tokens in `.env.local`), plus `${DATA_DIR}`. stdio plugins run from this folder and get only a minimal environment plus their own `env`, never this server's secrets. Restart the server after editing.
+- **Plugins (`mcp.json`, or `MCP_CONFIG`):** the standard `mcpServers` format, so third-party MCP servers drop in as they are. `"enabled": false` turns one off; `${NAME}` is filled from the environment (keep tokens in `.env.local`), plus `${DATA_DIR}`. stdio plugins run from this folder and get only a minimal environment plus their own `env`, never this server's secrets. Restart the server after editing. An optional `"instructions"` string per plugin is added to the plugin's own MCP instructions in the prompt (Jarvis-only; e.g. how the workspace folder is laid out).
+- **CRUD tags (`crud.ts`):** every tool is tagged with what it does: create, read, update, delete (`write_file` is create + update). From, first match wins: a `"crud": { "<tool>": ["read"] }` entry on the plugin in `mcp.json`, the tool's `readOnlyHint` annotation, the verbs in its name; anything else counts as create + update + delete. The Tools tab switches whole kinds off (`disabledKinds` in `tools.json`): a tool is offered only if every kind it does is on, including tools of plugins added later, and the prompt names the tools that are blocked. Measured with Qwen3.6 and Update off: nothing was ever changed (enforced in code), but in about 2 of 7 change requests the model still said "I've added it" without calling any tool; offering the blocked tools as refusing stubs didn't help, so they're hidden. A check on such claims is still to do.
+- **File access (`files`):** the official [`@modelcontextprotocol/server-filesystem`](https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem) (pinned in `/mcp-plugins`), confined to `WORKSPACE_DIR`. Its instructions in `mcp.json` set the layout: `todo.md` (`- [ ]` / `- [x]`) and `lists/<name>.md`, and `notes/` (the `notes` plugin's folder, so everything lives in the workspace). Measured with Qwen3.6-35B-A3B: add to a list, add a to-do, read a list, tick a to-do off, and "what's left" each took one or two tool calls, about 1 s; a list in a folder that doesn't exist yet takes a failed append first (about 3 s).
+- **On/off switches (the client's Tools tab):** lists every plugin and its tools (description and parameters) with a checkbox for each. Switched-off plugins keep running; their tools just aren't offered, and a call to one is refused. Kept in `DATA_DIR/tools.json` (`disabledPlugins`, `disabledTools`), apart from `mcp.json`, and applied from the next request. API: `GET /api/tools`, `PUT /api/tools/:plugin` and `PUT /api/tools/:plugin/:tool` with `{ "enabled": true|false }`.
 - **Prompt:** the system message gets rules to call a tool rather than guess what it can tell (without it, Qwen invented a temperature instead of asking the weather plugin) and to only say it did something if a tool call did it, plus each plugin's own MCP `instructions` (e.g. the owner's home town).
 - **Off when empty:** with no plugins up, replies are plain chat exactly as before. If llama-server refuses a request with tools (it needs `--jinja`), the reply is retried without tools; the client shows a notice and the model is told it has no tools this time, so it doesn't claim to have done anything.
 - Plugins themselves live in [`/mcp-plugins`](../../mcp-plugins/README.md). Measured with Qwen3.6-35B-A3B: "add milk and eggs to my shopping list" → one `append_to_note` call, answer done in ~0.9 s.
+
+# Sessions
+
+A session is one conversation thread with Jarvis: what the LLM sees as its history, kept across follow-up windows, reconnects, page refreshes and server restarts (`src/sessions/`). The archive still records everything heard; a session holds only the owner's requests, Jarvis's answers (with the tools it used), and other people's lines as context.
+
+- **Files:** one Markdown file per session in `WORKSPACE_DIR/sessions/`, named by id (`2026-11-09-1430-a1b2.md`), so renaming never moves it. Frontmatter holds `title`, `pinned`, `created`, `updated`; each message is a `## Owner · 2026-11-09 14:30:12 · #123` section (`#123` = the archive phrase, for its audio), `## Jarvis · …` with ` ```tool <name>` blocks for tool calls, `## Maria (not to Jarvis) · …`, or `## Earlier (context) · …`. Text lines starting with `#`, ` ``` ` or `\` are escaped with a `\`. Files are re-read when they change, so hand edits count. Format and parser: `format.ts`.
+- **Active session:** shared by all devices, kept in `DATA_DIR/sessions.json`. Every turn is added to it; the LLM gets its last 24 messages (whole turns, so a tool result never loses its call). "New session" (button, or "Jarvis, new session" / "start over") switches to a fresh one, written with its first message, so no empty files.
+- **Hermes** keeps its own session and backlog as before; only plain chat goes to it.
+- **The files plugin** can read sessions ("what did we talk about yesterday?"); its instructions forbid writing to `sessions/` (an instruction, not enforced: the filesystem server can't make a subfolder read-only).
+- **API:** `GET /api/sessions` (list + `activeId`), `GET /api/sessions/:id`, `PATCH /api/sessions/:id` `{ title?, pinned? }`, `DELETE /api/sessions/:id`, `POST /api/sessions/:id/activate`, `POST /api/sessions/new`. Connected clients get `{ type: "sessions.changed", activeId }` on `/api/stream` after any change.
+
+# System prompt and agents
+
+Files in the workspace, edited by hand (or by Jarvis when asked); changes apply from the next request (`src/agents/`). Written with defaults on first start.
+
+- **`WORKSPACE_DIR/SYSTEM.md`:** in every system prompt, for every agent and session: who Jarvis is, how to talk. `{{owner}}` becomes `OWNER_NAME`; `<!-- comments -->` are never sent. Missing file: the default text; empty file: nothing.
+- **`WORKSPACE_DIR/agents/<id>.md`:** one agent each, with frontmatter: `name`, `description`, `tools` (`all` (default), `none`, or a list of function names with `*` wildcards, e.g. `[files__read_*, weather__get_weather]`), optional `brain` (`local` | `hermes`; otherwise the brain setting decides) and `temperature`. The body is the agent's instructions. `jarvis.md` is the default agent.
+- **Sessions** record their agent (`agent:` in the frontmatter); the client's session panel picks it, for the session on screen or the next new one. Switching agent in a session with messages adds a `## Note` to it: without it the model copied its own earlier answers ("I'm read-only") and ignored the new agent.
+- **Tools** an agent isn't allowed are never offered and calls to them are refused, in code. A limited agent is also told exactly which tools it has: without that, a read-only agent asked to add something said "I've added it" with no tool to do it (Qwen3.6; with it, 6 of 6 trials refused correctly).
+- **The system prompt, in order** (most stable first, so llama-server reuses its cached prefix): `SYSTEM.md` · the rule about other people in the room · `## Agent: <name>` + its instructions · tool rules and plugin instructions (local brain, if the agent has tools) · the agent's tool limits · `It is <date and time>.` (last: it changes every minute).
+- **API:** `GET /api/agents`; `POST /api/sessions/new` `{ agent? }`; `PUT /api/sessions/new/agent` `{ agent }`; `PATCH /api/sessions/:id` `{ agent }` (`''` = default).
 
 # Not in the MVP
 
@@ -219,6 +244,14 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/harness/loop.ts` | The tool loop (streamed tool calls → MCP → results → LLM) |
 | `src/harness/mcp.ts` | MCP client hub: plugin connections, tool routing, reconnects |
 | `src/harness/config.ts` | Reads `mcp.json` |
+| `src/harness/toggles.ts` | The Tools tab's on/off switches (`DATA_DIR/tools.json`) |
+| `src/agents/library.ts` | `SYSTEM.md` and `agents/*.md`: reading, defaults, tool patterns |
+| `src/agents/routes.ts` | `/api/agents` |
+| `src/sessions/format.ts` | Session ⇄ Markdown |
+| `src/sessions/history.ts` | Session entries ⇄ the LLM's messages (tool calls paired with results) |
+| `src/sessions/store.ts` | The sessions folder, the active session, change events |
+| `src/sessions/routes.ts` | `/api/sessions` |
+| `src/harness/routes.ts` | `/api/tools`: list plugins and tools, switch them on and off |
 | `mcp.json` | Enabled plugins |
 | `src/assistant/speech.ts` | Text-to-speech, sentence splitting, cleaning text for speech |
 | `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |

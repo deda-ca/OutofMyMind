@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import http from 'node:http'
+import os from 'node:os'
+import path from 'node:path'
+import { test } from 'node:test'
+import { AgentLibrary, DEFAULT_SYSTEM, parseAgent, toolAllowed } from '../src/agents/library.ts'
+import { config } from '../src/config.ts'
+import { SessionStore } from '../src/sessions/store.ts'
+import { StreamSession } from '../src/stream/session.ts'
+
+test('agent files: frontmatter (inline and block lists, all/none), comments left out', () => {
+  const email = parseAgent('email', '---\nname: Email\ndescription: "Drafts replies"\ntools: [files__read_text_file, email__*]  # read only\nbrain: local\ntemperature: 0.4\n---\n<!-- note to self -->\nDraft replies for {{owner}}.\n')
+  assert.deepEqual(email, { id: 'email', name: 'Email', description: 'Drafts replies', tools: ['files__read_text_file', 'email__*'], brain: 'local', temperature: 0.4, instructions: 'Draft replies for {{owner}}.' })
+  assert.deepEqual(parseAgent('t', '---\ntools:\n  - files__*\n  - weather__get_weather\n---\nTest things.').tools, ['files__*', 'weather__get_weather'])
+  assert.equal(parseAgent('a', '---\ntools: all\n---\n').tools, null)
+  assert.deepEqual(parseAgent('n', '---\ntools: none\ntemperature: 9\nbrain: gpt\n---\n').tools, [])
+  const plain = parseAgent('plain', 'Just instructions, no frontmatter.')
+  assert.equal(plain.name, 'plain')
+  assert.equal(plain.tools, null)
+  assert.equal(plain.temperature, undefined)
+  assert.equal(parseAgent('n', '---\ntemperature: 9\nbrain: gpt\n---\n').brain, undefined)
+})
+
+test('tool patterns: exact names and * wildcards', () => {
+  const agent = parseAgent('x', '---\ntools: [files__read_*, weather__get_weather]\n---\n')
+  assert.equal(toolAllowed(agent, 'files__read_text_file'), true)
+  assert.equal(toolAllowed(agent, 'files__write_file'), false)
+  assert.equal(toolAllowed(agent, 'weather__get_weather'), true)
+  assert.equal(toolAllowed(agent, 'weather__get_weatherX'), false)
+  assert.equal(toolAllowed(parseAgent('all', ''), 'anything__at_all'), true)
+})
+
+test('SYSTEM.md: seeded once, comments out, owner filled in; missing = default, empty = none', () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-ws-'))
+  const lib = new AgentLibrary(ws)
+  lib.seed()
+  assert.equal(fs.readFileSync(path.join(ws, 'SYSTEM.md'), 'utf8'), DEFAULT_SYSTEM)
+  assert.ok(fs.existsSync(path.join(ws, 'agents', 'jarvis.md')))
+  const text = lib.system('Charbel')
+  assert.match(text, /^You are Jarvis, Charbel's private assistant/)
+  assert.doesNotMatch(text, /<!--|\{\{/)
+
+  fs.writeFileSync(path.join(ws, 'SYSTEM.md'), 'Always answer in French.')
+  lib.seed() // never overwrites
+  assert.equal(lib.system('Charbel'), 'Always answer in French.')
+  fs.writeFileSync(path.join(ws, 'SYSTEM.md'), '')
+  fs.utimesSync(path.join(ws, 'SYSTEM.md'), new Date(), new Date(Date.now() + 5000))
+  assert.equal(lib.system('Charbel'), '')
+  fs.rmSync(path.join(ws, 'SYSTEM.md'))
+  assert.match(lib.system('Charbel'), /^You are Jarvis/)
+
+  fs.writeFileSync(path.join(ws, 'agents', 'email.md'), '---\nname: Email\n---\nDraft.')
+  assert.deepEqual(lib.list().map((a) => a.id), ['jarvis', 'email'])
+  assert.equal(lib.get('missing').id, 'jarvis')
+  assert.equal(lib.get('../../etc/passwd').id, 'jarvis')
+})
+
+test("a request carries SYSTEM.md, the session's agent and its temperature, with the time last", async () => {
+  const bodies: { messages: { role: string; content: string }[]; temperature?: number }[] = []
+  const server = http.createServer((req, res) => {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      bodies.push(JSON.parse(body))
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Drafted.' } }] })}\n\ndata: [DONE]\n\n`)
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const savedUrl = config.llmUrl
+  ;(config as { llmUrl: string }).llmUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  try {
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-ws-'))
+    const agents = new AgentLibrary(ws)
+    agents.seed()
+    fs.writeFileSync(path.join(ws, 'SYSTEM.md'), 'SYSTEM RULES for {{owner}}.')
+    fs.writeFileSync(path.join(ws, 'agents', 'email.md'), '---\nname: Email\ntools: none\ntemperature: 0.2\n---\nEMAIL RULES.')
+    const store = new SessionStore(path.join(ws, 'sessions'), path.join(ws, 'sessions.json'))
+    store.startNew('email')
+
+    const sent: { type: string; text?: string }[] = []
+    const s = new StreamSession((m) => sent.push(m as { type: string }), { sessions: store, agents, log: () => {} })
+    s.start(16000, 'English', { speakReplies: 0, brain: 0 })
+    s.typed('Reply to Maria saying yes.')
+    for (let i = 0; i < 100 && !sent.some((m) => m.type === 'assistant.done'); i++) await new Promise((r) => setTimeout(r, 20))
+    s.close()
+
+    const [request] = bodies
+    assert.ok(request)
+    assert.equal(request.temperature, 0.2)
+    const system = request.messages[0]!
+    assert.equal(system.role, 'system')
+    const order = ['SYSTEM RULES for', 'not to you', '## Agent: Email\nEMAIL RULES.', 'It is '].map((t) => system.content.indexOf(t))
+    assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1]!)), system.content)
+    assert.ok(system.content.trimEnd().endsWith('.') && /It is [^\n]+$/.test(system.content), 'the time comes last')
+    assert.equal(store.get(store.activeId()!)?.agent, 'email') // the new session got the chosen agent
+  } finally {
+    ;(config as { llmUrl: string }).llmUrl = savedUrl
+    server.close()
+  }
+})
