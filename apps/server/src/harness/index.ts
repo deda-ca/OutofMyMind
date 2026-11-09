@@ -117,6 +117,7 @@ class Harness {
     const host: ToolHost = {
       tools: () => hub.tools().filter((t) => allow(t.function.name)),
       label: (name) => hub.label(name),
+      crud: (name) => hub.crudOf(name),
       call: async (name, args, callSignal) =>
         allow(name) ? hub.call(name, args, callSignal) : { text: `The tool "${name}" isn't available to this agent.`, isError: true },
     }

@@ -27,7 +27,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
   const speakers = new Speakers(db, config.dataDir, options.voiceprintModel)
-  const agents = new AgentLibrary(config.workspaceDir)
+  const agents = new AgentLibrary(config.workspaceDir, path.join(config.dataDir, 'agents.json'))
   const sessions = new SessionStore(path.join(config.workspaceDir, 'sessions'), path.join(config.dataDir, 'sessions.json'))
   app.addHook('onClose', async () => db.close())
 

@@ -45,6 +45,17 @@ export interface AgentInfo {
   tools: string[] | null
   brain?: 'local' | 'hermes'
   temperature?: number
+  /** The instructions as written in its file (comments kept). */
+  body: string
+  /** Sessions without their own agent use the default one. */
+  isDefault: boolean
+  /** The fallback agent (jarvis): editable, not deletable. */
+  builtIn: boolean
+}
+
+export interface AgentListing {
+  defaultAgent: string
+  agents: AgentInfo[]
 }
 
 export const sessions = reactive({
@@ -52,6 +63,10 @@ export const sessions = reactive({
   activeId: null as string | null,
   newAgent: '',
   agents: [] as AgentInfo[],
+  /** The default agent's id: sessions with agent '' use it. */
+  defaultAgent: 'jarvis',
+  /** What each tool does (create / read / …), by function name: for the pills on saved tool calls. */
+  toolCrud: {} as Record<string, string[]>,
   /** The session shown in the transcript, and its messages as they were when it was opened. */
   shownId: null as string | null,
   entries: [] as SessionEntry[],
@@ -101,17 +116,28 @@ async function attempt(what: () => Promise<void>): Promise<void> {
 /** First load (page opened or refreshed): the list, and the active session's messages. */
 export function loadSessions(): Promise<void> {
   return attempt(async () => {
-    const [listing, agents] = await Promise.all([api<Listing>('/api/sessions'), api<{ agents: AgentInfo[] }>('/api/agents')])
-    sessions.agents = agents.agents
+    const [listing, agents] = await Promise.all([api<Listing>('/api/sessions'), api<AgentListing>('/api/agents')])
+    applyAgents(agents)
+    void loadToolCrud()
     apply(listing)
     await show(sessions.activeId)
   })
 }
 
+/** What each tool does, from the Tools catalog (best effort: without it, saved calls just have no pills). */
+async function loadToolCrud(): Promise<void> {
+  try {
+    const { plugins } = await api<{ plugins: { name: string; tools: { name: string; crud: string[] }[] }[] }>('/api/tools')
+    sessions.toolCrud = Object.fromEntries(plugins.flatMap((p) => p.tools.map((t) => [`${p.name}__${t.name}`, t.crud])))
+  } catch {
+    // the session still shows
+  }
+}
+
 /** Re-read the agent files (they're edited by hand in the workspace). */
 export const loadAgents = () =>
   attempt(async () => {
-    sessions.agents = (await api<{ agents: AgentInfo[] }>('/api/agents')).agents
+    applyAgents(await api<AgentListing>('/api/agents'))
   })
 
 /** The agent of the session on screen (or of the new session about to start); '' = default. */
@@ -131,8 +157,15 @@ export const setAgent = (agent: string) =>
   })
 
 /** An agent's display name ('' or unknown = the default agent). */
+/** After the Agents tab (or anything else) changed the agents. */
+export function applyAgents(listing: AgentListing): void {
+  sessions.agents = listing.agents
+  sessions.defaultAgent = listing.defaultAgent
+}
+
 export function agentName(id: string): string {
-  return sessions.agents.find((a) => a.id === (id || 'jarvis'))?.name ?? (id || 'Jarvis')
+  const resolved = id || sessions.defaultAgent
+  return sessions.agents.find((a) => a.id === resolved)?.name ?? resolved
 }
 
 /**

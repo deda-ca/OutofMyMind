@@ -32,6 +32,27 @@ export interface Agent {
   temperature?: number
   /** The agent's part of the system prompt (comments removed; fill `{{owner}}` with fillOwner()). */
   instructions: string
+  /** The file's text after the frontmatter, as written (comments kept): what the editor shows. */
+  body: string
+}
+
+/** What the client's agent editor sends. */
+export interface AgentInput {
+  name: string
+  description: string
+  tools: string[] | null
+  brain?: Brain
+  temperature?: number
+  /** The instructions, as written (comments allowed). */
+  body: string
+}
+
+export class AgentError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
 }
 
 export const DEFAULT_AGENT_ID = 'jarvis'
@@ -53,23 +74,86 @@ name: Jarvis
 description: General assistant, with every tool
 tools: all
 ---
-<!-- The default agent. Its instructions go below; SYSTEM.md already says who Jarvis is. -->
+<!-- The fallback agent (used when no other is the default). Its instructions go below; SYSTEM.md already says who Jarvis is. -->
 `
 
-const BUILT_IN_DEFAULT: Agent = { id: DEFAULT_AGENT_ID, name: 'Jarvis', description: 'General assistant, with every tool', tools: null, instructions: '' }
+const BUILT_IN_DEFAULT: Agent = { id: DEFAULT_AGENT_ID, name: 'Jarvis', description: 'General assistant, with every tool', tools: null, instructions: '', body: '' }
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/
 
 export class AgentLibrary {
   private readonly systemFile?: string
   private readonly agentsDir?: string
+  /** Which agent is the default (DATA_DIR/agents.json): sessions without their own agent use it. */
+  private readonly stateFile?: string
   private cache = new Map<string, { mtimeMs: number; text: string }>()
 
   /** No workspace (tests): the defaults, in memory. */
-  constructor(workspaceDir?: string) {
+  constructor(workspaceDir?: string, stateFile?: string) {
+    this.stateFile = stateFile
     if (!workspaceDir) return
     this.systemFile = path.join(workspaceDir, 'SYSTEM.md')
     this.agentsDir = path.join(workspaceDir, 'agents')
+  }
+
+  /** The default agent's id (jarvis unless chosen; back to jarvis if the chosen one is deleted). */
+  defaultId(): string {
+    if (!this.stateFile) return DEFAULT_AGENT_ID
+    try {
+      const saved = (JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as { defaultAgent?: unknown }).defaultAgent
+      if (typeof saved === 'string' && saved !== DEFAULT_AGENT_ID && this.fileExists(saved)) return saved
+    } catch {
+      // not chosen yet
+    }
+    return DEFAULT_AGENT_ID
+  }
+
+  setDefault(id: string): void {
+    if (!this.has(id)) throw new AgentError(`No agent "${id}"`, 404)
+    if (!this.stateFile) throw new AgentError('No place to save the default agent', 500)
+    fs.mkdirSync(path.dirname(this.stateFile), { recursive: true })
+    fs.writeFileSync(this.stateFile, `${JSON.stringify({ defaultAgent: id })}\n`)
+  }
+
+  /** Creates an agent (id from its name unless given). Returns its id. */
+  create(input: AgentInput, id?: string): string {
+    const agentsDir = this.writableDir()
+    const chosen = id ?? slug(input.name)
+    if (!ID.test(chosen)) throw new AgentError('The id may only have letters, digits, - and _ (at most 64)', 400)
+    if (this.fileExists(chosen) || chosen === DEFAULT_AGENT_ID) throw new AgentError(`There's already an agent "${chosen}"`, 409)
+    this.write(path.join(agentsDir, `${chosen}.md`), input)
+    return chosen
+  }
+
+  /** Saves an agent's settings and instructions (its id, the file name, stays). */
+  update(id: string, input: AgentInput): void {
+    const agentsDir = this.writableDir()
+    if (!this.has(id)) throw new AgentError(`No agent "${id}"`, 404)
+    this.write(path.join(agentsDir, `${id}.md`), input)
+  }
+
+  /** Deletes an agent's file. Sessions that used it fall back to the default agent. */
+  remove(id: string): void {
+    if (id === DEFAULT_AGENT_ID) throw new AgentError("Jarvis is the fallback agent: it can be edited but not deleted", 400)
+    if (!this.fileExists(id)) throw new AgentError(`No agent "${id}"`, 404)
+    fs.rmSync(path.join(this.agentsDir!, `${id}.md`))
+    this.cache.delete(path.join(this.agentsDir!, `${id}.md`))
+  }
+
+  private writableDir(): string {
+    if (!this.agentsDir) throw new AgentError('No workspace to save agents in', 500)
+    fs.mkdirSync(this.agentsDir, { recursive: true })
+    return this.agentsDir
+  }
+
+  private write(file: string, input: AgentInput): void {
+    const tmp = `${file}.tmp`
+    fs.writeFileSync(tmp, toAgentFile(validate(input)))
+    fs.renameSync(tmp, file)
+  }
+
+  private fileExists(id: string): boolean {
+    return ID.test(id) && !!this.agentsDir && fs.existsSync(path.join(this.agentsDir, `${id}.md`))
   }
 
   /** Writes SYSTEM.md and the default agent if they don't exist yet. */
@@ -102,19 +186,23 @@ export class AgentLibrary {
     })
     if (!agents.some((a) => a.id === DEFAULT_AGENT_ID)) agents.unshift(BUILT_IN_DEFAULT)
     // The default first, then by name.
-    return agents.sort((a, b) => Number(b.id === DEFAULT_AGENT_ID) - Number(a.id === DEFAULT_AGENT_ID) || a.name.localeCompare(b.name))
+    const first = this.defaultId()
+    return agents.sort((a, b) => Number(b.id === first) - Number(a.id === first) || a.name.localeCompare(b.name))
   }
 
   has(id: string): boolean {
-    return id === DEFAULT_AGENT_ID || (ID.test(id) && !!this.agentsDir && fs.existsSync(path.join(this.agentsDir, `${id}.md`)))
+    return id === DEFAULT_AGENT_ID || this.fileExists(id)
   }
 
-  /** The agent, or the default one if it doesn't exist (e.g. its file was deleted). */
+  /** The agent; '' (or one that doesn't exist, e.g. deleted) means the default agent. */
   get(id: string | undefined): Agent {
-    if (!id || !ID.test(id) || !this.agentsDir) return BUILT_IN_DEFAULT
+    return this.load(id) ?? this.load(this.defaultId()) ?? BUILT_IN_DEFAULT
+  }
+
+  private load(id: string | undefined): Agent | undefined {
+    if (!id || !ID.test(id) || !this.agentsDir) return undefined
     const text = this.read(path.join(this.agentsDir, `${id}.md`))
-    if (text === undefined) return BUILT_IN_DEFAULT
-    return parseAgent(id, text)
+    return text === undefined ? undefined : parseAgent(id, text)
   }
 
   private read(file: string): string | undefined {
@@ -153,9 +241,10 @@ export function parseAgent(id: string, text: string): Agent {
           ;(meta[listKey] as string[]).push(unquote(item[1]!))
           continue
         }
-        const match = /^(\w+):\s*(.*?)\s*(#.*)?$/.exec(line)
+        const match = /^(\w+):\s*(.*)$/.exec(line)
         if (!match) continue
-        const [, key, raw] = match as unknown as [string, string, string]
+        const key = match[1]!
+        const raw = value(match[2]!)
         listKey = undefined
         if (raw === '') {
           meta[key] = []
@@ -182,7 +271,70 @@ export function parseAgent(id: string, text: string): Agent {
     ...(brain === 'local' || brain === 'hermes' ? { brain } : {}),
     ...(str('temperature') !== undefined && Number.isFinite(temperature) && temperature >= 0 && temperature <= 2 ? { temperature } : {}),
     instructions: stripComments(body),
+    body: body.replace(/^\n+/, '').replace(/\s+$/, ''),
   }
+}
+
+/** A frontmatter value without its trailing "# comment" (a "quoted" value may contain #). */
+function value(raw: string): string {
+  const text = raw.trim()
+  const quoted = /^"(?:[^"\\]|\\.)*"/.exec(text)
+  if (quoted) return quoted[0]
+  const list = /^\[[^\]]*\]/.exec(text)
+  if (list) return list[0]
+  return text.replace(/\s+#.*$/, '').trim()
+}
+
+/** The agent file for what the editor sent. */
+export function toAgentFile(agent: AgentInput): string {
+  const tools = agent.tools === null ? 'all' : agent.tools.length === 0 ? 'none' : `[${agent.tools.join(', ')}]`
+  const lines = [
+    '---',
+    `name: ${JSON.stringify(agent.name)}`,
+    `description: ${JSON.stringify(agent.description)}`,
+    `tools: ${tools}`,
+    ...(agent.brain ? [`brain: ${agent.brain}`] : []),
+    ...(agent.temperature !== undefined ? [`temperature: ${agent.temperature}`] : []),
+    '---',
+    agent.body.trim(),
+  ]
+  return `${lines.join('\n')}\n`
+}
+
+const TOOL_PATTERN = /^[A-Za-z0-9_*-]{1,128}$/
+
+/** Checks and tidies what the editor sent; throws an AgentError (400) saying what's wrong. */
+export function validate(input: AgentInput): AgentInput {
+  const name = String(input.name ?? '').replace(/\s+/g, ' ').trim()
+  if (!name || name.length > 60) throw new AgentError('The name is needed (at most 60 characters)', 400)
+  const description = String(input.description ?? '').replace(/\s+/g, ' ').trim()
+  if (description.length > 200) throw new AgentError('The description is at most 200 characters', 400)
+  let tools: string[] | null = null
+  if (input.tools !== null) {
+    if (!Array.isArray(input.tools) || !input.tools.every((t) => typeof t === 'string' && TOOL_PATTERN.test(t))) {
+      throw new AgentError('Tools are function names like files__read_text_file, optionally with * (files__read_*)', 400)
+    }
+    tools = [...new Set(input.tools)]
+  }
+  if (input.brain !== undefined && input.brain !== 'local' && input.brain !== 'hermes') throw new AgentError('The brain is local or hermes (or not set)', 400)
+  if (input.temperature !== undefined && !(typeof input.temperature === 'number' && input.temperature >= 0 && input.temperature <= 2)) {
+    throw new AgentError('The temperature is a number from 0 to 2 (or not set)', 400)
+  }
+  const body = String(input.body ?? '')
+  if (body.length > 20000) throw new AgentError('The instructions are at most 20,000 characters', 400)
+  return { name, description, tools, ...(input.brain ? { brain: input.brain } : {}), ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), body }
+}
+
+/** "Email helper!" → "email-helper". */
+function slug(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'agent'
+  )
 }
 
 /** Comments out, `{{owner}}` filled in, blank edges trimmed. */
@@ -199,7 +351,14 @@ export function fillOwner(text: string, owner: string): string {
 }
 
 function unquote(value: string): string {
-  return /^(["']).*\1$/.test(value) ? value.slice(1, -1) : value
+  if (/^".*"$/.test(value)) {
+    try {
+      return String(JSON.parse(value))
+    } catch {
+      return value.slice(1, -1)
+    }
+  }
+  return /^'.*'$/.test(value) ? value.slice(1, -1) : value
 }
 
 function escapeRegExp(text: string): string {

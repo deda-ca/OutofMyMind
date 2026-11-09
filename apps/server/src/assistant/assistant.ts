@@ -18,7 +18,7 @@ import type { SessionEntry } from '../sessions/format.ts'
 import { historyMessages, toolUses } from '../sessions/history.ts'
 import { detectBrainSwitch, detectControl, detectNewSession, type Control } from './controls.ts'
 import { newHermesSession } from './hermesSession.ts'
-import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage, type ChatTarget } from './llm.ts'
+import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
@@ -39,7 +39,7 @@ export type AssistantMessage =
    */
   | { type: 'assistant.control'; action: Control | 'resume'; replyId: number }
   /** What the agent is doing (Hermes tool use), or a note about the reply (e.g. fell back to the local model). Shown, not spoken. */
-  | { type: 'assistant.tool'; replyId: number; kind: AgentEvent['kind'] | 'notice'; label: string; emoji?: string }
+  | { type: 'assistant.tool'; replyId: number; kind: AgentEvent['kind'] | 'notice'; label: string; emoji?: string; call?: ToolCallDetail }
 
 export type ReplyKind = 'reply' | 'wake' | 'dismiss'
 
@@ -323,7 +323,7 @@ export class Assistant {
       for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
     }
     const onEvent = (event: AgentEvent) => {
-      if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: event.kind, label: event.label, emoji: event.emoji })
+      if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: event.kind, label: event.label, emoji: event.emoji, ...(event.call ? { call: event.call } : {}) })
     }
     const notice = (label: string) => {
       if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label })

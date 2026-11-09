@@ -218,3 +218,10 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
     </div>
   </dialog>
 </template>
+
+<style scoped>
+/* Closed, the dialog takes no space: Bootstrap's dialog styles keep it laid out (hidden), and its tall body stretched the page. */
+dialog:not([open]) {
+  display: none;
+}
+</style>

@@ -44,6 +44,25 @@ export interface AgentEvent {
   label: string
   emoji?: string
   status?: string
+  /** A harness tool call: sent when it starts (status "running") and again when it's done. */
+  call?: ToolCallDetail
+}
+
+/** One tool call, for the client's tool-call pills and their details. */
+export interface ToolCallDetail {
+  /** The LLM's id for the call (matches the running and done events). */
+  id: string
+  /** The function name, e.g. "files__edit_file". */
+  name: string
+  /** The arguments, as JSON text. */
+  args: string
+  /** What it does: create / read / update / delete. */
+  crud: string[]
+  status: 'running' | 'done'
+  /** When done: what came back (cut for length), whether it failed, how long it took. */
+  result?: string
+  isError?: boolean
+  durationMs?: number
 }
 
 export class LlmError extends Error {

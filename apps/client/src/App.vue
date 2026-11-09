@@ -12,6 +12,7 @@ import {
 import { BargeIn } from './audio/bargeIn'
 import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import { signOut, signedIn } from './auth'
+import AgentsPanel from './components/AgentsPanel.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import SignInPanel from './components/SignInPanel.vue'
@@ -19,18 +20,21 @@ import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
 import SessionsPanel from './components/SessionsPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import ToolCallLine from './components/ToolCallLine.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
 import ToolsPanel from './components/ToolsPanel.vue'
 import VoicePanel from './components/VoicePanel.vue'
 import { debugEnabled, onDebugMessage } from './debug'
+import { monitorEnabled } from './monitor'
 import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './sessions'
 import { settings } from './settings'
+import type { ToolCallInfo } from './toolCalls'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'debug'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'debug' | 'monitor'
 
 const tab = ref<Tab>('live')
 
@@ -45,7 +49,7 @@ interface Phrase {
   /** A line from Jarvis (reply, "Yes?", "Okay.", or an error), not something heard. */
   jarvis?: 'reply' | 'wake' | 'dismiss' | 'error'
   /** What the agent did while answering (Hermes tool use), or notes. */
-  activity?: { kind: string; label: string; emoji?: string }[]
+  activity?: { kind: string; label: string; emoji?: string; call?: ToolCallInfo }[]
   /** Typed or pasted into the message box, not spoken. */
   typed?: boolean
 }
@@ -199,7 +203,11 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
   }
   if (message.type === 'assistant.tool') {
     const line = phrases.find((p) => p.id === -message.replyId)
-    if (line) (line.activity ??= []).push({ kind: message.kind, label: message.label, emoji: message.emoji })
+    if (!line) return
+    // A tool call is announced when it starts, then again with its result: update it in place.
+    const started = message.call && line.activity?.find((a) => a.call?.id === message.call!.id)
+    if (started) started.call = message.call
+    else (line.activity ??= []).push({ kind: message.kind, label: message.label, emoji: message.emoji, call: message.call })
     return
   }
   if (message.type === 'assistant.audio') {
@@ -244,7 +252,7 @@ function setSpeaker(phrases: Phrase[], id: number, speaker: SpeakerTag, final: b
   if (phrase.speakerFinal && !final) return // never replace the decision with an early guess
   phrase.speaker = speaker
   phrase.speakerFinal = final
-  if (final) lastSpeaker.value = speaker
+  if (final && monitorEnabled.value) lastSpeaker.value = speaker
 }
 
 async function start(): Promise<void> {
@@ -265,15 +273,19 @@ async function start(): Promise<void> {
     { language: LANGUAGE, settings: { ...toRaw(settings) } },
     {
       onFrame: (stats, uploadStats) => {
+        bargeInFrame(stats.probability)
+        // ~30 updates a second: only kept while the Monitor tab is switched on.
+        if (!monitorEnabled.value) return
         frame.value = stats
         upload.value = uploadStats
-        bargeInFrame(stats.probability)
       },
       onState: (state) => {
         phraseState.value = state
         if (!state.inPhrase) ignoreUntilPhraseEnds = false
       },
-      onRequest: (log) => (requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]),
+      onRequest: (log) => {
+        if (monitorEnabled.value) requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]
+      },
       onPhrase: (id, text, final, typed) => upsertPhrase(current, id, text, final, typed),
       onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
       onSplit: (id, into) => splitPhrase(current, id, into),
@@ -329,6 +341,15 @@ function toggle(): void {
   else if (status.value === 'listening') void stop()
 }
 
+// The Monitor tab switched off: drop what it was showing (nothing more is collected).
+watch(monitorEnabled, (on) => {
+  if (on) return
+  frame.value = null
+  upload.value = null
+  requests.value = []
+  lastSpeaker.value = null
+})
+
 // The Debug tab's switch: the server starts or stops sending LLM traffic on this connection.
 watch(debugEnabled, (on) => transcriber?.setDebug(on))
 
@@ -341,6 +362,35 @@ function toggleMute(): void {
 function clear(): void {
   recordings.value = []
 }
+
+/** The sessions sidebar: open or hidden. Remembered in this browser; on a narrow screen it starts hidden. */
+const SIDEBAR_KEY = 'jarvis.sessionsSidebar'
+const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 991.98px)').matches
+function savedSidebar(): boolean {
+  if (narrow()) return false
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) !== 'closed'
+  } catch {
+    return true
+  }
+}
+const sidebarOpen = ref(savedSidebar())
+watch(sidebarOpen, (open) => {
+  // Only the wide layout's choice is remembered: on a phone it's a drawer you open when needed.
+  if (narrow()) return
+  try {
+    localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed')
+  } catch {
+    // storage blocked: not remembered
+  }
+})
+// On a narrow screen the drawer covers the transcript: close it once a session is picked.
+watch(
+  () => sessions.shownId,
+  () => {
+    if (narrow()) sidebarOpen.value = false
+  },
+)
 
 /** Saved messages of the session on screen, as transcript lines. */
 function entryBadge(entry: SessionEntry): { label: string; theme: string } {
@@ -414,10 +464,10 @@ onBeforeUnmount(() => {
     <h1 class="text-3xl fw-semibold">Jarvis</h1>
     <SignInPanel />
   </main>
-  <main v-else-if="signedIn" class="container py-6">
-    <div class="row justify-content-center">
-      <div class="col-12 vstack gap-5">
-        <header class="d-flex align-items-center gap-3">
+  <main v-else-if="signedIn" class="app container-fluid" :class="{ 'app-fill': tab === 'live' }">
+    <div class="app-top">
+      <div class="vstack gap-3">
+        <header class="d-flex align-items-center gap-3 flex-wrap">
           <h1 class="text-3xl fw-semibold m-0">Jarvis</h1>
           <span v-if="status === 'listening' && muted" class="badge theme-warning" title="The mic is open but nothing is sent. Unmute to talk again.">Muted</span>
           <span v-else-if="status === 'listening'" class="badge" :class="speaking ? 'theme-danger' : 'theme-secondary'">
@@ -485,21 +535,45 @@ onBeforeUnmount(() => {
             </button>
           </li>
           <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Agents</button>
+          </li>
+          <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'debug' }" @click="tab = 'debug'">
               Debug<span v-if="debugEnabled" class="badge theme-warning badge-subtle ms-2" title="Capturing LLM traffic">on</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'monitor' }" @click="tab = 'monitor'">
+              Monitor<span v-if="monitorEnabled" class="badge theme-warning badge-subtle ms-2" title="Monitoring the microphone and the server">on</span>
             </button>
           </li>
         </ul>
       </div>
     </div>
 
-    <!-- Live stays mounted (v-show) so listening continues while browsing history. -->
-    <div v-show="tab === 'live'" class="row gx-5 gy-4 mt-3">
-      <div class="col-12 col-lg-3">
-        <SessionsPanel />
-      </div>
-      <div class="col-12 col-lg-9 vstack gap-5">
-        <div class="d-flex gap-3">
+    <!-- Live stays mounted (v-show) so listening continues while browsing history.
+         It fills the window: only the session list and the transcript scroll. -->
+    <div v-show="tab === 'live'" class="live" :class="{ 'sidebar-open': sidebarOpen }">
+      <aside id="sessions-sidebar" class="live-sidebar" :aria-hidden="!sidebarOpen" :inert="!sidebarOpen">
+        <SessionsPanel @close="sidebarOpen = false" />
+      </aside>
+      <div class="live-backdrop" aria-hidden="true" @click="sidebarOpen = false"></div>
+
+      <div class="live-main">
+        <div class="d-flex gap-3 align-items-center flex-wrap live-fixed">
+          <button
+            type="button"
+            class="btn-outline theme-secondary btn-lg sidebar-toggle"
+            :aria-expanded="sidebarOpen"
+            aria-controls="sessions-sidebar"
+            :title="sidebarOpen ? 'Hide sessions' : 'Show sessions'"
+            :aria-label="sidebarOpen ? 'Hide sessions' : 'Show sessions'"
+            @click="sidebarOpen = !sidebarOpen"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M3 6h18M3 12h18M3 18h18" />
+            </svg>
+          </button>
           <button
             type="button"
             class="btn-solid btn-lg"
@@ -535,18 +609,21 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div v-if="error" class="alert theme-danger" role="alert">{{ error }}</div>
+        <div v-if="error" class="alert theme-danger m-0 live-fixed" role="alert">{{ error }}</div>
 
-        <div class="card position-relative">
+        <div class="card position-relative transcript-card">
           <div ref="transcriptEl" class="card-body text-lg transcript" aria-live="polite" @scroll.passive="onTranscriptScroll">
             <!-- The session's saved messages (from its file), then what's live below. -->
             <div v-if="sessions.entries.length" class="vstack gap-2 mb-4">
               <div v-for="(entry, i) in sessions.entries" :key="i" class="d-flex gap-3 align-items-baseline">
                 <span class="text-nowrap"><span class="badge" :class="entryBadge(entry).theme">{{ entryBadge(entry).label }}</span></span>
                 <span class="vstack gap-1">
-                  <span v-for="(t, k) in entry.kind === 'jarvis' ? (entry.tools ?? []) : []" :key="k" class="text-sm fg-3" :title="t.args">
-                    ⚙️ {{ toolLabel(t.name) }}
-                  </span>
+                  <ToolCallLine
+                    v-for="(t, k) in entry.kind === 'jarvis' ? (entry.tools ?? []) : []"
+                    :key="k"
+                    :label="toolLabel(t.name)"
+                    :call="{ id: `${i}-${k}`, name: t.name, args: t.args, result: t.result, crud: sessions.toolCrud[t.name] ?? [], status: 'done', isError: t.result.startsWith('Error:') }"
+                  />
                   <span class="saved-text" :class="entry.kind === 'jarvis' ? 'fg-info' : entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
                 </span>
               </div>
@@ -558,10 +635,13 @@ onBeforeUnmount(() => {
                   <template v-if="phrase.jarvis">
                     <span class="text-nowrap"><span class="badge theme-info">Jarvis</span></span>
                     <span class="vstack gap-1">
-                      <span v-for="(a, i) in phrase.activity ?? []" :key="i" class="text-sm" :class="a.kind === 'approval' ? 'fg-warning' : 'fg-3'">
-                        {{ a.emoji ?? (a.kind === 'notice' ? 'ℹ️' : '⚙️') }}
-                        {{ a.kind === 'approval' ? `Hermes is asking for approval: ${a.label} (approve it in Hermes for now)` : a.label }}
-                      </span>
+                      <template v-for="(a, i) in phrase.activity ?? []" :key="i">
+                        <ToolCallLine v-if="a.call" :label="a.label" :call="a.call" />
+                        <span v-else class="text-sm" :class="a.kind === 'approval' ? 'fg-warning' : 'fg-3'">
+                          {{ a.emoji ?? (a.kind === 'notice' ? 'ℹ️' : '⚙️') }}
+                          {{ a.kind === 'approval' ? `Hermes is asking for approval: ${a.label} (approve it in Hermes for now)` : a.label }}
+                        </span>
+                      </template>
                       <span :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>
                     </span>
                   </template>
@@ -609,7 +689,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <form class="vstack gap-2" @submit.prevent="sendDraft">
+        <form class="vstack gap-2 live-fixed" @submit.prevent="sendDraft">
           <label for="composer" class="visually-hidden">Message to Jarvis</label>
           <div class="d-flex gap-3 align-items-end">
             <textarea
@@ -632,19 +712,6 @@ onBeforeUnmount(() => {
             Enter sends, Shift+Enter adds a line. Typed messages always go to Jarvis, no “Jarvis” needed.
           </div>
         </form>
-      </div>
-    </div>
-
-    <div v-show="tab === 'live'" class="row justify-content-center mt-5">
-      <div class="col-12">
-        <MonitorPanel
-          :listening="status === 'listening' || status === 'finishing'"
-          :frame="frame"
-          :upload="upload"
-          :phrase-state="phraseState"
-          :requests="requests"
-          :last-speaker="lastSpeaker"
-        />
       </div>
     </div>
 
@@ -674,6 +741,36 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <div v-if="tab === 'agents'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <AgentsPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'monitor'" class="row justify-content-center mt-5">
+      <div class="col-12 vstack gap-4">
+        <div class="d-flex align-items-center gap-2">
+          <div class="switch">
+            <input id="monitor-enabled" v-model="monitorEnabled" type="checkbox" />
+          </div>
+          <label for="monitor-enabled" class="fw-semibold m-0">Enable monitor</label>
+        </div>
+        <p class="text-sm fg-3 m-0">
+          The microphone level, speech detection, what's sent to the server, the phrase in progress, the last voice match,
+          and every transcription request. Nothing is collected while it's off.
+        </p>
+        <MonitorPanel
+          v-if="monitorEnabled"
+          :listening="status === 'listening' || status === 'finishing'"
+          :frame="frame"
+          :upload="upload"
+          :phrase-state="phraseState"
+          :requests="requests"
+          :last-speaker="lastSpeaker"
+        />
+      </div>
+    </div>
+
     <!-- v-show: keeps its open/closed state while you go back to Live and talk. -->
     <div v-show="tab === 'debug'" class="row justify-content-center mt-5">
       <div class="col-12">
@@ -699,14 +796,113 @@ onBeforeUnmount(() => {
   }
 }
 /*
- * The transcript fits the page: roughly the window height minus the header,
- * tabs and buttons above it and the message box below, so the newest line and
- * the box stay on screen. It scrolls inside itself (see followTranscript).
+ * Layout. Other tabs scroll like a normal page. Live fills the window exactly
+ * (no page scrollbar): the header, tabs, buttons and message box keep their
+ * size, and the transcript takes whatever height is left and scrolls inside
+ * itself (see followTranscript), as does the session list.
  */
+.app {
+  padding-block: 1.25rem;
+  padding-inline: clamp(0.75rem, 2.5vw, 2.5rem);
+}
+.app-fill {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 1.25rem;
+}
+.app-top {
+  flex: none;
+}
+.app:not(.app-fill) .app-top {
+  margin-bottom: 2.5rem;
+}
+.live {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 1.5rem;
+  position: relative;
+}
+.live-sidebar {
+  flex: none;
+  width: clamp(15rem, 22vw, 22rem);
+  min-height: 0;
+  display: flex;
+  transition:
+    margin-inline-start 0.2s ease,
+    opacity 0.2s ease;
+}
+.live:not(.sidebar-open) .live-sidebar {
+  /* Slides out of the way; the transcript takes its place. */
+  margin-inline-start: calc(-1 * clamp(15rem, 22vw, 22rem) - 1.5rem);
+  opacity: 0;
+  pointer-events: none;
+}
+.live-backdrop {
+  display: none;
+}
+.live-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.live-fixed {
+  flex: none;
+}
+.transcript-card {
+  flex: 1;
+  min-height: 6rem;
+}
 .transcript {
-  height: max(14rem, calc(100dvh - 26rem));
+  height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+.sidebar-toggle {
+  padding-inline: 0.625rem;
+}
+/* Narrow windows: the sidebar slides over the transcript instead of squeezing it. */
+@media (max-width: 991.98px) {
+  .live {
+    gap: 0;
+  }
+  .live-sidebar {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 20;
+    width: min(20rem, 85vw);
+    box-shadow: var(--bs-box-shadow-lg, 0 1rem 3rem rgba(0, 0, 0, 0.3));
+    background: var(--bs-body-bg);
+    border-radius: var(--bs-border-radius, 0.375rem);
+  }
+  .live:not(.sidebar-open) .live-sidebar {
+    margin-inline-start: 0;
+    transform: translateX(-110%);
+  }
+  .live-sidebar {
+    transition:
+      transform 0.2s ease,
+      opacity 0.2s ease;
+  }
+  .live.sidebar-open .live-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: var(--bs-border-radius, 0.375rem);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-sidebar {
+    transition: none;
+  }
 }
 .latest-button {
   position: absolute;
@@ -727,5 +923,13 @@ onBeforeUnmount(() => {
 }
 .phrase-editable:hover {
   text-decoration: underline dotted;
+}
+</style>
+
+<style>
+/* Bootstrap reserves room for a page scrollbar; the Live tab never scrolls, so give that strip back. */
+:root:has(.app-fill) {
+  scrollbar-gutter: auto;
+  overflow: hidden;
 }
 </style>

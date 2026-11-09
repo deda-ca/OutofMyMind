@@ -2,15 +2,18 @@
 import { computed, nextTick, ref } from 'vue'
 import { agentName, deleteSession, loadAgents, newSession, openSession, pinSession, renameSession, sessionLabel, sessions, setAgent, shownAgent, type SessionSummary } from '../sessions'
 
-// The session list beside the Live transcript: open, rename, pin, delete, new,
-// and which agent the session on screen talks with.
+// The session list in the Live sidebar: open, rename, pin, delete, new, and
+// which agent the session on screen talks with. It fills the sidebar's height;
+// the list scrolls inside it.
 
-const agentId = computed(() => shownAgent() || 'jarvis')
-const agentInfo = computed(() => sessions.agents.find((a) => a.id === agentId.value))
+const emit = defineEmits<{ close: [] }>()
+
+/** '' = the default agent (follows whichever agent is the default). */
+const agentId = computed(() => shownAgent())
+const agentInfo = computed(() => sessions.agents.find((a) => a.id === (agentId.value || sessions.defaultAgent)))
 
 function chooseAgent(event: Event): void {
-  const id = (event.target as HTMLSelectElement).value
-  void run(() => setAgent(id === 'jarvis' ? '' : id))
+  void run(() => setAgent((event.target as HTMLSelectElement).value))
 }
 
 const renaming = ref<string | null>(null)
@@ -56,11 +59,14 @@ function when(iso: string): string {
 
 <template>
   <div class="card sessions">
-    <div class="card-header d-flex align-items-center gap-2">
-      <span class="fw-semibold">Sessions</span>
-      <button type="button" class="btn-outline theme-primary btn-sm ms-auto" :disabled="busy || sessions.shownId === null" title="Start a new session (or say “Jarvis, new session”)" @click="run(newSession)">
-        + New
-      </button>
+    <div class="card-header">
+      <div class="d-flex align-items-center gap-2 w-100">
+        <span class="fw-semibold">Sessions</span>
+        <button type="button" class="btn-outline theme-primary btn-sm ms-auto" :disabled="busy || sessions.shownId === null" title="Start a new session (or say “Jarvis, new session”)" @click="run(newSession)">
+          + New
+        </button>
+        <button type="button" class="btn-text btn-sm" title="Hide sessions" aria-label="Hide sessions" @click="emit('close')">«</button>
+      </div>
     </div>
 
     <div class="card-body py-3 vstack gap-1 border-bottom">
@@ -74,8 +80,9 @@ function when(iso: string): string {
         @focus="loadAgents"
         @change="chooseAgent"
       >
+        <option value="">Default ({{ agentName('') }})</option>
         <option v-for="a in sessions.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-        <option v-if="!sessions.agents.some((a) => a.id === agentId)" :value="agentId">{{ agentId }} (missing)</option>
+        <option v-if="agentId && !sessions.agents.some((a) => a.id === agentId)" :value="agentId">{{ agentId }} (deleted: uses the default)</option>
       </select>
       <span v-if="agentInfo" class="text-sm fg-3">
         {{ agentInfo.description || 'No description.' }}
@@ -149,15 +156,22 @@ function when(iso: string): string {
 </template>
 
 <style scoped>
-.session-list {
-  max-height: 70vh;
-  overflow-y: auto;
+.sessions {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-@media (max-width: 991.98px) {
-  .session-list {
-    max-height: 30vh;
-  }
+.sessions > :not(.session-list) {
+  flex: none;
+}
+
+.session-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .session {

@@ -12,6 +12,8 @@ import type { FunctionTool, ToolOutcome } from './mcp.ts'
 export interface ToolHost {
   tools(): FunctionTool[]
   label(name: string): string
+  /** What a tool does (create / read / update / delete), for the client. */
+  crud?(name: string): string[]
   call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ToolOutcome>
 }
 
@@ -47,6 +49,8 @@ export interface LoopResult {
 }
 
 export const DEFAULT_MAX_STEPS = 6
+/** Longest tool result sent to the client with a tool-call event. */
+const EVENT_RESULT_CHARS = 4000
 
 export async function runLoop(target: ChatTarget, messages: LoopMessage[], host: ToolHost, options: LoopOptions): Promise<LoopResult> {
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS
@@ -70,8 +74,24 @@ export async function runLoop(target: ChatTarget, messages: LoopMessage[], host:
     if (calls.length === 0) break
     transcript.push({ role: 'assistant', content: stepText || null, tool_calls: calls })
     for (const call of calls) {
-      options.onEvent?.({ kind: 'tool', label: host.label(call.function.name), emoji: '🔧', status: 'running' })
+      const label = host.label(call.function.name)
+      const detail = { id: call.id, name: call.function.name, args: call.function.arguments, crud: host.crud?.(call.function.name) ?? [] }
+      options.onEvent?.({ kind: 'tool', label, emoji: '🔧', status: 'running', call: { ...detail, status: 'running' } })
+      const started = performance.now()
       const outcome = await runCall(host, call, options.signal)
+      options.onEvent?.({
+        kind: 'tool',
+        label,
+        emoji: '🔧',
+        status: 'done',
+        call: {
+          ...detail,
+          status: 'done',
+          result: outcome.text.length > EVENT_RESULT_CHARS ? `${outcome.text.slice(0, EVENT_RESULT_CHARS)}\n… (cut)` : outcome.text,
+          isError: outcome.isError,
+          durationMs: Math.round(performance.now() - started),
+        },
+      })
       transcript.push({ role: 'tool', tool_call_id: call.id, content: outcome.isError ? `Error: ${outcome.text}` : outcome.text })
     }
   }

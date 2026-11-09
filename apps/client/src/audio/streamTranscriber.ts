@@ -7,6 +7,7 @@
 // sends the text back. Protocol: apps/server/src/stream/protocol.ts.
 
 import type { DebugMessage } from '../debug'
+import type { ToolCallInfo } from '../toolCalls'
 import { MicVAD } from '@ricky0123/vad-web'
 
 export const SAMPLE_RATE = 16000
@@ -63,7 +64,7 @@ export type AssistantMessage =
   | { type: 'assistant.error'; replyId: number; message: string }
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
   | { type: 'assistant.control'; action: 'stop' | 'continue' | 'repeat' | 'resume'; replyId: number }
-  | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'approval' | 'notice'; label: string; emoji?: string }
+  | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'approval' | 'notice'; label: string; emoji?: string; call?: ToolCallInfo }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {

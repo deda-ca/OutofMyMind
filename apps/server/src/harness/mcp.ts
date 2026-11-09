@@ -124,6 +124,12 @@ export class McpHub {
     })
   }
 
+  /** What a tool does, by function name ("files__write_file" → create + update). */
+  crudOf(name: string): Crud[] {
+    const route = this.routes.get(name)
+    return route ? this.crud(route.connection, route.tool).kinds : []
+  }
+
   /** A short human label for a tool call, e.g. "notes: read_note". */
   label(name: string): string {
     const route = this.routes.get(name)

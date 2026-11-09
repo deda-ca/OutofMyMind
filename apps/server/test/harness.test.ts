@@ -4,7 +4,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { after, before, test } from 'node:test'
-import type { ChatTarget } from '../src/assistant/llm.ts'
+import type { AgentEvent, ChatTarget } from '../src/assistant/llm.ts'
 import { loadPluginConfig } from '../src/harness/config.ts'
 import { toolGuidance } from '../src/harness/index.ts'
 import { runLoop, type LoopMessage, type ToolHost } from '../src/harness/loop.ts'
@@ -136,4 +136,22 @@ test('tool guidance and plugin instructions are added to the system message', ()
   assert.match(guidance, /^You have tools\..*never guess/s)
   assert.match(guidance, /- weather: The owner lives in Ottawa\.$/)
   assert.doesNotMatch(toolGuidance([]), /About the tools/)
+})
+
+test('each tool call is announced when it starts and again with its result, CRUD tags and time', async () => {
+  script = [
+    [{ tool_calls: [{ index: 0, id: 'c9', function: { name: 'notes__read_note', arguments: '{"path":"shopping"}' } }] }],
+    [{ content: 'Milk and eggs.' }],
+  ]
+  const events: AgentEvent[] = []
+  const tagged: ToolHost = { ...host([]), crud: (name) => (name === 'notes__read_note' ? ['read'] : []) }
+  await runLoop(target, [{ role: 'user', content: 'list?' }], tagged, { onDelta: () => {}, onEvent: (e) => events.push(e) })
+  assert.equal(events.length, 2)
+  assert.deepEqual(events[0]!.call, { id: 'c9', name: 'notes__read_note', args: '{"path":"shopping"}', crud: ['read'], status: 'running' })
+  const done = events[1]!.call!
+  assert.equal(done.status, 'done')
+  assert.equal(done.id, 'c9')
+  assert.equal(done.result, '- milk\n- eggs')
+  assert.equal(done.isError, false)
+  assert.ok(typeof done.durationMs === 'number')
 })
