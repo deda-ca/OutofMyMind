@@ -6,6 +6,7 @@ A private, fully local voice assistant. Talk naturally; speech is transcribed li
 | --- | --- |
 | [apps/server](apps/server/README.md) | The API: live transcription over a WebSocket, talking to the local audio.cpp server |
 | [apps/client](apps/client/README.md) | Web client: microphone, on-device voice detection, transcript, settings and monitor |
+| [mcp-plugins](mcp-plugins/README.md) | Plug-in tools for Jarvis (MCP servers): notes so far. The harness that runs them is in `apps/server/src/harness` |
 
 ## Running
 
@@ -42,5 +43,7 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 | Interrupt Jarvis by talking; "stop", "continue", "repeat" by voice | ✅ Built |
 | Access key sign-in (phone access over the LAN) | ✅ Built |
 | Choose the brain: local LLM or Nous Hermes Agent (switch or by voice; falls back to local) | ✅ Built (Hermes's API server must be enabled) |
+| Harness: Jarvis's own tool loop with plug-and-play MCP plugins (local brain); plugins: markdown notes, weather (Open-Meteo; needs the internet) | ✅ Built (start) |
+| More plugins: calendar, files, … | Planned |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Android app | Planned |

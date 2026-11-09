@@ -9,8 +9,8 @@
     "dev": "concurrently --names server,client --prefix-colors cyan,magenta --kill-others-on-fail \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "npm --prefix apps/server run dev",
     "dev:client": "npm --prefix apps/client run dev",
-    "setup": "npm install && npm --prefix apps/server install && npm --prefix apps/client install",
-    "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/client run typecheck"
+    "setup": "npm install && npm --prefix apps/server install && npm --prefix apps/client install && npm --prefix mcp-plugins install",
+    "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/client run typecheck && npm --prefix mcp-plugins run typecheck"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"

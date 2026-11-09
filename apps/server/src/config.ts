@@ -36,6 +36,8 @@ export const config = {
   hermesApiKey: process.env.HERMES_API_KEY?.trim() || undefined,
   /** Optional: the Hermes session Jarvis talks in. Unset: one is made and kept in DATA_DIR/hermes-session.json. */
   hermesSessionId: process.env.HERMES_SESSION_ID?.trim() || undefined,
+  /** MCP plugins for the harness (tools for the local brain). See src/harness/config.ts. */
+  mcpConfig: path.resolve(env('MCP_CONFIG', 'mcp.json')),
   /** Text-to-speech model and voice on audio.cpp, for Jarvis's spoken replies. */
   ttsModel: env('TTS_MODEL', 'Qwen3-TTS'),
   ttsVoice: env('TTS_VOICE', 'jarvis'),

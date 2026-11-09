@@ -39,6 +39,8 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `HERMES_SESSION_ID` | (made once, kept in `DATA_DIR/hermes-session.json`) | The Hermes session Jarvis talks in. Delete the file (or change this) for a fresh session. |
 | `TTS_MODEL` | `Qwen3-TTS` | audio.cpp text-to-speech model for Jarvis's spoken replies |
 | `TTS_VOICE` | `jarvis` | Its voice (audio.cpp voice library) |
+| `MCP_CONFIG` | `mcp.json` | The harness's plugin list (MCP servers). See [Harness](#harness). |
+| `WEATHER_HOME`, `WEATHER_UNITS` | (none), `celsius` | For the weather plugin: your town (e.g. `Ottawa, Ontario, Canada`), used when no place is named; `fahrenheit` for °F/mph. |
 | `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
@@ -164,6 +166,17 @@ Milestone M5 step 1 of [docs/speaker-recognition.md](../../docs/speaker-recognit
 - **Hermes setup:** Hermes's API server is off by default: set `API_SERVER_ENABLED=true` and `API_SERVER_KEY=…` in `~/.hermes/.env`, restart its gateway, and put the key in this server's `.env.local` as `HERMES_API_KEY`. ⚠️ Hermes answers with whatever model *it* is configured for; if that's a cloud model, requests sent to Hermes leave this machine.
 - Not yet: tools for naming people / grants / keep, approving Hermes actions by voice, echo handling for speakers.
 
+# Harness
+
+Jarvis's own agent loop (`src/harness/`), which gives the **local brain** tools from plug-and-play [MCP](https://modelcontextprotocol.io) servers ("plugins"). Hermes keeps using its own tools.
+
+- **Loop (`loop.ts`):** ask the LLM with the tools offered; if it calls any, run them, add the results, ask again; stop when it answers in words (at most 6 calls to the LLM; the last one is sent without tools, so it always ends with an answer). Text streams as it comes, so "Let me check." is spoken while a tool runs. Each tool call is shown in the client (`assistant.tool`), not spoken, and logged in the server log (`harness: notes.write_note {…} → …`). Tool calls and their results stay in the conversation history (results cut to 2,000 characters there), so on the next turn the model sees what it really did; without them it saw only its own "I've saved it" and started claiming saves it never made. Plain chat (Hermes, or no tools) gets the history without them.
+- **MCP client (`mcp.ts`):** one connection per plugin, over stdio (child process) or streamable HTTP. Tools are offered as `<plugin>__<tool>`. A plugin that fails to start or crashes is left out and retried in the background (every 30 s at most); tool errors go back to the model as error results, never crash a reply. Results are cut at 8,000 characters.
+- **Plugins (`mcp.json`, or `MCP_CONFIG`):** the standard `mcpServers` format, so third-party MCP servers drop in as they are. `"enabled": false` turns one off; `${NAME}` is filled from the environment (keep tokens in `.env.local`), plus `${DATA_DIR}`. stdio plugins run from this folder and get only a minimal environment plus their own `env`, never this server's secrets. Restart the server after editing.
+- **Prompt:** the system message gets rules to call a tool rather than guess what it can tell (without it, Qwen invented a temperature instead of asking the weather plugin) and to only say it did something if a tool call did it, plus each plugin's own MCP `instructions` (e.g. the owner's home town).
+- **Off when empty:** with no plugins up, replies are plain chat exactly as before. If llama-server refuses a request with tools (it needs `--jinja`), the reply is retried without tools; the client shows a notice and the model is told it has no tools this time, so it doesn't claim to have done anything.
+- Plugins themselves live in [`/mcp-plugins`](../../mcp-plugins/README.md). Measured with Qwen3.6-35B-A3B: "add milk and eggs to my shopping list" → one `append_to_note` call, answer done in ~0.9 s.
+
 # Not in the MVP
 
 Single user, one stream per connection, no authentication, localhost only. Before the server is reachable from a network (e.g. for the Android app): authentication, TLS, and reconnect handling. Opus compression (~10× less upload) when cellular matters.
@@ -201,7 +214,12 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 | `src/speaker/changes.ts` | Finds speaker changes inside a phrase |
 | `src/assistant/assistant.ts` | Jarvis: wake word, conversation state, follow-ups, replies |
 | `src/assistant/wake.ts` | Wake word and dismissal phrases |
-| `src/assistant/llm.ts` | Streaming chat client for llama-server |
+| `src/assistant/llm.ts` | Streaming chat client for llama-server and Hermes (request + SSE parsing shared with the harness) |
+| `src/harness/index.ts` | The harness: started at start-up, used by the assistant for the local brain |
+| `src/harness/loop.ts` | The tool loop (streamed tool calls → MCP → results → LLM) |
+| `src/harness/mcp.ts` | MCP client hub: plugin connections, tool routing, reconnects |
+| `src/harness/config.ts` | Reads `mcp.json` |
+| `mcp.json` | Enabled plugins |
 | `src/assistant/speech.ts` | Text-to-speech, sentence splitting, cleaning text for speech |
 | `scripts/fetch-models.ts` | Downloads and checksum-verifies the voiceprint model |
 | `test/` | `node:test` tests |

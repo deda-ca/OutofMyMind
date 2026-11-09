@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "notes": {
+      "command": "node",
+      "args": ["../../mcp-plugins/notes/server.ts"],
+      "env": { "NOTES_DIR": "${DATA_DIR}/notes" }
+    },
+    "weather": {
+      "command": "node",
+      "args": ["../../mcp-plugins/weather/server.ts"],
+      "env": { "WEATHER_HOME": "${WEATHER_HOME}", "WEATHER_UNITS": "${WEATHER_UNITS}" }
+    }
+  }
+}
