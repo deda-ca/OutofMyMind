@@ -112,6 +112,7 @@ class Harness {
     onEvent?: (event: AgentEvent) => void,
     allow: ToolAllow = () => true,
     builtins: BuiltinTool[] = [],
+    hooks: CallHooks = {},
   ): Promise<LoopResult> {
     const hub = this.hub
     if (!hub) throw new Error('The harness has no plugins')
@@ -124,8 +125,15 @@ class Harness {
       crud: (name) => own.get(name)?.crud ?? hub.crudOf(name),
       call: async (name, args, callSignal) => {
         const builtin = own.get(name)
-        if (builtin) return builtin.run(args)
-        return allow(name) ? hub.call(name, args, callSignal) : { text: `The tool "${name}" isn't available to this agent.`, isError: true }
+        const crud = builtin?.crud ?? hub.crudOf(name)
+        const refused = hooks.before?.(name, args, crud)
+        if (refused) return refused
+        const outcome = builtin
+          ? await builtin.run(args)
+          : allow(name)
+            ? await hub.call(name, args, callSignal)
+            : { text: `The tool "${name}" isn't available to this agent.`, isError: true }
+        return hooks.after ? hooks.after(name, args, crud, outcome) : outcome
       },
     }
     return runLoop(target, messages, host, { onDelta, onEvent, signal })
@@ -175,6 +183,13 @@ export function toolGuidance(instructions: string[], kindsOff: Crud[] = [], bloc
 
 function verb(kind: Crud): string {
   return { create: 'create', read: 'read', update: 'change', delete: 'delete' }[kind] + ' things'
+}
+
+/** Around each tool call (e.g. the skill guard: rules before a governed file is changed). */
+export interface CallHooks {
+  /** Returns an outcome to refuse the call with, or null to go ahead. */
+  before?(name: string, args: Record<string, unknown>, crud: string[]): ToolOutcome | null
+  after?(name: string, args: Record<string, unknown>, crud: string[], outcome: ToolOutcome): ToolOutcome
 }
 
 /** A tool that runs inside Jarvis itself (not an MCP plugin), e.g. showing a file on the owner's screen. */

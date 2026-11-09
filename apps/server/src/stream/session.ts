@@ -11,6 +11,7 @@ import { Assistant } from '../assistant/assistant.ts'
 import { llmTap, type LlmRequestTrace, type LlmResponseTrace } from '../assistant/llmTap.ts'
 import { transcribePcm } from '../audiocpp.ts'
 import type { AgentLibrary } from '../agents/library.ts'
+import type { SkillLibrary } from '../skills/library.ts'
 import type { SessionStore } from '../sessions/store.ts'
 import type { SpeakerTag, Speakers } from '../speaker/speakers.ts'
 import { PhraseSegmenter, type SegmenterEvent, type SegmenterOptions } from './phraseSegmenter.ts'
@@ -48,6 +49,8 @@ export interface SessionOptions {
   sessions?: SessionStore
   /** SYSTEM.md and the agents; the built-in defaults without it. */
   agents?: AgentLibrary
+  /** Skills (how to handle the to-do list, logs, …); none without it. */
+  skills?: SkillLibrary
   log?: (message: string, err?: unknown) => void
 }
 
@@ -136,6 +139,7 @@ export class StreamSession {
               startNew: () => options.sessions!.startNew(),
             },
             agents: options.agents,
+            skills: options.skills,
             log: this.log,
           })
         : undefined

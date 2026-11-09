@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import { AgentLibrary } from './agents/library.ts'
+import { SkillLibrary } from './skills/library.ts'
 import { buildApp } from './app.ts'
 import { loadAccessKey } from './auth.ts'
 import { config } from './config.ts'
@@ -14,6 +15,8 @@ app.addHook('onClose', () => harness.close())
 fs.mkdirSync(config.workspaceDir, { recursive: true })
 // SYSTEM.md and the default agent, the first time.
 new AgentLibrary(config.workspaceDir).seed()
+// The starter skills (to-do list, weight log), the first time.
+new SkillLibrary(config.workspaceDir).seed()
 await harness.start(config.mcpConfig, (message, err) => (err ? console.warn(message, err) : console.log(message)))
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

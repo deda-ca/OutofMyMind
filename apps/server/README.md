@@ -231,6 +231,20 @@ A document viewer beside the conversation (`DocumentViewer.vue` in the client), 
 - **Opened by you:** click a dropped file's chip, or a file in a tool call's details.
 - Sanitized: a Markdown file can't run scripts (checked with `<script>`, `onerror`, `javascript:` links).
 
+# Skills
+
+How Jarvis handles a kind of thing (the to-do list, a weight log, a sleep log…): Markdown files in `WORKSPACE_DIR/skills/` (`src/skills/`), each with `name`, `description`, `files` (globs of the workspace files it governs), `triggers` (words in a request that call for it) and its rules in sections (`## Layout`, `## Adding`, `## Completing`, `## Ask if missing`, …), plus an optional `## Template`: a code block with what the governed file starts as. Starter skills (written when there's no `skills/` folder yet): **To-do list** (`todo.md`: sections Today / This week / Later / Done; `added`/`due`/`done` stamps and tags; done items are ticked, stamped and moved to Done, never deleted) and **Weight log** (`logs/weight.md`: a table; never assume the unit).
+
+The rules reach the LLM when needed, in code (a small local model skips rules it isn't reminded of at that moment):
+- **Index** in the system prompt: one line per skill. Plus: work out dates from the current time (`For stamps: 2026-11-09 15:15` is in the prompt); only ask what only the owner can say.
+- **Triggered:** a request with a trigger word gets the whole skill in its note (with the room note), so Jarvis can ask follow-up questions before writing.
+- **Guard** (`guard.ts`) around every tool call: the rules are attached to the result when a governed file is touched; a change to one before its rules were seen is refused once, with the rules. An append to a governed file always starts on a new line.
+- **Templates:** when a skill comes into play and its file doesn't exist, Jarvis's code creates it from the template, so the layout is always right.
+
+Jarvis grows skills when asked, with built-in tools: `jarvis__update_skill` adds a dated rule under a section ("from now on add a priority to every to-do"), never removing anything; `jarvis__create_skill` makes a new one (rules + template: "create a sleep log skill… ask me if I forget one"); `jarvis__read_skill`. They respect the Tools tab's create/update switches. Removing or rewriting rules is left to the owner (edit the file).
+
+Measured with Qwen3.6 over a 12-turn conversation, twice: the to-do layout, stamps, due dates, done-handling, "Kilos or pounds?", the missing-rating question, the priority rule and the new sleep skill all worked in both runs; section choice and the format of rows in a skill Jarvis wrote itself vary a little. The tool loop allows 8 LLM calls per request (the guard's refusal and making a folder take some), and a tool call the model writes as text is never shown or spoken.
+
 # Not in the MVP
 
 Single user, one stream per connection, no authentication, localhost only. Before the server is reachable from a network (e.g. for the Android app): authentication, TLS, and reconnect handling. Opus compression (~10× less upload) when cellular matters.

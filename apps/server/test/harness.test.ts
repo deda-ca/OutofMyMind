@@ -19,7 +19,11 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     requests.push(JSON.parse(body))
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-    for (const delta of script.shift() ?? []) res.write(`data: ${JSON.stringify({ choices: [{ delta }] })}\n\n`)
+    for (const delta of script.shift() ?? []) {
+      // { finish_reason } goes on the choice (e.g. "length": cut off at max_tokens); anything else is a delta.
+      const choice = 'finish_reason' in delta ? { delta: {}, finish_reason: delta.finish_reason } : { delta }
+      res.write(`data: ${JSON.stringify({ choices: [choice] })}\n\n`)
+    }
     res.end('data: [DONE]\n\n')
   })
 })
@@ -154,4 +158,29 @@ test('each tool call is announced when it starts and again with its result, CRUD
   assert.equal(done.result, '- milk\n- eggs')
   assert.equal(done.isError, false)
   assert.ok(typeof done.durationMs === 'number')
+})
+
+test('tool-call markup written as text is never passed on; the reply says it stopped', async () => {
+  script = [[{ content: 'Let me create it. <tool_' }, { content: 'call>\n<function=files__write_file>…' }]]
+  let streamed = ''
+  const { text } = await runLoop(target, [{ role: 'user', content: 'x' }], host([]), { onDelta: (d) => (streamed += d) })
+  assert.doesNotMatch(streamed, /tool_call|function=/)
+  assert.equal(streamed, text)
+  assert.match(text, /^Let me create it\. +I couldn't finish that in one go/)
+})
+
+test('a cut-off tool call is not run, goes back as {} (so llama-server can parse the history), and the model is told to split it', async () => {
+  requests.length = 0
+  script = [
+    [{ tool_calls: [{ index: 0, id: 'w1', function: { name: 'notes__read_note', arguments: '{"path":"todo","content":"# To-do\\n\\n- [ ] Book doc' } }] }, { finish_reason: 'length' }],
+    [{ content: 'I will write it in parts.' }],
+  ]
+  const calls: { name: string; args: Record<string, unknown> }[] = []
+  const events: AgentEvent[] = []
+  await runLoop(target, [{ role: 'user', content: 'organise it' }], host(calls), { onDelta: () => {}, onEvent: (e) => events.push(e) })
+  assert.equal(calls.length, 0) // never run
+  const sentBack = requests[1]!.messages.slice(-2) as { role: string; tool_calls?: { function: { arguments: string } }[]; content?: string }[]
+  assert.equal(sentBack[0]!.tool_calls![0]!.function.arguments, '{}')
+  assert.match(String(sentBack[1]!.content), /^Error: Not done: .* Split the work into smaller calls/)
+  assert.equal(events.at(-1)!.call!.isError, true)
 })

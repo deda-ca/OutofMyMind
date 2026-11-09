@@ -89,7 +89,8 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
     ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
   }
-  const json = { model: target.model, stream: true, max_tokens: 1024, temperature: 0.7, ...target.extra, ...body }
+  // max_tokens: a cap, not a target (spoken replies stay short); room for a tool call that writes a file.
+  const json = { model: target.model, stream: true, max_tokens: 8192, temperature: 0.7, ...target.extra, ...body }
 
   // The Debug tab: a copy of the exchange, only while a client is watching.
   const traceId = llmTap.active ? llmTap.id() : 0

@@ -3,6 +3,7 @@
 import type { FastifyInstance } from 'fastify'
 import type { Archive } from '../archive/archive.ts'
 import type { AgentLibrary } from '../agents/library.ts'
+import type { SkillLibrary } from '../skills/library.ts'
 import type { SessionStore } from '../sessions/store.ts'
 import type { Speakers } from '../speaker/speakers.ts'
 import { parseFrame, type ClientMessage, type ServerMessage } from './protocol.ts'
@@ -17,7 +18,7 @@ function deviceLabel(value: unknown): string {
   return label || 'unknown'
 }
 
-export async function streamRoute(app: FastifyInstance, options: { archive: Archive; speakers: Speakers; sessions: SessionStore; agents: AgentLibrary }): Promise<void> {
+export async function streamRoute(app: FastifyInstance, options: { archive: Archive; speakers: Speakers; sessions: SessionStore; agents: AgentLibrary; skills: SkillLibrary }): Promise<void> {
   app.get('/api/stream', { websocket: true }, (socket, req) => {
     const send = (message: ServerMessage) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
@@ -56,6 +57,7 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
               speakers: options.speakers,
               sessions: options.sessions,
               agents: options.agents,
+              skills: options.skills,
               mode,
               log: (msg, err) => req.log.error({ err }, msg),
             })

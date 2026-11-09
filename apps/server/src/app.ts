@@ -15,6 +15,7 @@ import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
 import { SessionStore } from './sessions/store.ts'
+import { SkillLibrary } from './skills/library.ts'
 import { speakerRoutes } from './speaker/routes.ts'
 import { Speakers } from './speaker/speakers.ts'
 import type { VoiceprintModel } from './speaker/voiceprint.ts'
@@ -29,6 +30,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   const archive = new Archive(db, config.dataDir)
   const speakers = new Speakers(db, config.dataDir, options.voiceprintModel)
   const agents = new AgentLibrary(config.workspaceDir, path.join(config.dataDir, 'agents.json'))
+  const skills = new SkillLibrary(config.workspaceDir)
   const sessions = new SessionStore(path.join(config.workspaceDir, 'sessions'), path.join(config.dataDir, 'sessions.json'))
   app.addHook('onClose', async () => db.close())
 
@@ -78,7 +80,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
     },
   )
 
-  void app.register(streamRoute, { archive, speakers, sessions, agents })
+  void app.register(streamRoute, { archive, speakers, sessions, agents, skills })
   void app.register(archiveRoutes, { archive })
   void app.register(speakerRoutes, { speakers, dataDir: config.dataDir })
   void app.register(toolRoutes)

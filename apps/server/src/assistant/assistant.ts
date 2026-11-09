@@ -11,11 +11,13 @@
 // too, never sent to the LLM (controls.ts).
 
 import { AgentLibrary, fillOwner, toolAllowed, type Agent } from '../agents/library.ts'
+import { SkillGuard } from '../skills/guard.ts'
+import { SkillError, SkillLibrary, skillIndex, skillText, type Skill } from '../skills/library.ts'
 import { config } from '../config.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { FileError, workspaceFile } from '../files/workspaceFiles.ts'
-import { harness, type BuiltinTool, type LoopMessage, type LoopResult } from '../harness/index.ts'
+import { harness, type BuiltinTool, type CallHooks, type LoopMessage, type LoopResult } from '../harness/index.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import type { SessionEntry } from '../sessions/format.ts'
 import { historyMessages, toolUses } from '../sessions/history.ts'
@@ -85,6 +87,8 @@ export interface AssistantOptions {
   session?: SessionLink
   /** SYSTEM.md and the agents (agents/library.ts); the built-in defaults if not given (tests). */
   agents?: AgentLibrary
+  /** How to handle certain things (skills/library.ts); none if not given (tests). */
+  skills?: SkillLibrary
   log: (message: string, err?: unknown) => void
 }
 
@@ -116,6 +120,7 @@ export class Assistant {
    */
   private readonly session: SessionLink
   private readonly agents: AgentLibrary
+  private readonly skills: SkillLibrary
   /**
    * What Hermes hasn't seen yet. Hermes keeps its own copy of the
    * conversation (one long-lived session, hermesSession.ts) and ignores the
@@ -149,6 +154,7 @@ export class Assistant {
     this.o = options
     this.session = options.session ?? memorySession()
     this.agents = options.agents ?? new AgentLibrary()
+    this.skills = options.skills ?? new SkillLibrary()
     this.room = new Room(() => options.roomMemoryMs?.() ?? 5 * 60_000)
   }
 
@@ -362,11 +368,17 @@ export class Assistant {
     /** Whether Hermes got (and keeps) this turn in its session. */
     const inHermesSession = () => !!target.sessionId
     const builtins = this.builtins(replyId)
+    // Skills the request calls for ("add … to my to-do list") go with it; the guard makes sure
+    // a skill's rules are seen before any file it governs is changed.
+    const triggered = this.skills.triggered(text)
+    const guard = new SkillGuard(this.skills, config.workspaceDir)
+    guard.markShown(triggered)
+    const hooks = { before: guard.before.bind(guard), after: guard.after.bind(guard) }
     const nothingSaid = () => partial === ''
     try {
       let answer: LoopResult
       try {
-        answer = await this.ask(target, this.messagesFor(target, text, agent), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins)
+        answer = await this.ask(target, this.messagesFor(target, text, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
       } catch (err) {
         if (err instanceof LlmError && err.sessionGone && nothingSaid()) {
           // The session was deleted in Hermes: start a new one and give it the conversation so far.
@@ -375,14 +387,14 @@ export class Assistant {
           this.hermesBacklog = plainChat(this.history())
           backlogSent = this.hermesBacklog.length
           target = forAgent(chatTarget('hermes'), agent)
-          answer = await this.ask(target, this.messagesFor(target, text, agent), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins)
+          answer = await this.ask(target, this.messagesFor(target, text, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
         } else {
           // Hermes not running (or its API server off): answer with the local model instead.
           if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && nothingSaid())) throw err
           this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
           notice("Hermes isn't reachable, so the local model answered.")
           target = forAgent(chatTarget('local'), agent)
-          answer = await this.ask(target, this.messagesFor(target, text, agent), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins)
+          answer = await this.ask(target, this.messagesFor(target, text, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
         }
       }
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
@@ -430,11 +442,12 @@ export class Assistant {
     nothingSaid: () => boolean,
     agent: Agent,
     builtins: BuiltinTool[] = [],
+    hooks: CallHooks = {},
   ): Promise<LoopResult> {
     const allow = (name: string) => toolAllowed(agent, name)
     if (target.brain !== 'local' || !harness.hasTools(allow)) return { text: await streamChat(target, plainChat(messages), onDelta, signal, onEvent), steps: [] }
     try {
-      return await harness.run(target, messages, onDelta, signal, onEvent, allow, builtins)
+      return await harness.run(target, messages, onDelta, signal, onEvent, allow, builtins, hooks)
     } catch (err) {
       if (signal.aborted || !(err instanceof LlmError) || err.unreachable || !nothingSaid()) throw err
       this.o.log(`assistant: the LLM refused the request with tools, answering without them: ${err.message}`)
@@ -450,7 +463,98 @@ export class Assistant {
 
   /** Jarvis's own tools for this reply: they act on the owner's screen, so they know which reply they belong to. */
   private builtins(replyId: number): BuiltinTool[] {
+    const kindOn = (kind: 'create' | 'update') => harness.kinds()[kind]
+    const skillTools: BuiltinTool[] = [
+      {
+        label: 'Jarvis: read skill',
+        crud: ['read'],
+        tool: {
+          type: 'function',
+          function: {
+            name: 'jarvis__read_skill',
+            description: 'Read a skill: the rules for handling a kind of thing (e.g. "todo", "weight-log"). Use it before changing or explaining a skill.',
+            parameters: { type: 'object', properties: { skill: { type: 'string', description: 'The skill id or name.' } }, required: ['skill'] },
+          },
+        },
+        run: async (args) => {
+          const skill = this.skills.find(String(args.skill ?? ''))
+          return skill ? { text: skillText(skill), isError: false } : { text: `No skill "${String(args.skill)}". Skills: ${this.skills.list().map((s) => s.id).join(', ') || 'none'}.`, isError: true }
+        },
+      },
+      {
+        label: 'Jarvis: update skill',
+        crud: ['update'],
+        tool: {
+          type: 'function',
+          function: {
+            name: 'jarvis__update_skill',
+            description:
+              'Add a rule to a skill, when the owner asks to change how something is handled from now on ("from now on add a priority to to-dos", "always note the time I went to bed"). ' +
+              'The rule is added (dated) under a section; nothing is removed. Only when the owner asks. Then follow the new rule from now on.',
+            parameters: {
+              type: 'object',
+              properties: {
+                skill: { type: 'string', description: 'The skill id or name, e.g. "todo".' },
+                section: { type: 'string', description: 'The section heading to add it under, e.g. "Adding" or "Completing" (made if missing).' },
+                rule: { type: 'string', description: 'The rule, one short instruction, e.g. "Add a priority: (high), (normal) or (low)."' },
+              },
+              required: ['skill', 'section', 'rule'],
+            },
+          },
+        },
+        run: async (args) => {
+          if (!kindOn('update')) return { text: 'Changing things is switched off in the Tools tab.', isError: true }
+          const skill = this.skills.find(String(args.skill ?? ''))
+          if (!skill) return { text: `No skill "${String(args.skill)}". To make a new one, use jarvis__create_skill.`, isError: true }
+          try {
+            const updated = this.skills.addRule(skill.id, String(args.section ?? ''), String(args.rule ?? ''), stampNow().slice(0, 10))
+            return { text: `Added to the "${updated.name}" skill (skills/${updated.id}.md). It now reads:
+${updated.body}`, isError: false }
+          } catch (err) {
+            return { text: err instanceof SkillError ? err.message : `Couldn't update the skill: ${(err as Error).message}`, isError: true }
+          }
+        },
+      },
+      {
+        label: 'Jarvis: create skill',
+        crud: ['create'],
+        tool: {
+          type: 'function',
+          function: {
+            name: 'jarvis__create_skill',
+            description:
+              'Create a skill for a new kind of thing to keep (a sleep log, a reading list, …), when the owner asks. ' +
+              'Write concrete rules in Markdown sections: "## Layout" (the file, the same path as in files, what it starts with when created, and its one format: e.g. a heading and a table with named columns), ' +
+              '"## Adding" or "## Recording" (what goes in each entry, in that same format, with a "YYYY-MM-DD HH:MM" stamp), "## Ask if missing" (what to ask, and to record nothing until answered). ' +
+              'Use a single format throughout; don\'t describe both a table and a list. Only ask for things the owner must say (a rating, a unit), never for a date or time that can be worked out.',
+            parameters: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'e.g. "Sleep log"' },
+                description: { type: 'string', description: 'One line: what it covers.' },
+                files: { type: 'array', items: { type: 'string' }, description: 'Workspace files it governs, e.g. ["logs/sleep.md"].' },
+                triggers: { type: 'array', items: { type: 'string' }, description: 'Words in a request that call for it, e.g. ["slept", "sleep", "bed", "woke up"].' },
+                rules: { type: 'string', description: 'The rules, in Markdown sections.' },
+                template: { type: 'string', description: 'What the file starts as when first created: its heading, and the table header or empty sections. E.g. "# Sleep log\\n\\n| Date | Bedtime | Wake time | Quality | Notes |\\n|---|---|---|---|---|".' },
+              },
+              required: ['name', 'description', 'files', 'triggers', 'rules', 'template'],
+            },
+          },
+        },
+        run: async (args) => {
+          if (!kindOn('create')) return { text: 'Creating things is switched off in the Tools tab.', isError: true }
+          const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? v.split(',').map((x) => x.trim()) : [])
+          try {
+            const skill = this.skills.create({ name: String(args.name ?? ''), description: String(args.description ?? ''), files: list(args.files), triggers: list(args.triggers), body: String(args.rules ?? ''), template: typeof args.template === 'string' ? args.template : undefined })
+            return { text: `Created the "${skill.name}" skill (skills/${skill.id}.md).`, isError: false }
+          } catch (err) {
+            return { text: err instanceof SkillError ? err.message : `Couldn't create the skill: ${(err as Error).message}`, isError: true }
+          }
+        },
+      },
+    ]
     return [
+      ...skillTools,
       {
         label: 'Jarvis: show file',
         crud: ['read'],
@@ -587,9 +691,13 @@ export class Assistant {
    * in its own session, gets just the new message, with anything it hasn't
    * seen yet (the backlog, minus this request at its end) in front of it.
    */
-  private messagesFor(target: ChatTarget, text: string, agent: Agent): LoopMessage[] {
+  private messagesFor(target: ChatTarget, text: string, agent: Agent, skills: Skill[] = []): LoopMessage[] {
     const system = this.systemMessage(target, agent)
-    const room = this.room.note()
+    const notes = [
+      this.room.note(),
+      ...(skills.length ? [`(This request is about ${skills.map((s) => `"${s.name}"`).join(' and ')}. ${skills.map(skillText).join('\n\n')})`] : []),
+    ].filter((n): n is string => !!n)
+    const room = notes.length ? notes.join('\n\n') : null
     if (!target.sessionId) {
       const history = this.history()
       if (!room) return [system, ...history]
@@ -625,6 +733,7 @@ export class Assistant {
         `When ${owner} asks you to answer or help someone in the room, speak to that person directly. Use their name only if it's a sure match (a plain name) or ${owner} said the name: "Maria, a cup of flour is about 125 grams." A name marked "(probably)" or "(unsure)" may be the wrong person, so leave the name out: "A cup of flour is about 125 grams."`,
       ].join('\n'),
       agent.instructions && `## Agent: ${agent.name}\n${fillOwner(agent.instructions, config.ownerName)}`,
+      skillIndex(this.skills.list()),
       target.brain === 'local' && harness.hasTools(allow) && harness.toolGuidance(allow),
       // Without this the model reads the file with read_text_file and dictates it, Markdown and all.
       target.brain === 'local' &&
@@ -634,7 +743,7 @@ export class Assistant {
       // something says "I've added it" without any tool to do it with (seen with Qwen3.6).
       target.brain === 'local' && agent.tools !== null && limitsLine(harness.toolNames(allow)),
       // "1:40 p.m." already ends with a period.
-      `It is ${now}${now.endsWith('.') ? '' : '.'}`,
+      `It is ${now}${now.endsWith('.') ? '' : '.'} For stamps: ${stampNow()}.`,
     ]
     return { role: 'system', content: parts.filter(Boolean).join('\n\n') }
   }
@@ -645,6 +754,12 @@ export class Assistant {
 function limitsLine(tools: string[]): string {
   const can = tools.length ? `These are your only tools: ${tools.join(', ')}.` : 'You have no tools in this session.'
   return `${can} If a request needs anything they can't do (for example changing a file when you can only read), say you can't do it here; never say or imply you did it.`
+}
+
+/** "2026-11-09 15:15", local time: the form skills use for stamps. */
+function stampNow(at = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${at.getFullYear()}-${p(at.getMonth() + 1)}-${p(at.getDate())} ${p(at.getHours())}:${p(at.getMinutes())}`
 }
 
 /** The agent's temperature, if it sets one. */
