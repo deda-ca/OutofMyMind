@@ -203,6 +203,34 @@ Files in the workspace, edited by hand (or by Jarvis when asked); changes apply 
 - **The system prompt, in order** (most stable first, so llama-server reuses its cached prefix): `SYSTEM.md` · the rule about other people in the room · `## Agent: <name>` + its instructions · tool rules and plugin instructions (local brain, if the agent has tools) · the agent's tool limits · `It is <date and time>.` (last: it changes every minute).
 - **API:** `GET /api/agents`; `POST /api/sessions/new` `{ agent? }`; `PUT /api/sessions/new/agent` `{ agent }`; `PATCH /api/sessions/:id` `{ agent }` (`''` = default).
 
+# Room awareness and talking with people
+
+So Jarvis doesn't answer everything said near it, and knows who's around (`src/assistant/room.ts`, `assistant.ts`):
+
+- **Room note:** every phrase heard (anyone's) is kept for the *room memory* setting (default 5 minutes, up to 30, 0 = off). Each request gets a note just before the owner's latest message (not in the system prompt, so the cached prefix survives): how many voices were heard and who (`Maria (voice match sure)`, `Speaker B (voice match not sure)`), and what was said that isn't already in the conversation, with times (`[14:51:47] Maria: …`). With Qwen3.6: "answer Maria's question" → "Maria, a cup of flour is about 125 grams."; alone → "only you have been heard in the last five minutes"; it counts and names who's around.
+- **Confidence:** names carry the voice match: plain = sure, `(probably)`, `(unsure)`. Jarvis addresses someone by name only on a sure match or when the owner said the name (3 of 3 trials each).
+- **Timestamps:** the owner's side of the history starts with when it was said (`[14:30]` today, `[Sun 8 Nov 14:30]` before); Jarvis's answers don't, so it doesn't copy the format.
+- **Stepping back:** in the follow-up window, when someone else speaks (a high-confidence match that isn't the owner), the window ends: the owner is talking with them, and Jarvis waits for its name again. Needs the owner's voice trained.
+- **Wake word only** (setting, header toggle, or "Jarvis, only when I say your name" / "Jarvis, normal mode"): no follow-ups; every request needs "Jarvis". Typed messages always go to Jarvis.
+
+# Files in the conversation
+
+Drop files on the Live conversation (or use 📎): Markdown, images, audio, video, PDFs, anything up to 500 MB (`src/files/`).
+
+- **Saved** in the workspace under `uploads/<yyyy-mm-dd>/<name>`: streamed to disk, never overwriting (`name-1.ext`, …), names made safe. Being in the workspace, Jarvis's file tools can reach them: "save that photo in photos/vacation" → create_directory + move_file (measured with Qwen3.6).
+- **In the session** as one `## Files` message with Markdown links (`[photo.jpg](<../uploads/…>) · image/jpeg · 3112 bytes`). The LLM gets full paths, which ones are text it can read, and that it can't see inside images, audio, video or PDFs yet (asked "what does the photo show?", it says so instead of guessing).
+- **Shown** as chips: image thumbnails, audio and video players, links; "No longer here" if a file was moved or deleted since.
+- **API:** `POST /api/uploads` (raw body, `Content-Type: application/vnd.jarvis.upload`, `X-File-Name` URI-encoded, `X-File-Type`) → `{ file }`; `POST /api/uploads/attach` `{ files, note? }` → adds them to the active session; `GET /api/workspace-file?path=` serves a workspace file (inside the workspace only, symlinks resolved; sandboxed so a dropped .svg or .html can't run scripts).
+- Later: converting PDFs to Markdown, transcribing audio and video, describing images, so Jarvis can see inside them.
+
+# Viewing files
+
+A document viewer beside the conversation (`DocumentViewer.vue` in the client), read-only for now: Markdown rendered (marked + DOMPurify: headings, lists, tables, to-do checkboxes, code) with its linked images loaded from the workspace relative to the file; links to other Markdown files open in the viewer, web links in a new tab; images, PDFs and other text as they are. ↗ opens it alone in a tab (`/?view=<path>`). It re-reads the file after any tool call that changes something, and when the tab regains focus.
+
+- **Opened by Jarvis:** a built-in tool, `jarvis__show_file` (`assistant.ts`: Jarvis's own tools run in the harness next to the MCP plugins, offered first, to every agent; they only touch the screen). "Show me / pull up / open / let me see" → it's on screen, and Jarvis says so instead of reading it out; "what's on my to-do list?" is still answered aloud. Measured with Qwen3.6: 6 of 6 phrasings with the `notes` plugin off; with it on, "pull up my trip notes" went through `notes` (short names, no workspace path) and wasn't shown. The `files` plugin covers `notes/`, so `notes` is best switched off.
+- **Opened by you:** click a dropped file's chip, or a file in a tool call's details.
+- Sanitized: a Markdown file can't run scripts (checked with `<script>`, `onerror`, `javascript:` links).
+
 # Not in the MVP
 
 Single user, one stream per connection, no authentication, localhost only. Before the server is reachable from a network (e.g. for the Android app): authentication, TLS, and reconnect handling. Opus compression (~10× less upload) when cellular matters.

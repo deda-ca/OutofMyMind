@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { CRUD_PILLS, filesIn, prettyArgs, shortPath, type ToolCallInfo } from '../toolCalls'
+import { openFile, viewable } from '../viewer'
+
+/** A workspace path from a tool's (absolute) one, if it's in the workspace. */
+const inWorkspace = (p: string) => (p.includes('/workspace/') ? p.slice(p.lastIndexOf('/workspace/') + '/workspace/'.length) : null)
 
 // One tool call in the transcript: ⚙️ what it was, a pill per kind of thing it
 // does (create / read / update / delete), and on click: the files it touched,
@@ -49,7 +53,16 @@ const verb = computed(() => {
       <span><span class="fw-semibold">Tool:</span> <code>{{ call.name }}</code></span>
       <span v-if="files.length" class="vstack gap-1">
         <span class="fw-semibold">{{ verb }}:</span>
-        <code v-for="f in files" :key="f" class="text-break" :title="f">{{ shortPath(f) }}</code>
+        <template v-for="f in files" :key="f">
+          <button
+            v-if="inWorkspace(f) && viewable(f)"
+            type="button"
+            class="btn-text btn-sm p-0 text-start file-link"
+            :title="`Open ${shortPath(f)}`"
+            @click="openFile(inWorkspace(f)!)"
+          ><code class="text-break">{{ shortPath(f) }}</code> ↗</button>
+          <code v-else class="text-break" :title="f">{{ shortPath(f) }}</code>
+        </template>
       </span>
       <span class="vstack gap-1">
         <span class="fw-semibold">Arguments</span>

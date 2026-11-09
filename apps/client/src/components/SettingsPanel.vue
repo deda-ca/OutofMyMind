@@ -105,6 +105,15 @@ const sliders: Slider[] = [
     format: (v) => `${Math.round(v * 100)}%`,
   },
   {
+    key: 'roomMemoryMs',
+    label: 'Room memory',
+    help: 'How far back Jarvis is told who has been heard nearby and what they said (with times and how sure each voice match is), so it can answer “what did Maria ask?”. Sent with every request. 0 turns it off.',
+    min: 0,
+    max: 30 * 60_000,
+    step: 60_000,
+    format: (ms) => (ms === 0 ? 'Off' : `${Math.round(ms / 60_000)} min`),
+  },
+  {
     key: 'followUpMs',
     label: 'Jarvis follow-up window',
     help: 'After Jarvis answers, how long it keeps listening to you without needing “Jarvis” again. Say “thanks, Jarvis” or “that’s all” to end the conversation sooner.',
@@ -157,6 +166,24 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
           <label for="setting-speakReplies">Speak replies</label>
         </div>
         <div class="form-text">Jarvis reads its answers aloud (voice “jarvis”, Qwen3-TTS). Off = text only.</div>
+      </div>
+      <div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="switch">
+            <input
+              id="setting-wakeWordOnly"
+              type="checkbox"
+              :checked="settings.wakeWordOnly >= 0.5"
+              @change="settings.wakeWordOnly = ($event.target as HTMLInputElement).checked ? 1 : 0"
+            />
+          </div>
+          <label for="setting-wakeWordOnly">Only when I say “Jarvis”</label>
+        </div>
+        <div class="form-text">
+          For when you're talking with people: no follow-up window, so every request needs “Jarvis”. Or say “Jarvis, only
+          when I say your name” / “Jarvis, normal mode”. Either way, Jarvis steps back as soon as someone else (surely not
+          you) speaks after it answers.
+        </div>
       </div>
       <div>
         <div class="d-flex align-items-center gap-2">

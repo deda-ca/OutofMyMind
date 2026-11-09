@@ -11,6 +11,7 @@ import { registerAuth } from './auth.ts'
 import { AgentLibrary } from './agents/library.ts'
 import { agentRoutes } from './agents/routes.ts'
 import { config } from './config.ts'
+import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
 import { SessionStore } from './sessions/store.ts'
@@ -83,6 +84,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   void app.register(toolRoutes)
   void app.register(sessionRoutes, { sessions, agents })
   void app.register(agentRoutes, { agents })
+  void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
 
   return app
 }

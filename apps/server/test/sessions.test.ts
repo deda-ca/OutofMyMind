@@ -58,7 +58,7 @@ test('history: whole entries, tool calls paired with results, within the limit',
   assert.ok(call && 'tool_calls' in call)
   const result = messages[messages.indexOf(call) + 1]
   assert.ok(result?.role === 'tool' && result.tool_call_id === call.tool_calls[0]!.id)
-  assert.deepEqual(messages.find((m) => m.role === 'user' && m.content.startsWith('[Maria')), { role: 'user', content: '[Maria said, not to you]: Get bread too.' })
+  assert.match((messages.find((m) => m.role === 'user' && m.content.includes('[Maria')) as { content: string }).content, /^\[[^\]]+\] \[Maria said, not to you\]: Get bread too\.$/)
 
   // Cut to 4 messages: never starts on a tool result.
   const short = historyMessages(sample.entries, 4)

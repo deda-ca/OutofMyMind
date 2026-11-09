@@ -55,3 +55,28 @@ export function detectNewSession(text: string): boolean {
   if (!t || t.split(' ').length > 7) return false
   return /^((let's |let us |can we |can you )?(start|begin|open|make|create) )?(a )?(new|fresh) (session|conversation|chat)$/.test(t) || /^(let's )?start (over|afresh|fresh)$/.test(t)
 }
+
+/**
+ * "Jarvis, only when I say your name" → wake-word-only (no follow-ups: every request needs "Jarvis").
+ * "Jarvis, normal mode" / "you can listen for follow-ups again" → follow-ups.
+ */
+export function detectListenMode(text: string): 'wake-word-only' | 'follow-ups' | null {
+  const t = text
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/\b(hey |ok |okay )?jarvis\b/g, ' ')
+    .replace(/\b(please|now|from now on|for now)\b/g, ' ')
+    .replace(/[^a-z' ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!t || t.split(' ').length > 10) return null
+  if (
+    /^(only (answer |respond |listen )?(when|if) i (say|use|call) your name|(use )?wake word only|wake word mode|name only( mode)?|only when called|stand by|standby|wait (until|till) i (say|call) your name)$/.test(t)
+  ) {
+    return 'wake-word-only'
+  }
+  if (/^(normal mode|back to normal|follow ups on|(you can )?listen (for follow ups )?again|(turn )?follow ups (back )?on|end wake word( only)?( mode)?)$/.test(t)) {
+    return 'follow-ups'
+  }
+  return null
+}

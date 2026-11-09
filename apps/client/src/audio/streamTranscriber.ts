@@ -30,6 +30,10 @@ export interface StreamSettings {
   speakReplies: number
   /** Who answers: 0 = the local LLM, 1 = Nous Hermes Agent. */
   brain: number
+  /** 1 = no follow-ups: every request needs "Jarvis". */
+  wakeWordOnly: number
+  /** How far back the room note (who's around, what they said) reaches; 0 = off. */
+  roomMemoryMs: number
   /** 1 = you can interrupt Jarvis by talking (client only; use headphones). */
   bargeIn: number
   /** Confident speech needed before Jarvis pauses for you (client only). */
@@ -50,6 +54,8 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   followUpMs: 30000,
   speakReplies: 1,
   brain: 0,
+  wakeWordOnly: 0,
+  roomMemoryMs: 5 * 60_000,
   bargeIn: 1,
   bargeInMs: 400,
   duckVolume: 0.3,
@@ -65,6 +71,8 @@ export type AssistantMessage =
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
   | { type: 'assistant.control'; action: 'stop' | 'continue' | 'repeat' | 'resume'; replyId: number }
   | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'approval' | 'notice'; label: string; emoji?: string; call?: ToolCallInfo }
+  /** Jarvis opened a workspace file on screen. */
+  | { type: 'assistant.show'; replyId: number; path: string }
 
 /** Who said a phrase (server: apps/server/src/speaker/speakers.ts). */
 export interface SpeakerTag {
@@ -356,6 +364,7 @@ export class StreamTranscriber {
       case 'assistant.audio':
       case 'assistant.control':
       case 'assistant.tool':
+      case 'assistant.show':
         this.events.onAssistant?.(message)
         break
     }

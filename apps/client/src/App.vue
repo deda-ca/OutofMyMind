@@ -20,6 +20,8 @@ import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
 import SessionsPanel from './components/SessionsPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import DocumentViewer from './components/DocumentViewer.vue'
+import FileChips from './components/FileChips.vue'
 import ToolCallLine from './components/ToolCallLine.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
 import ToolsPanel from './components/ToolsPanel.vue'
@@ -29,6 +31,8 @@ import { monitorEnabled } from './monitor'
 import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './sessions'
 import { settings } from './settings'
 import type { ToolCallInfo } from './toolCalls'
+import { addFiles, type FileRef } from './uploads'
+import { openFile, refreshFile, viewer } from './viewer'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
@@ -52,6 +56,8 @@ interface Phrase {
   activity?: { kind: string; label: string; emoji?: string; call?: ToolCallInfo }[]
   /** Typed or pasted into the message box, not spoken. */
   typed?: boolean
+  /** Files the owner dropped in (this line is them, not something heard). */
+  files?: FileRef[]
 }
 
 const status = ref<Status>('idle')
@@ -138,7 +144,7 @@ const hasText = computed(() => sessions.entries.length > 0 || recordings.value.s
 /** One line per phrase (with who said it, and Jarvis's replies) once there are speakers or replies; flowing text otherwise. */
 const hasSpeakers = computed(() =>
   sessions.entries.length > 0 ||
-  recordings.value.some((phrases) => phrases.some((p) => p.jarvis || p.speaker?.isOwner != null || !!p.speaker?.name)),
+  recordings.value.some((phrases) => phrases.some((p) => p.jarvis || p.files || p.speaker?.isOwner != null || !!p.speaker?.name)),
 )
 
 function phraseFor(phrases: Phrase[], id: number): Phrase {
@@ -201,7 +207,13 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
     assistant.value = { state: message.state, followUpEndsAt: message.followUpEndsAt, ownerTrained: message.ownerTrained }
     return
   }
+  if (message.type === 'assistant.show') {
+    openFile(message.path)
+    return
+  }
   if (message.type === 'assistant.tool') {
+    // A finished tool call may have changed the file on screen.
+    if (message.call?.status === 'done' && message.call.crud.some((k) => k !== 'read')) refreshFile()
     const line = phrases.find((p) => p.id === -message.replyId)
     if (!line) return
     // A tool call is announced when it starts, then again with its result: update it in place.
@@ -291,8 +303,9 @@ async function start(): Promise<void> {
       onSplit: (id, into) => splitPhrase(current, id, into),
       onAssistant: (message) => onAssistant(current, message),
       onServerSettings: (server) => {
-        // Only the brain is changed by the server itself (by voice); keep the switch in step.
+        // The brain and wake-word-only are changed by the server itself (by voice); keep the switches in step.
         if (server.brain !== settings.brain) settings.brain = server.brain
+        if (server.wakeWordOnly !== settings.wakeWordOnly) settings.wakeWordOnly = server.wakeWordOnly
       },
       onSessionsChanged: (activeId) => void sessionsChanged(activeId),
       onDebug: onDebugMessage,
@@ -359,10 +372,6 @@ function toggleMute(): void {
   transcriber.setMuted(muted.value)
 }
 
-function clear(): void {
-  recordings.value = []
-}
-
 /** The sessions sidebar: open or hidden. Remembered in this browser; on a narrow screen it starts hidden. */
 const SIDEBAR_KEY = 'jarvis.sessionsSidebar'
 const narrow = () => typeof window !== 'undefined' && window.matchMedia('(max-width: 991.98px)').matches
@@ -398,8 +407,70 @@ function entryBadge(entry: SessionEntry): { label: string; theme: string } {
   if (entry.kind === 'jarvis') return { label: 'Jarvis', theme: 'theme-info' }
   if (entry.kind === 'context') return { label: entry.who, theme: 'theme-secondary' }
   if (entry.kind === 'note') return { label: 'Note', theme: 'theme-warning badge-subtle' }
+  if (entry.kind === 'files') return { label: 'You', theme: 'theme-primary' }
   return { label: 'Before', theme: 'theme-secondary badge-subtle' }
 }
+
+/**
+ * Files dropped on the conversation (or picked with 📎): saved in the workspace,
+ * added to the session as one message, and shown in the transcript. Jarvis can
+ * then be asked to file them somewhere ("save that photo in photos/vacation").
+ */
+const dragging = ref(false)
+let dragDepth = 0
+const uploading = ref<{ total: number; done: number } | null>(null)
+const filePicker = ref<HTMLInputElement | null>(null)
+let nextFilesId = 1
+
+const hasFiles = (event: DragEvent) => [...(event.dataTransfer?.types ?? [])].includes('Files')
+
+function onDragEnter(event: DragEvent): void {
+  if (!hasFiles(event)) return
+  dragDepth++
+  dragging.value = true
+}
+function onDragLeave(event: DragEvent): void {
+  if (!hasFiles(event)) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) dragging.value = false
+}
+function onDrop(event: DragEvent): void {
+  dragDepth = 0
+  dragging.value = false
+  const files = [...(event.dataTransfer?.files ?? [])]
+  if (files.length) void addDroppedFiles(files)
+}
+function onPick(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  if (files.length) void addDroppedFiles(files)
+}
+
+async function addDroppedFiles(files: File[]): Promise<void> {
+  if (uploading.value) return
+  error.value = ''
+  uploading.value = { total: files.length, done: 0 }
+  try {
+    const result = await addFiles(files, (done) => uploading.value && (uploading.value.done = done))
+    // Show them in the live transcript, after what's there.
+    if (!recordings.value.length) recordings.value.push([])
+    const current = recordings.value.at(-1)!
+    const order = Math.max(0, ...current.map((p) => p.order)) + 0.5
+    current.push({ id: -1_000_000 - nextFilesId++, order, text: '', final: true, files: result.files })
+    followTranscript.value = true
+    // The session list (a new session may have been made by this); harmless if the live connection already said so.
+    void sessionsChanged(result.activeId)
+  } catch (err) {
+    error.value = `Couldn't add ${files.length === 1 ? files[0]!.name : 'the files'}: ${(err as Error).message}`
+  } finally {
+    uploading.value = null
+  }
+}
+
+/** "/?view=todo.md": a tab with just that document (the viewer's ↗ button). */
+const standaloneView = new URLSearchParams(location.search).get('view')
+if (standaloneView) openFile(standaloneView)
 
 /** "files__append_file" → "files: append_file". */
 const toolLabel = (name: string) => name.replace('__', ': ')
@@ -464,6 +535,10 @@ onBeforeUnmount(() => {
     <h1 class="text-3xl fw-semibold">Jarvis</h1>
     <SignInPanel />
   </main>
+  <!-- "Open in a new tab": just the document. -->
+  <main v-else-if="signedIn && standaloneView" class="app-standalone">
+    <DocumentViewer standalone />
+  </main>
   <main v-else-if="signedIn" class="app container-fluid" :class="{ 'app-fill': tab === 'live' }">
     <div class="app-top">
       <div class="vstack gap-3">
@@ -487,6 +562,16 @@ onBeforeUnmount(() => {
               Talking with Jarvis{{ assistant.followUpEndsAt ? ` · follow-ups ${followUpSeconds} s` : '' }}
             </span>
             <span v-else class="text-sm fg-3">Say “Jarvis” to talk to it</span>
+            <button
+              type="button"
+              class="badge mode-toggle"
+              :class="settings.wakeWordOnly >= 0.5 ? 'theme-warning' : 'theme-secondary badge-subtle'"
+              :aria-pressed="settings.wakeWordOnly >= 0.5"
+              :title="settings.wakeWordOnly >= 0.5 ? 'Only “Jarvis, …” is for Jarvis (no follow-ups). Click for follow-ups.' : 'Follow-ups on: after an answer, you can talk without “Jarvis”. Click for name-only (when talking with people).'"
+              @click="settings.wakeWordOnly = settings.wakeWordOnly >= 0.5 ? 0 : 1"
+            >
+              {{ settings.wakeWordOnly >= 0.5 ? 'Name only' : 'Follow-ups on' }}
+            </button>
             <span class="badge theme-secondary badge-subtle" :title="settings.brain >= 0.5 ? 'Answers come from Nous Hermes Agent (tools, memory)' : 'Answers come straight from the local LLM'">
               {{ settings.brain >= 0.5 ? 'Brain: Hermes' : 'Brain: local LLM' }}
             </span>
@@ -559,7 +644,10 @@ onBeforeUnmount(() => {
       </aside>
       <div class="live-backdrop" aria-hidden="true" @click="sidebarOpen = false"></div>
 
-      <div class="live-main">
+      <div class="live-main" @dragenter.prevent="onDragEnter" @dragover.prevent @dragleave="onDragLeave" @drop.prevent="onDrop">
+        <div v-if="dragging" class="drop-overlay" aria-hidden="true">
+          <span>Drop files to add them to this conversation</span>
+        </div>
         <div class="d-flex gap-3 align-items-center flex-wrap live-fixed">
           <button
             type="button"
@@ -599,14 +687,6 @@ onBeforeUnmount(() => {
           >
             {{ muted ? 'Unmute' : 'Mute' }}
           </button>
-          <button
-            type="button"
-            class="btn-outline theme-secondary btn-lg"
-            :disabled="!hasText || status !== 'idle'"
-            @click="clear"
-          >
-            Clear
-          </button>
         </div>
 
         <div v-if="error" class="alert theme-danger m-0 live-fixed" role="alert">{{ error }}</div>
@@ -624,7 +704,8 @@ onBeforeUnmount(() => {
                     :label="toolLabel(t.name)"
                     :call="{ id: `${i}-${k}`, name: t.name, args: t.args, result: t.result, crud: sessions.toolCrud[t.name] ?? [], status: 'done', isError: t.result.startsWith('Error:') }"
                   />
-                  <span class="saved-text" :class="entry.kind === 'jarvis' ? 'fg-info' : entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
+                  <FileChips v-if="entry.kind === 'files'" :files="entry.files" />
+                  <span v-if="entry.text" class="saved-text" :class="entry.kind === 'jarvis' ? 'fg-info' : entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
                 </span>
               </div>
             </div>
@@ -644,6 +725,10 @@ onBeforeUnmount(() => {
                       </template>
                       <span :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>
                     </span>
+                  </template>
+                  <template v-else-if="phrase.files">
+                    <span class="text-nowrap"><span class="badge theme-primary">You</span></span>
+                    <FileChips :files="phrase.files" />
                   </template>
                   <template v-else>
                     <span class="text-nowrap"><SpeakerBadge :speaker="phrase.speaker" :early="!phrase.speakerFinal" /></span>
@@ -691,7 +776,24 @@ onBeforeUnmount(() => {
 
         <form class="vstack gap-2 live-fixed" @submit.prevent="sendDraft">
           <label for="composer" class="visually-hidden">Message to Jarvis</label>
+          <div v-if="uploading" class="text-sm fg-3 d-flex align-items-center gap-2" role="status">
+            <span class="spinner-border spinner-sm" aria-hidden="true"></span>
+            Adding {{ uploading.total === 1 ? 'the file' : `files (${uploading.done} of ${uploading.total})` }}…
+          </div>
           <div class="d-flex gap-3 align-items-end">
+            <input ref="filePicker" type="file" multiple class="d-none" @change="onPick" />
+            <button
+              type="button"
+              class="btn-outline theme-secondary attach-button"
+              title="Add files to this conversation (or drop them anywhere here)"
+              aria-label="Add files"
+              :disabled="!!uploading"
+              @click="filePicker?.click()"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            </button>
             <textarea
               id="composer"
               ref="composer"
@@ -713,6 +815,11 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </div>
+
+      <!-- The document viewer: beside the conversation (over it on narrow screens). -->
+      <aside v-if="viewer.path" class="live-viewer">
+        <DocumentViewer />
+      </aside>
     </div>
 
     <SettingsPanel ref="settingsPanel" />
@@ -863,6 +970,44 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.live-main {
+  position: relative;
+}
+.live-viewer {
+  flex: none;
+  width: clamp(22rem, 38vw, 52rem);
+  min-height: 0;
+  display: flex;
+}
+.live-viewer > * {
+  flex: 1;
+}
+@media (max-width: 991.98px) {
+  .live-viewer {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    width: auto;
+  }
+}
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--bs-primary, #0d6efd);
+  border-radius: var(--bs-border-radius-lg, 0.5rem);
+  background: color-mix(in srgb, var(--bs-body-bg, #fff) 85%, transparent);
+  font-size: 1.25rem;
+  font-weight: 600;
+  pointer-events: none;
+}
+.attach-button {
+  padding-inline: 0.625rem;
+  align-self: stretch;
+}
 .sidebar-toggle {
   padding-inline: 0.625rem;
 }
@@ -909,6 +1054,10 @@ onBeforeUnmount(() => {
   inset-block-end: 0.75rem;
   inset-inline-end: 1rem;
   box-shadow: var(--bs-box-shadow);
+}
+.mode-toggle {
+  border: 0;
+  cursor: pointer;
 }
 .settings-button {
   padding-inline: 0.375rem;

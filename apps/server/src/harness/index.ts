@@ -10,7 +10,7 @@ import type { AgentEvent, ChatTarget } from '../assistant/llm.ts'
 import { config } from '../config.ts'
 import { loadPluginConfig } from './config.ts'
 import { runLoop, type LoopMessage, type LoopResult, type ToolHost } from './loop.ts'
-import { McpHub, type PluginInfo, type PluginStatus } from './mcp.ts'
+import { McpHub, type FunctionTool, type PluginInfo, type PluginStatus, type ToolOutcome } from './mcp.ts'
 import { CRUD, type Crud } from './crud.ts'
 import { ToolToggles } from './toggles.ts'
 
@@ -111,15 +111,22 @@ class Harness {
     signal?: AbortSignal,
     onEvent?: (event: AgentEvent) => void,
     allow: ToolAllow = () => true,
+    builtins: BuiltinTool[] = [],
   ): Promise<LoopResult> {
     const hub = this.hub
     if (!hub) throw new Error('The harness has no plugins')
+    const own = new Map(builtins.map((b) => [b.tool.function.name, b]))
     const host: ToolHost = {
-      tools: () => hub.tools().filter((t) => allow(t.function.name)),
-      label: (name) => hub.label(name),
-      crud: (name) => hub.crudOf(name),
-      call: async (name, args, callSignal) =>
-        allow(name) ? hub.call(name, args, callSignal) : { text: `The tool "${name}" isn't available to this agent.`, isError: true },
+      // Built-in tools only touch Jarvis's own screen, never the owner's data: every agent gets them.
+      // First in the list: with 20+ tools, a smaller model favours the early ones it recognises.
+      tools: () => [...builtins.map((b) => b.tool), ...hub.tools().filter((t) => allow(t.function.name))],
+      label: (name) => own.get(name)?.label ?? hub.label(name),
+      crud: (name) => own.get(name)?.crud ?? hub.crudOf(name),
+      call: async (name, args, callSignal) => {
+        const builtin = own.get(name)
+        if (builtin) return builtin.run(args)
+        return allow(name) ? hub.call(name, args, callSignal) : { text: `The tool "${name}" isn't available to this agent.`, isError: true }
+      },
     }
     return runLoop(target, messages, host, { onDelta, onEvent, signal })
   }
@@ -168,6 +175,14 @@ export function toolGuidance(instructions: string[], kindsOff: Crud[] = [], bloc
 
 function verb(kind: Crud): string {
   return { create: 'create', read: 'read', update: 'change', delete: 'delete' }[kind] + ' things'
+}
+
+/** A tool that runs inside Jarvis itself (not an MCP plugin), e.g. showing a file on the owner's screen. */
+export interface BuiltinTool {
+  tool: FunctionTool
+  label: string
+  crud: string[]
+  run(args: Record<string, unknown>): Promise<ToolOutcome>
 }
 
 /** Whether the LLM may use a tool, by its function name ("files__read_text_file"). */

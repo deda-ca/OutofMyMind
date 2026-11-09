@@ -50,6 +50,17 @@ export type SessionEntry =
   | { kind: 'earlier'; at: string; text: string }
   /** A note from Jarvis's software to the model (e.g. the session switched agent). */
   | { kind: 'note'; at: string; text: string }
+  /** Files the owner dropped into the conversation (saved in the workspace). `text`: an optional note. */
+  | { kind: 'files'; at: string; text: string; files: FileRef[] }
+
+/** A file in the workspace (files/workspaceFiles.ts). */
+export interface FileRef {
+  /** Relative to the workspace: "uploads/2026-11-09/photo.jpg". */
+  path: string
+  name: string
+  type: string
+  size: number
+}
 
 export interface SessionMeta {
   id: string
@@ -70,6 +81,7 @@ const OWNER = 'Owner'
 const JARVIS = 'Jarvis'
 const EARLIER = 'Earlier (context)'
 const NOTE = 'Note'
+const FILES = 'Files'
 const NOT_TO_JARVIS = ' (not to Jarvis)'
 
 export function toMarkdown(session: Session): string {
@@ -93,7 +105,9 @@ export function toMarkdown(session: Session): string {
         out.push(`${fence}tool ${tool.name}`, args, `→ ${tool.result}`, fence)
       }
     }
-    out.push(...entry.text.split('\n').map(escapeLine))
+    // Files as Markdown links (relative to this file, in sessions/), so they open from an editor too.
+    if (entry.kind === 'files') for (const f of entry.files) out.push(`- [${f.name}](<../${f.path}>) · ${f.type || 'unknown type'} · ${f.size} bytes`)
+    if (entry.text) out.push(...entry.text.split('\n').map(escapeLine))
   }
   return `${out.join('\n')}\n`
 }
@@ -145,6 +159,12 @@ export function fromMarkdown(id: string, markdown: string): Session {
       ;(current.entry.tools ??= []).push({ name, args, result: result.join('\n') })
       continue
     }
+    const file = current.entry.kind === 'files' ? /^- \[(.*)\]\(<?\.\.\/(.+?)>?\) · (.*?) · (\d+) bytes\s*$/.exec(line) : null
+    if (file && current.entry.kind === 'files') {
+      const [, name, filePath, type, size] = file as unknown as [string, string, string, string, string]
+      current.entry.files.push({ name, path: filePath, type: type === 'unknown type' ? '' : type, size: Number(size) })
+      continue
+    }
     current.text.push(unescapeLine(line))
   }
   finish()
@@ -157,7 +177,7 @@ export function fromMarkdown(id: string, markdown: string): Session {
 
 function heading(entry: SessionEntry): string {
   const who =
-    entry.kind === 'owner' ? OWNER : entry.kind === 'jarvis' ? JARVIS : entry.kind === 'earlier' ? EARLIER : entry.kind === 'note' ? NOTE : `${oneLine(entry.who)}${NOT_TO_JARVIS}`
+    entry.kind === 'owner' ? OWNER : entry.kind === 'jarvis' ? JARVIS : entry.kind === 'earlier' ? EARLIER : entry.kind === 'note' ? NOTE : entry.kind === 'files' ? FILES : `${oneLine(entry.who)}${NOT_TO_JARVIS}`
   const phrase = entry.kind === 'owner' && entry.phraseId ? ` · #${entry.phraseId}` : ''
   return `${who} · ${localStamp(entry.at)}${phrase}`
 }
@@ -172,6 +192,7 @@ function parseHeading(line: string): SessionEntry | null {
   if (who === JARVIS) return { kind: 'jarvis', at, text: '' }
   if (who === EARLIER) return { kind: 'earlier', at, text: '' }
   if (who === NOTE) return { kind: 'note', at, text: '' }
+  if (who === FILES) return { kind: 'files', at, text: '', files: [] }
   if (who.endsWith(NOT_TO_JARVIS)) return { kind: 'context', at, who: who.slice(0, -NOT_TO_JARVIS.length), text: '' }
   return null
 }

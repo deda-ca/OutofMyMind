@@ -126,6 +126,9 @@ export class StreamSession {
             ownerTrained: () => (speakers ? speakers.ownerClips().length > 0 : false),
             followUpMs: () => this.settings.followUpMs,
             speak: () => this.settings.speakReplies >= 0.5,
+            wakeWordOnly: () => this.settings.wakeWordOnly >= 0.5,
+            setWakeWordOnly: (on) => this.updateSettings({ wakeWordOnly: on ? 1 : 0 }),
+            roomMemoryMs: () => this.settings.roomMemoryMs,
             session: options.sessions && {
               entries: () => options.sessions!.entries(),
               agentId: () => options.sessions!.agentId(),

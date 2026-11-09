@@ -3,6 +3,7 @@
 // the Live transcript.
 
 import { reactive } from 'vue'
+import type { FileRef } from './uploads'
 
 export interface ToolUse {
   name: string
@@ -16,6 +17,7 @@ export type SessionEntry =
   | { kind: 'context'; at: string; who: string; text: string }
   | { kind: 'earlier'; at: string; text: string }
   | { kind: 'note'; at: string; text: string }
+  | { kind: 'files'; at: string; text: string; files: FileRef[] }
 
 export interface SessionSummary {
   id: string
