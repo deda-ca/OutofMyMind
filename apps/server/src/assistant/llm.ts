@@ -4,6 +4,7 @@
 
 import { config } from '../config.ts'
 import { HERMES_SESSION_KEY, hermesSessionId } from './hermesSession.ts'
+import { contextMonitor } from './context.ts'
 import { llmTap, teeBody, traceHeaders } from './llmTap.ts'
 
 export interface ChatMessage {
@@ -90,7 +91,17 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
   }
   // max_tokens: a cap, not a target (spoken replies stay short); room for a tool call that writes a file.
-  const json = { model: target.model, stream: true, max_tokens: 8192, temperature: 0.7, ...target.extra, ...body }
+  const json = {
+    model: target.model,
+    stream: true,
+    max_tokens: 8192,
+    temperature: 0.7,
+    // llama-server then ends the stream with its token counts (for the context meter).
+    ...(target.brain === 'local' ? { stream_options: { include_usage: true } } : {}),
+    ...target.extra,
+    ...body,
+  }
+  contextMonitor.request(target, json)
 
   // The Debug tab: a copy of the exchange, only while a client is watching.
   const traceId = llmTap.active ? llmTap.id() : 0
@@ -166,7 +177,9 @@ export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator
       const data = line.slice(5).trim()
       if (data === '[DONE]') return
       try {
-        yield { event, data: JSON.parse(data) as Record<string, unknown> }
+        const parsed = JSON.parse(data) as Record<string, unknown>
+        if (parsed.usage && typeof parsed.usage === 'object') contextMonitor.usage(parsed.usage as Parameters<typeof contextMonitor.usage>[0])
+        yield { event, data: parsed }
       } catch {
         // keep-alive or malformed
       }

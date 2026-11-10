@@ -13,6 +13,7 @@ import { BargeIn } from './audio/bargeIn'
 import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import { signOut, signedIn } from './auth'
 import AgentsPanel from './components/AgentsPanel.vue'
+import ContextMeter from './components/ContextMeter.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import SignInPanel from './components/SignInPanel.vue'
@@ -20,12 +21,14 @@ import MonitorPanel from './components/MonitorPanel.vue'
 import PeoplePanel from './components/PeoplePanel.vue'
 import SessionsPanel from './components/SessionsPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import SkillsPanel from './components/SkillsPanel.vue'
 import DocumentViewer from './components/DocumentViewer.vue'
 import FileChips from './components/FileChips.vue'
 import ToolCallLine from './components/ToolCallLine.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
 import ToolsPanel from './components/ToolsPanel.vue'
 import VoicePanel from './components/VoicePanel.vue'
+import { loadContext, onContext } from './context'
 import { debugEnabled, onDebugMessage } from './debug'
 import { monitorEnabled } from './monitor'
 import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './sessions'
@@ -38,7 +41,7 @@ import { openFile, refreshFile, viewer } from './viewer'
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'debug' | 'monitor'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'debug' | 'monitor'
 
 const tab = ref<Tab>('live')
 
@@ -308,6 +311,7 @@ async function start(): Promise<void> {
         if (server.wakeWordOnly !== settings.wakeWordOnly) settings.wakeWordOnly = server.wakeWordOnly
       },
       onSessionsChanged: (activeId) => void sessionsChanged(activeId),
+      onContext,
       onDebug: onDebugMessage,
       onPhraseDropped: (id) => {
         const index = current.findIndex((p) => p.id === id)
@@ -475,8 +479,8 @@ if (standaloneView) openFile(standaloneView)
 /** "files__append_file" → "files: append_file". */
 const toolLabel = (name: string) => name.replace('__', ': ')
 
-// The current session survives a refresh: load it (and the list) once signed in.
-watch(signedIn, (yes) => yes && void loadSessions(), { immediate: true })
+// The current session survives a refresh: load it (and the list) once signed in; and the context meter.
+watch(signedIn, (yes) => yes && (void loadSessions(), void loadContext()), { immediate: true })
 
 // Another session was opened (or a new one started): the transcript starts over with its saved messages.
 watch(
@@ -579,9 +583,10 @@ onBeforeUnmount(() => {
               Anyone can talk to Jarvis until you train your voice
             </span>
           </template>
+          <span class="ms-auto"><ContextMeter /></span>
           <button
             type="button"
-            class="btn-text btn-sm ms-auto settings-button"
+            class="btn-text btn-sm settings-button"
             title="Settings"
             aria-label="Settings"
             aria-haspopup="dialog"
@@ -621,6 +626,9 @@ onBeforeUnmount(() => {
           </li>
           <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'agents' }" @click="tab = 'agents'">Agents</button>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
           </li>
           <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'debug' }" @click="tab = 'debug'">
@@ -845,6 +853,12 @@ onBeforeUnmount(() => {
     <div v-if="tab === 'tools'" class="row justify-content-center mt-5">
       <div class="col-12">
         <ToolsPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'skills'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <SkillsPanel />
       </div>
     </div>
 

@@ -44,6 +44,18 @@ export interface Skill {
   template?: string
 }
 
+/** What the editor (or Jarvis's create tool) sends. */
+export interface SkillInput {
+  name: string
+  description: string
+  files: string[]
+  triggers: string[]
+  /** The rules, as written (comments allowed), without the template section. */
+  rules: string
+  /** What a governed file starts as; '' for none. */
+  template: string
+}
+
 export class SkillError extends Error {
   readonly status: number
   constructor(message: string, status: number) {
@@ -160,30 +172,111 @@ export class SkillLibrary {
   }
 
   /** A new skill; its id comes from the name. */
-  create(input: { name: string; description: string; files: string[]; triggers: string[]; body: string; template?: string }): Skill {
+  /** A new skill; its id comes from the name unless given. */
+  create(input: SkillInput, id?: string): Skill {
     if (!this.dir) throw new SkillError('No workspace for skills', 500)
-    const name = input.name.replace(/\s+/g, ' ').trim()
-    if (!name || name.length > 60) throw new SkillError('The name is needed (at most 60 characters)', 400)
-    const id = slug(name)
-    if (this.get(id)) throw new SkillError(`There's already a skill "${id}": add to it instead`, 409)
-    const list = (items: string[]) => `[${items.map((i) => i.replace(/[,[\]]/g, ' ').trim()).filter(Boolean).join(', ')}]`
+    const clean = validate(input)
+    const chosen = id ?? slug(clean.name)
+    if (!ID.test(chosen)) throw new SkillError('The file name may only have lowercase letters, digits, - and _ (at most 64)', 400)
+    if (this.get(chosen)) throw new SkillError(`There's already a skill "${chosen}": add to it instead`, 409)
     fs.mkdirSync(this.dir, { recursive: true })
-    write(
-      path.join(this.dir, `${id}.md`),
-      [
-        '---',
-        `name: ${JSON.stringify(name)}`,
-        `description: ${JSON.stringify(input.description.replace(/\s+/g, ' ').trim())}`,
-        `files: ${list(input.files)}`,
-        `triggers: ${list(input.triggers)}`,
-        '---',
-        input.body.trim(),
-        ...(input.template?.trim() ? ['', '## Template', '```markdown', input.template.trim(), '```'] : []),
-        '',
-      ].join('\n'),
-    )
+    write(path.join(this.dir, `${chosen}.md`), toSkillFile(clean))
+    return this.get(chosen)!
+  }
+
+  /** Saves a skill from the editor (its id, the file name, stays). */
+  save(id: string, input: SkillInput): Skill {
+    if (!this.dir || !this.get(id)) throw new SkillError(`No skill "${id}"`, 404)
+    write(path.join(this.dir, `${id}.md`), toSkillFile(validate(input)))
     return this.get(id)!
   }
+
+  remove(id: string): void {
+    if (!this.dir || !this.get(id)) throw new SkillError(`No skill "${id}"`, 404)
+    fs.rmSync(path.join(this.dir, `${id}.md`))
+    this.cache.delete(id)
+  }
+
+  /** The file as written (comments, dates and template included): for the editor and for export. */
+  source(id: string): string | undefined {
+    if (!this.dir || !this.get(id)) return undefined
+    return fs.readFileSync(path.join(this.dir, `${id}.md`), 'utf8')
+  }
+
+  /**
+   * Imports a skill file's text as `id` (from its file name). An existing one is skipped,
+   * replaced, or kept with the new one saved as id-2, id-3, …
+   */
+  importText(id: string, text: string, onConflict: 'skip' | 'replace' | 'rename'): { id: string; result: 'created' | 'replaced' | 'skipped' } {
+    if (!this.dir) throw new SkillError('No workspace for skills', 500)
+    if (text.length > 100_000) throw new SkillError('Too big for a skill (at most 100 KB)', 400)
+    const base = slug(id.replace(/\.(md|markdown|txt)$/i, '')) || 'skill'
+    // Plain Markdown without a header: the file name is the name, the text the rules.
+    const withHeader = text.replace(/\r\n/g, '\n').startsWith('---\n') ? text : `---\nname: ${JSON.stringify(base)}\ndescription: ""\nfiles: []\ntriggers: []\n---\n${text}`
+    const parsed = parseSkill(base, withHeader)
+    validate({ name: parsed.name, description: parsed.description, files: parsed.files, triggers: parsed.triggers, rules: '', template: '' })
+    let target = base
+    let result: 'created' | 'replaced' = 'created'
+    if (this.get(target)) {
+      if (onConflict === 'skip') return { id: target, result: 'skipped' }
+      if (onConflict === 'replace') result = 'replaced'
+      else for (let n = 2; this.get(target); n++) target = `${base}-${n}`
+    }
+    fs.mkdirSync(this.dir, { recursive: true })
+    write(path.join(this.dir, `${target}.md`), withHeader.endsWith('\n') ? withHeader : `${withHeader}\n`)
+    this.cache.delete(target)
+    return { id: target, result }
+  }
+
+}
+
+/** The file for a skill from the editor. */
+export function toSkillFile(input: SkillInput): string {
+  const list = (items: string[]) => `[${items.join(', ')}]`
+  return [
+    '---',
+    `name: ${JSON.stringify(input.name)}`,
+    `description: ${JSON.stringify(input.description)}`,
+    `files: ${list(input.files)}`,
+    `triggers: ${list(input.triggers)}`,
+    '---',
+    input.rules.trim(),
+    ...(input.template.trim() ? ['', '## Template', '```markdown', input.template.replace(/\s+$/, ''), '```'] : []),
+    '',
+  ].join('\n')
+}
+
+/** A skill file split for the editor: header fields, the rules as written (comments kept), the template. */
+export function editableSkill(id: string, source: string): SkillInput & { id: string } {
+  const skill = parseSkill(id, source)
+  const lines = source.replace(/\r\n/g, '\n').split('\n')
+  const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1
+  let rules = end === -1 ? source : lines.slice(end + 1).join('\n')
+  const template = /\n?^## Template\s*\n+(`{3,})[^\n]*\n([\s\S]*?)\n\1[^\n]*\n?/m.exec(rules)
+  if (template) rules = rules.slice(0, template.index) + rules.slice(template.index + template[0].length)
+  return { id, name: skill.name, description: skill.description, files: skill.files, triggers: skill.triggers, rules: rules.trim(), template: template?.[2] ?? '' }
+}
+
+/** Checks and tidies; throws a SkillError (400) saying what's wrong. */
+export function validate(input: SkillInput): SkillInput {
+  const name = String(input.name ?? '').replace(/\s+/g, ' ').trim()
+  if (!name || name.length > 60) throw new SkillError('The name is needed (at most 60 characters)', 400)
+  const description = String(input.description ?? '').replace(/\s+/g, ' ').trim()
+  if (description.length > 300) throw new SkillError('The description is at most 300 characters', 400)
+  const clean = (items: unknown, what: string, max: number) => {
+    if (!Array.isArray(items)) throw new SkillError(`${what} must be a list`, 400)
+    const out = items.map((i) => String(i).replace(/[,[\]]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean)
+    if (out.length > 50 || out.some((i) => i.length > max)) throw new SkillError(`${what}: at most 50, each at most ${max} characters`, 400)
+    return [...new Set(out)]
+  }
+  const files = clean(input.files, 'Files', 200)
+  if (files.some((f) => f.startsWith('/') || f.split('/').includes('..'))) throw new SkillError('Files are paths inside the workspace (no leading / or ..)', 400)
+  const triggers = clean(input.triggers, 'Triggers', 60)
+  const rules = String(input.rules ?? '')
+  const template = String(input.template ?? '')
+  if (rules.length > 20000 || template.length > 20000) throw new SkillError('Rules and template are at most 20,000 characters each', 400)
+  if (template.includes('```')) throw new SkillError("The template can't contain ``` (it's stored in a code block)", 400)
+  return { name, description, files, triggers, rules, template }
 }
 
 /** One line per skill, for the system prompt. */

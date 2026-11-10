@@ -54,10 +54,10 @@ test('Jarvis adds dated rules under a section (made if missing), and creates ski
   assert.equal(after.replace(/- Add a priority.*\n/, '').replace(/\n\n## Reviews\n.*\n$/, '\n'), before)
   assert.throws(() => skills.addRule('nope', 'x', 'y', '2026-11-09'), /No skill/)
 
-  const sleep = skills.create({ name: 'Sleep log', description: 'Bedtime, wake time, how I slept', files: ['logs/sleep.md'], triggers: ['slept', 'woke up'], body: '## Recording\n- One row per night.' })
+  const sleep = skills.create({ name: 'Sleep log', description: 'Bedtime, wake time, how I slept', files: ['logs/sleep.md'], triggers: ['slept', 'woke up'], rules: '## Recording\n- One row per night.', template: '' })
   assert.equal(sleep.id, 'sleep-log')
   assert.deepEqual(skills.forPath('logs/sleep.md').map((s) => s.id), ['sleep-log'])
-  assert.throws(() => skills.create({ name: 'Sleep log', description: '', files: [], triggers: [], body: '' }), /already a skill/)
+  assert.throws(() => skills.create({ name: 'Sleep log', description: '', files: [], triggers: [], rules: '', template: '' }), /already a skill/)
 })
 
 test('the guard: rules after a read; a change before the rules is refused once, then allowed', () => {
@@ -107,7 +107,7 @@ test('templates: a governed file is created from its skill template when the ski
   assert.match(fs.readFileSync(path.join(ws, 'logs/weight.md'), 'utf8'), /^# Weight log\n/)
 
   // A skill Jarvis creates can carry one.
-  const sleep = skills.create({ name: 'Sleep log', description: 'x', files: ['logs/sleep.md'], triggers: ['slept'], body: '## Recording\n- A row.', template: '# Sleep log\n\n| Date | Bed |\n|---|---|' })
+  const sleep = skills.create({ name: 'Sleep log', description: 'x', files: ['logs/sleep.md'], triggers: ['slept'], rules: '## Recording\n- A row.', template: '# Sleep log\n\n| Date | Bed |\n|---|---|' })
   assert.equal(sleep.template, '# Sleep log\n\n| Date | Bed |\n|---|---|')
 })
 

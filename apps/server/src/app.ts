@@ -10,12 +10,15 @@ import { AudiocppError, audiocppHealth, transcribePcm } from './audiocpp.ts'
 import { registerAuth } from './auth.ts'
 import { AgentLibrary } from './agents/library.ts'
 import { agentRoutes } from './agents/routes.ts'
+import { contextMonitor } from './assistant/context.ts'
+import { chatTarget } from './assistant/llm.ts'
 import { config } from './config.ts'
 import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
 import { SessionStore } from './sessions/store.ts'
 import { SkillLibrary } from './skills/library.ts'
+import { skillRoutes } from './skills/routes.ts'
 import { speakerRoutes } from './speaker/routes.ts'
 import { Speakers } from './speaker/speakers.ts'
 import type { VoiceprintModel } from './speaker/voiceprint.ts'
@@ -59,6 +62,12 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
     return { status: audiocpp.ok ? 'ok' : 'degraded', audiocpp }
   })
 
+  /** The context meter: the last request to the local model, by section (null before the first). */
+  app.get('/api/context', async () => {
+    const stats = contextMonitor.latest() ?? null
+    return { stats, limit: stats?.limit || (await contextMonitor.limit(chatTarget('local'))) }
+  })
+
   app.post<{ Querystring: { sampleRate?: string; language?: string }; Body: Buffer }>(
     '/api/transcribe',
     async (req, reply) => {
@@ -86,6 +95,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   void app.register(toolRoutes)
   void app.register(sessionRoutes, { sessions, agents })
   void app.register(agentRoutes, { agents })
+  void app.register(skillRoutes, { skills })
   void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
 
   return app

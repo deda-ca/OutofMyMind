@@ -31,6 +31,7 @@
 //   {"type":"assistant.control","action":"stop"|"continue"|"repeat"|"resume","replyId":1}   playback control
 //   {"type":"assistant.tool","replyId":1,"kind":"tool"|"approval"|"notice","label":"…","emoji":"🔎"}   agent activity (shown, not spoken)
 
+import type { ContextStats } from '../assistant/context.ts'
 import type { LlmRequestTrace, LlmResponseTrace } from '../assistant/llmTap.ts'
 import type { AssistantMessage } from '../assistant/assistant.ts'
 import type { SpeakerTag } from '../speaker/speakers.ts'
@@ -79,6 +80,8 @@ export type ServerMessage =
   | { type: 'ready'; settings: StreamSettings; sendHangoverMs: number }
   /** A session was added to, renamed, pinned, deleted, or another one became active (GET /api/sessions for the details). */
   | { type: 'sessions.changed'; activeId: string | null }
+  /** The context meter: what the last request to the local model held, by section. */
+  | { type: 'context'; stats: ContextStats }
   /** Debug tab (only after { type: 'debug', enabled: true }): an LLM request exactly as sent, and its response as received. */
   | ({ type: 'debug.llm.request' } & LlmRequestTrace)
   | ({ type: 'debug.llm.response' } & LlmResponseTrace)

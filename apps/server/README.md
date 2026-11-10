@@ -243,7 +243,19 @@ The rules reach the LLM when needed, in code (a small local model skips rules it
 
 Jarvis grows skills when asked, with built-in tools: `jarvis__update_skill` adds a dated rule under a section ("from now on add a priority to every to-do"), never removing anything; `jarvis__create_skill` makes a new one (rules + template: "create a sleep log skill… ask me if I forget one"); `jarvis__read_skill`. They respect the Tools tab's create/update switches. Removing or rewriting rules is left to the owner (edit the file).
 
+**Skills tab** (client `SkillsPanel.vue`, `src/skills/routes.ts`): view (rules rendered, template), create and edit (name, file name, description, files, triggers, rules with comments kept, template), delete, export one (`GET /api/skills/:id/export`, the .md) or all (`GET /api/skills-export`, a `jarvis-skills` JSON bundle), import (`POST /api/skills/import` `{ files: [{ name, text }], onConflict: rename | replace | skip }`: .md skill files, plain Markdown without a header (named after the file), or a bundle). Edits keep comments and Jarvis's dated rules; file paths must stay inside the workspace.
+
 Measured with Qwen3.6 over a 12-turn conversation, twice: the to-do layout, stamps, due dates, done-handling, "Kilos or pounds?", the missing-rating question, the priority rule and the new sleep skill all worked in both runs; section choice and the format of rows in a skill Jarvis wrote itself vary a little. The tool loop allows 8 LLM calls per request (the guard's refusal and making a folder take some), and a tool call the model writes as text is never shown or spoken.
+
+# Context meter
+
+How full the local model's context is, and with what (`src/assistant/context.ts`; the client's `ContextMeter.vue`, in the header: a ring and "31K / 256K"; click for the breakdown).
+
+- Each request to the local model asks llama-server for its token counts (`stream_options.include_usage`): `prompt_tokens` (the total) and `cached_tokens` (reused from its cache, not processed again).
+- The request is split into sections, each counted with llama-server's own tokenizer (`/tokenize`, cached by text): the system prompt by part (SYSTEM.md, room & people rules, agent, skills index, tool rules, show-file rule, tool limits, date & time: the assistant labels them as it builds the prompt), the tool definitions by plugin, the conversation, tool calls & results, the room & skill notes, the latest message. What they don't account for is the chat template's formatting.
+- The window size comes from `/props?model=…` (llama-server in router mode); re-read every 5 minutes.
+- Pushed to clients after every request (`{ type: "context", stats }` on `/api/stream`, each tool-loop step being one); `GET /api/context` for a page load.
+- First measurement (Qwen3.6, 262,144-token window): a request with one tool call was 5.9K tokens, 60% of it tool definitions (the files plugin alone 2.4K), the system prompt 1K; 99% came from the cache.
 
 # Not in the MVP
 

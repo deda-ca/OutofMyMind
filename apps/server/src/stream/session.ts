@@ -8,6 +8,7 @@
 
 import type { ConversationRecorder, PhraseStatus } from '../archive/archive.ts'
 import { Assistant } from '../assistant/assistant.ts'
+import { contextMonitor, type ContextStats } from '../assistant/context.ts'
 import { llmTap, type LlmRequestTrace, type LlmResponseTrace } from '../assistant/llmTap.ts'
 import { transcribePcm } from '../audiocpp.ts'
 import type { AgentLibrary } from '../agents/library.ts'
@@ -150,6 +151,16 @@ export class StreamSession {
       const onChange = (activeId: string | null) => this.emit({ type: 'sessions.changed', activeId })
       store.on('change', onChange)
       this.unsubscribe = () => store.off('change', onChange)
+    }
+    // The context meter, after every request to the local model (from any device).
+    if (this.assistant) {
+      const onContext = (stats: ContextStats) => this.emit({ type: 'context', stats })
+      contextMonitor.on('update', onContext)
+      const before = this.unsubscribe
+      this.unsubscribe = () => {
+        before?.()
+        contextMonitor.off('update', onContext)
+      }
     }
   }
 

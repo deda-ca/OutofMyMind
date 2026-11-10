@@ -6,6 +6,7 @@
 // crosses the network once. The server splits phrases, transcribes them and
 // sends the text back. Protocol: apps/server/src/stream/protocol.ts.
 
+import type { ContextStats } from '../context'
 import type { DebugMessage } from '../debug'
 import type { ToolCallInfo } from '../toolCalls'
 import { MicVAD } from '@ricky0123/vad-web'
@@ -148,6 +149,8 @@ export interface TranscriberEvents {
   onServerSettings?(settings: StreamSettings): void
   /** A session was added to, renamed, switched, … (here or on another device). */
   onSessionsChanged?(activeId: string | null): void
+  /** The context meter: what the last request to the local model held. */
+  onContext?(stats: ContextStats): void
   /** Debug tab: an LLM request or response (after setDebug(true)). */
   onDebug?(message: DebugMessage): void
 
@@ -167,6 +170,7 @@ type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'stopped' }
   | { type: 'sessions.changed'; activeId: string | null }
+  | { type: 'context'; stats: ContextStats }
   | DebugMessage
   | AssistantMessage
 
@@ -349,6 +353,9 @@ export class StreamTranscriber {
       case 'debug.llm.request':
       case 'debug.llm.response':
         this.events.onDebug?.(message)
+        break
+      case 'context':
+        this.events.onContext?.(message.stats)
         break
       case 'sessions.changed':
         this.events.onSessionsChanged?.(message.activeId)
