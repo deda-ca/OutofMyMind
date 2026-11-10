@@ -42,6 +42,7 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 | Jarvis speaks its replies (Qwen3-TTS, sentence by sentence; headphones for now) | ✅ Built |
 | Interrupt Jarvis by talking; "stop", "continue", "repeat" by voice | ✅ Built |
 | Access key sign-in (phone access over the LAN) | ✅ Built |
+| Data history: the data folder is a git repository, every change committed (out of the LLM's reach; `DATA_HISTORY=off` to turn off) | ✅ Built |
 | Harness: Jarvis's own tool loop with plug-and-play MCP plugins; plugins: markdown notes, weather (Open-Meteo; needs the internet) | ✅ Built (start) |
 | More plugins: calendar, files, … | Planned |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |

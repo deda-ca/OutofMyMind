@@ -5,6 +5,7 @@ import { buildApp } from './app.ts'
 import { loadAccessKey } from './auth.ts'
 import { config } from './config.ts'
 import { harness } from './harness/index.ts'
+import { DataHistory } from './history/history.ts'
 import { VoiceprintModel } from './speaker/voiceprint.ts'
 
 const voiceprintModel = await VoiceprintModel.load(config.voiceprintModel, (message) => console.warn(message))
@@ -18,6 +19,10 @@ new AgentLibrary(config.workspaceDir).seed()
 // The starter skills (to-do list, weight log), the first time.
 new SkillLibrary(config.workspaceDir).seed()
 await harness.start(config.mcpConfig, (message, err) => (err ? console.warn(message, err) : console.log(message)))
+// Every change to the data folder, committed to git (DATA_HISTORY=off to turn it off).
+const history = config.dataHistory ? new DataHistory({ dataDir: config.dataDir, workspaceDir: config.workspaceDir, log: (m, err) => (err ? console.warn(m, err) : console.log(m)) }) : null
+await history?.start().catch((err: Error) => console.warn(`history: off: ${err.message}`))
+app.addHook('onClose', () => history?.stop())
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

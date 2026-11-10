@@ -26,6 +26,8 @@ export const config = {
   asrModel: env('ASR_MODEL', 'Qwen3-ASR'),
   /** Database and audio archive. Contains private conversations: never commit it. */
   dataDir: path.resolve(env('DATA_DIR', 'data')),
+  /** Keep DATA_DIR in git, committing every change (src/history/history.ts). On unless DATA_HISTORY=off. */
+  dataHistory: !/^(0|off|false|no)$/i.test(env('DATA_HISTORY', 'on')),
   /** The folder Jarvis's file tools may read and write (to-dos, lists, notes, …). Created at start-up. */
   workspaceDir: path.resolve(env('WORKSPACE_DIR', path.join(env('DATA_DIR', 'data'), 'workspace'))),
   /** OpenAI-compatible chat endpoint (llama.cpp's llama-server). */

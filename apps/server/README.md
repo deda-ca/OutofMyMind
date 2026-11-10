@@ -30,7 +30,8 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `ASR_MODEL` | `Qwen3-ASR` | audio.cpp model id for speech-to-text |
 | `ACCESS_KEY` | (generated) | Pass-key for the API. Unset: one is generated on first start, saved in `DATA_DIR/access-key` and printed in the log. Set your own in `.env.local`. |
 | `ALLOWED_ORIGINS` | `https://127.0.0.1:5173,https://localhost:5173` | Browser origins allowed to call the API. For phone access add the client's LAN address in `.env.local`, e.g. `https://192.168.1.50:5173`. |
-| `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
+| `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it** to the Jarvis repository (it has its own, see [Data history](#data-history)). |
+| `DATA_HISTORY` | `on` | Keep `DATA_DIR` in its own git repository, committing every change. `off` turns it off. See [Data history](#data-history). |
 | `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
 | `LLM_MODEL` | `Qwen3.6-35B-A3B` | Model id on that server |
 | `LLM_API_KEY` | (none) | Sent as `Authorization: Bearer …` to `LLM_URL` (chat, `/tokenize`, `/props`): for a hosted OpenAI-compatible service, or llama-server started with `--api-key`. Put it in `.env.local`. |
@@ -180,6 +181,16 @@ Jarvis's own agent loop (`src/harness/`), which gives the LLM tools from plug-an
 - **Prompt:** the system message gets rules to call a tool rather than guess what it can tell (without it, Qwen invented a temperature instead of asking the weather plugin) and to only say it did something if a tool call did it, plus each plugin's own MCP `instructions` (e.g. the owner's home town).
 - **Off when empty:** with no plugins up, replies are plain chat exactly as before. If llama-server refuses a request with tools (it needs `--jinja`), the reply is retried without tools; the client shows a notice and the model is told it has no tools this time, so it doesn't claim to have done anything.
 - Plugins themselves live in [`/mcp-plugins`](../../mcp-plugins/README.md). Measured with Qwen3.6-35B-A3B: "add milk and eggs to my shopping list" → one `append_to_note` call, answer done in ~0.9 s.
+
+# Data history
+
+`DATA_DIR` is its own git repository (`DATA_DIR/.git`, made on first start), and every change to it is committed a few seconds after it happens: a note written, a to-do ticked, a session turn, a skill or agent edited, a file deleted or renamed (`src/history/history.ts`). Nothing Jarvis or you change is lost: `cd data && git log -p`, and `git checkout <commit> -- workspace/todo.md` brings a file back.
+
+- **When:** 3 s after changes stop (at least once a minute while they keep coming), and at start-up for anything changed while Jarvis was off. Messages say what changed: `Update workspace/todo.md`, `Change 3 files: …`, with a line per file. Author: `Jarvis <jarvis@localhost>`.
+- **Not kept** (`DATA_DIR/.gitignore`, written once; edit it to change): the database, the audio archive, the browser profile (its logged-in sessions) and the access key: big, binary, changing all the time, or secret. Kept: the workspace and the small settings files (`sessions.json`, `tools.json`, `notifications.json`, …).
+- **Out of the LLM's reach:** `.git` sits in the data folder, one level above the workspace, and every tool the LLM has is confined to the workspace or narrower (the files plugin to the workspace, notes to `notes/`, the scripts sandbox sees only the workspace, the browser's uploads only its own folder). So the LLM can't see, change or delete the history: it's where it is, not a rule the model is asked to follow. If `WORKSPACE_DIR` were set to contain `DATA_DIR`, history refuses to start (and says why).
+- **Off:** `DATA_HISTORY=off` in `.env.local`. The repository stays as it is; delete `DATA_DIR/.git` to drop it.
+- It's a local repository with private conversations in it: don't add a remote you don't control.
 
 # Sessions
 
