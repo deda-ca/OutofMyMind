@@ -31,6 +31,8 @@ export const config = {
   /** OpenAI-compatible chat endpoint (llama.cpp's llama-server). */
   llmUrl: env('LLM_URL', 'http://127.0.0.1:5550'),
   llmModel: env('LLM_MODEL', 'Qwen3.6-35B-A3B'),
+  /** Optional: sent as "Authorization: Bearer …" to LLM_URL (a hosted service, or llama-server --api-key); put it in .env.local. */
+  llmApiKey: process.env.LLM_API_KEY?.trim() || undefined,
   /** Nous Hermes Agent's OpenAI-compatible API server (the "Hermes" brain). */
   hermesUrl: env('HERMES_URL', 'http://127.0.0.1:8642'),
   hermesModel: env('HERMES_MODEL', 'hermes-agent'),

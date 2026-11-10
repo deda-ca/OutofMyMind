@@ -158,7 +158,7 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
     try {
       const response = await fetch(new URL('/tokenize', target.url), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...auth(target) },
         body: JSON.stringify({ model: target.model, content: text }),
         signal: AbortSignal.timeout(5000),
       })
@@ -177,7 +177,7 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
     if (known && Date.now() - known.at < 5 * 60_000) return known.limit
     let limit = known?.limit ?? 0
     try {
-      const response = await fetch(new URL(`/props?model=${encodeURIComponent(target.model)}`, target.url), { signal: AbortSignal.timeout(5000) })
+      const response = await fetch(new URL(`/props?model=${encodeURIComponent(target.model)}`, target.url), { headers: auth(target), signal: AbortSignal.timeout(5000) })
       const n = ((await response.json()) as { default_generation_settings?: { n_ctx?: number } }).default_generation_settings?.n_ctx
       if (typeof n === 'number' && n > 0) limit = n
     } catch {
@@ -186,6 +186,11 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
     this.limits.set(target.model, { limit, at: Date.now() })
     return limit
   }
+}
+
+/** The LLM server's API key, if it has one (llama-server --api-key also guards /tokenize and /props). */
+function auth(target: ChatTarget): Record<string, string> {
+  return target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}
 }
 
 function sum(items: { tokens: number }[]): number {

@@ -33,6 +33,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it.** |
 | `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
 | `LLM_MODEL` | `Qwen3.6-35B-A3B` | Model id on that server |
+| `LLM_API_KEY` | (none) | Sent as `Authorization: Bearer …` to `LLM_URL` (chat, `/tokenize`, `/props`): for a hosted OpenAI-compatible service, or llama-server started with `--api-key`. Put it in `.env.local`. |
 | `HERMES_URL` | `http://127.0.0.1:8642` | Nous Hermes Agent's OpenAI-compatible API server (the "Hermes" brain) |
 | `HERMES_MODEL` | `hermes-agent` | Model name Hermes's API server expects |
 | `HERMES_API_KEY` | (none) | Hermes's `API_SERVER_KEY`. Put it in `.env.local`. |

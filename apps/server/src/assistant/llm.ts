@@ -29,6 +29,11 @@ export interface ChatTarget {
   extra?: Record<string, unknown>
 }
 
+/** The target's API key as an Authorization header (none if it has no key). */
+export function authHeader(target: Pick<ChatTarget, 'apiKey'>): Record<string, string> {
+  return target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}
+}
+
 export function chatTarget(brain: Brain): ChatTarget {
   if (brain === 'hermes') {
     // Session continuity requires API-key auth on Hermes's side.
@@ -36,7 +41,7 @@ export function chatTarget(brain: Brain): ChatTarget {
     return { brain, url: config.hermesUrl, model: config.hermesModel, apiKey: config.hermesApiKey, sessionId }
   }
   // Thinking off: for spoken conversation a fast short answer beats a slow considered one (0.3 s vs 1.3 s+ measured).
-  return { brain, url: config.llmUrl, model: config.llmModel, extra: { chat_template_kwargs: { enable_thinking: false } } }
+  return { brain, url: config.llmUrl, model: config.llmModel, apiKey: config.llmApiKey, extra: { chat_template_kwargs: { enable_thinking: false } } }
 }
 
 /** Something the agent is doing, shown (not spoken) while it works. */
@@ -87,7 +92,7 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
   const url = new URL('/v1/chat/completions', target.url)
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
+    ...authHeader(target),
     ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
   }
   // max_tokens: a cap, not a target (spoken replies stay short); room for a tool call that writes a file.
