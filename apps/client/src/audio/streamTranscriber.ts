@@ -69,6 +69,8 @@ export type AssistantMessage =
   | { type: 'assistant.delta'; replyId: number; delta: string }
   | { type: 'assistant.done'; replyId: number; text: string; kind: 'reply' | 'wake' | 'dismiss' }
   | { type: 'assistant.error'; replyId: number; message: string }
+  /** A reply cancelled before it said anything (the owner carried on talking): drop its line. */
+  | { type: 'assistant.cancel'; replyId: number }
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
   | { type: 'assistant.control'; action: 'stop' | 'continue' | 'repeat' | 'resume'; replyId: number }
   | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'approval' | 'notice'; label: string; emoji?: string; call?: ToolCallInfo }
@@ -368,6 +370,7 @@ export class StreamTranscriber {
       case 'assistant.delta':
       case 'assistant.done':
       case 'assistant.error':
+      case 'assistant.cancel':
       case 'assistant.audio':
       case 'assistant.control':
       case 'assistant.tool':

@@ -276,6 +276,12 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
     phrases.sort((a, b) => a.order - b.order)
     return
   }
+  if (message.type === 'assistant.cancel') {
+    // The owner carried on talking before Jarvis said anything: the next reply answers it all.
+    const at = phrases.findIndex((p) => p.id === id)
+    if (at !== -1) phrases.splice(at, 1)
+    return
+  }
   const line = phrases.find((p) => p.id === id)
   if (!line) return
   if (message.type === 'assistant.delta') line.text += message.delta

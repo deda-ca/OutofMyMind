@@ -30,6 +30,9 @@ import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type Cha
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
+/** After a request, how long a phrase scored as "someone else" is still taken as maybe the owner (it doesn't end the conversation). */
+const OWNER_STILL_TALKING_MS = 30_000
+
 export type AssistantState = 'idle' | 'conversation'
 
 export type AssistantMessage =
@@ -38,6 +41,8 @@ export type AssistantMessage =
   | { type: 'assistant.delta'; replyId: number; delta: string }
   | { type: 'assistant.done'; replyId: number; text: string; kind: ReplyKind }
   | { type: 'assistant.error'; replyId: number; message: string }
+  /** A reply cancelled before it said anything (the owner carried on talking): the client drops its line. */
+  | { type: 'assistant.cancel'; replyId: number }
   /** One spoken sentence of a reply: base64 WAV, in order (seq) per reply. */
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
   /**
@@ -149,6 +154,14 @@ export class Assistant {
   private playback: Playback = 'idle'
   /** Aborts the reply still being generated when a new request comes in. */
   private generating?: AbortController
+  /**
+   * The request being answered, while its answer has said nothing yet. If the
+   * owner carries on talking then (a pause mid-sentence ends a phrase), the
+   * next phrase continues it: the reply starts again with the whole request.
+   */
+  private unanswered?: { text: string; abort: AbortController }
+  /** When the owner last made a request (ms): a stray "someone else" phrase right after doesn't end the conversation. */
+  private lastRequestAt = 0
   private closed = false
   private readonly o: AssistantOptions
 
@@ -293,8 +306,10 @@ export class Assistant {
         // Context, not a request.
         this.record({ kind: 'context', at: new Date().toISOString(), who: this.hearing?.who ?? who, text })
         // Someone else has joined in (and it's surely not the owner): the owner is talking
-        // with them now, so Jarvis steps back and waits for its name again.
-        if (clearlySomeoneElse) this.goIdle()
+        // with them now, so Jarvis steps back and waits for its name again. Not right
+        // after the owner asked something: a short phrase's voiceprint is often wrong,
+        // and it's likely the owner still talking.
+        if (clearlySomeoneElse && Date.now() - this.lastRequestAt > OWNER_STILL_TALKING_MS) this.goIdle()
         return false
       }
       if (isDismissal(text, true)) {
@@ -346,12 +361,21 @@ export class Assistant {
 
   private request(phrase: AssistantPhrase, text: string): void {
     notifier.heard()
+    this.lastRequestAt = Date.now()
+    // The owner carried on before Jarvis said anything: one request, said in pieces.
+    const continues = this.unanswered
+    const request = continues ? `${continues.text} ${text}` : text
     // A new request replaces an answer that's still being written.
     this.generating?.abort()
-    this.queue = this.queue.then(() => this.reply(phrase, text)).catch((err: unknown) => this.o.log('assistant: reply failed', err))
+    continues?.abort.abort()
+    this.queue = this.queue.then(() => this.reply(phrase, text, request)).catch((err: unknown) => this.o.log('assistant: reply failed', err))
   }
 
-  private async reply(phrase: AssistantPhrase, text: string): Promise<void> {
+  /**
+   * Answers `phrase`. `request`: everything the owner has asked in this turn
+   * (earlier pieces of it already in the session; `text` is this phrase's).
+   */
+  private async reply(phrase: AssistantPhrase, text: string, request = text): Promise<void> {
     if (this.closed) return
     const replyId = this.nextReplyId++
     const started = performance.now()
@@ -365,6 +389,8 @@ export class Assistant {
     let partial = ''
     const abort = new AbortController()
     this.generating = abort
+    const unanswered = { text: request, abort }
+    this.unanswered = unanswered
     // The session's agent: its instructions, tools, and optionally its brain and temperature.
     const agent = this.agents.get(this.session.agentId())
     let target = forAgent(chatTarget(agent.brain ?? this.o.brain()), agent)
@@ -373,6 +399,7 @@ export class Assistant {
       if (firstWordMs === null && !this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, 'One moment.')
     }, target.brain === 'hermes' ? HERMES_FILLER_MS : LOCAL_FILLER_MS)
     const onDelta = (delta: string) => {
+      if (this.unanswered === unanswered) this.unanswered = undefined // it has started answering
       partial += delta
       firstWordMs ??= Math.round(performance.now() - started)
       if (this.closed) return
@@ -392,7 +419,7 @@ export class Assistant {
     const builtins = this.builtins(replyId)
     // Skills the request calls for ("add … to my to-do list") go with it; the guard makes sure
     // a skill's rules are seen before any file it governs is changed.
-    const triggered = this.skills.triggered(text)
+    const triggered = this.skills.triggered(request)
     const guard = new SkillGuard(this.skills, config.workspaceDir)
     guard.markShown(triggered)
     const hooks = { before: guard.before.bind(guard), after: guard.after.bind(guard) }
@@ -400,7 +427,7 @@ export class Assistant {
     try {
       let answer: LoopResult
       try {
-        answer = await this.ask(target, this.messagesFor(target, text, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
+        answer = await this.ask(target, this.messagesFor(target, request, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
       } catch (err) {
         if (err instanceof LlmError && err.sessionGone && nothingSaid()) {
           // The session was deleted in Hermes: start a new one and give it the conversation so far.
@@ -409,14 +436,14 @@ export class Assistant {
           this.hermesBacklog = plainChat(this.history())
           backlogSent = this.hermesBacklog.length
           target = forAgent(chatTarget('hermes'), agent)
-          answer = await this.ask(target, this.messagesFor(target, text, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
+          answer = await this.ask(target, this.messagesFor(target, request, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
         } else {
           // Hermes not running (or its API server off): answer with the local model instead.
           if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && nothingSaid())) throw err
           this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
           notice("Hermes isn't reachable, so the local model answered.")
           target = forAgent(chatTarget('local'), agent)
-          answer = await this.ask(target, this.messagesFor(target, text, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
+          answer = await this.ask(target, this.messagesFor(target, request, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
         }
       }
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
@@ -427,7 +454,13 @@ export class Assistant {
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
       this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
     } catch (err) {
-      if (abort.signal.aborted) {
+      if (abort.signal.aborted && nothingSaid()) {
+        // The owner carried on (or asked something else) before Jarvis said a word: no
+        // answer to keep. Not saved as an empty "…" turn, which the model would copy.
+        if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
+        if (!this.closed) this.o.emit({ type: 'assistant.cancel', replyId })
+        this.o.saveReply(phrase.archiveId, 'reply', '(interrupted before answering)', null, `${target.brain}:${target.model}`)
+      } else if (abort.signal.aborted) {
         // Interrupted by a new request: keep what was said so far.
         const clean = `${partial.trim()} …`
         if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
@@ -442,6 +475,7 @@ export class Assistant {
     } finally {
       clearTimeout(filler)
       if (this.generating === abort) this.generating = undefined
+      if (this.unanswered === unanswered) this.unanswered = undefined
     }
     // The follow-up window counts from when Jarvis stops talking (see setPlayback).
     if (this.state === 'conversation') this.extendFollowUp()
