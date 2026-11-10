@@ -37,8 +37,6 @@ function setup(ownerTrained: boolean) {
   const assistant = new Assistant({
     emit: (m) => events.push(m),
     saveReply: () => {},
-    brain: () => 'local',
-    setBrain: () => {},
     ownerTrained: () => ownerTrained,
     followUpMs: () => 60_000,
     speak: () => false,

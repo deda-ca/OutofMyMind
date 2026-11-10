@@ -74,7 +74,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   /** The context meter: the last request to the local model, by section (null before the first). */
   app.get('/api/context', async () => {
     const stats = contextMonitor.latest() ?? null
-    return { stats, limit: stats?.limit || (await contextMonitor.limit(chatTarget('local'))) }
+    return { stats, limit: stats?.limit || (await contextMonitor.limit(chatTarget())) }
   })
 
   app.post<{ Querystring: { sampleRate?: string; language?: string }; Body: Buffer }>(

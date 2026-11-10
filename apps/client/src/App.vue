@@ -62,7 +62,7 @@ interface Phrase {
   speakerFinal?: boolean
   /** A line from Jarvis (reply, "Yes?", "Okay.", or an error), not something heard. */
   jarvis?: 'reply' | 'wake' | 'dismiss' | 'error'
-  /** What the agent did while answering (Hermes tool use), or notes. */
+  /** What the agent did while answering (tool calls), or notes. */
   activity?: { kind: string; label: string; emoji?: string; call?: ToolCallInfo }[]
   /** Typed or pasted into the message box, not spoken. */
   typed?: boolean
@@ -340,8 +340,7 @@ async function start(): Promise<void> {
       onSplit: (id, into) => splitPhrase(current, id, into),
       onAssistant: (message) => onAssistant(current, message),
       onServerSettings: (server) => {
-        // The brain and wake-word-only are changed by the server itself (by voice); keep the switches in step.
-        if (server.brain !== settings.brain) settings.brain = server.brain
+        // Wake-word-only is changed by the server itself (by voice); keep the switch in step.
         if (server.wakeWordOnly !== settings.wakeWordOnly) settings.wakeWordOnly = server.wakeWordOnly
       },
       onSessionsChanged: (activeId) => void sessionsChanged(activeId),
@@ -658,9 +657,6 @@ onBeforeUnmount(() => {
             >
               {{ settings.wakeWordOnly >= 0.5 ? 'Name only' : 'Follow-ups on' }}
             </button>
-            <span class="badge theme-secondary badge-subtle" :title="settings.brain >= 0.5 ? 'Answers come from Nous Hermes Agent (tools, memory)' : 'Answers come straight from the local LLM'">
-              {{ settings.brain >= 0.5 ? 'Brain: Hermes' : 'Brain: local LLM' }}
-            </span>
             <span v-if="!assistant.ownerTrained" class="badge theme-warning badge-subtle" title="Train your voice on the “Your voice” tab so only you can talk to Jarvis">
               Anyone can talk to Jarvis until you train your voice
             </span>
@@ -840,10 +836,7 @@ onBeforeUnmount(() => {
                     <span class="vstack gap-1">
                       <template v-for="(a, i) in phrase.activity ?? []" :key="i">
                         <ToolCallLine v-if="a.call" :label="a.label" :call="a.call" />
-                        <span v-else class="text-sm" :class="a.kind === 'approval' ? 'fg-warning' : 'fg-3'">
-                          {{ a.emoji ?? (a.kind === 'notice' ? 'ℹ️' : '⚙️') }}
-                          {{ a.kind === 'approval' ? `Hermes is asking for approval: ${a.label} (approve it in Hermes for now)` : a.label }}
-                        </span>
+                        <span v-else class="text-sm fg-3">{{ a.emoji ?? (a.kind === 'notice' ? 'ℹ️' : '⚙️') }} {{ a.label }}</span>
                       </template>
                       <div v-if="phrase.jarvis === 'reply' && phrase.text" class="reply fg-info">
                         <MarkdownText :text="phrase.text" />

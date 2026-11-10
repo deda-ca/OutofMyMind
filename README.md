@@ -42,8 +42,7 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 | Jarvis speaks its replies (Qwen3-TTS, sentence by sentence; headphones for now) | ✅ Built |
 | Interrupt Jarvis by talking; "stop", "continue", "repeat" by voice | ✅ Built |
 | Access key sign-in (phone access over the LAN) | ✅ Built |
-| Choose the brain: local LLM or Nous Hermes Agent (switch or by voice; falls back to local) | ✅ Built (Hermes's API server must be enabled) |
-| Harness: Jarvis's own tool loop with plug-and-play MCP plugins (local brain); plugins: markdown notes, weather (Open-Meteo; needs the internet) | ✅ Built (start) |
+| Harness: Jarvis's own tool loop with plug-and-play MCP plugins; plugins: markdown notes, weather (Open-Meteo; needs the internet) | ✅ Built (start) |
 | More plugins: calendar, files, … | Planned |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Android app | Planned |

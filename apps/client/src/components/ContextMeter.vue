@@ -127,7 +127,7 @@ function backdrop(event: MouseEvent): void {
         <p class="text-sm fg-3 m-0">
           Counted with the model's own tokenizer, for the last request (each step of a tool loop is one request). Shares
           in the list are of what's used; the bar at the top is the whole window. “Chat formatting” is the template's
-          markup around messages and tools. Hermes keeps its own context and isn't shown.
+          markup around messages and tools.
         </p>
       </template>
     </div>

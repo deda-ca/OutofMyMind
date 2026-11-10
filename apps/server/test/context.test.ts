@@ -24,7 +24,7 @@ test('the context meter: sections counted with the tokenizer, the rest is chat f
     })
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const target = { brain: 'local' as const, url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, model: 'm' }
+  const target = { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, model: 'm' }
   try {
     const system = 'one two three\n\nfour five'
     contextMonitor.labelSystem(system, [

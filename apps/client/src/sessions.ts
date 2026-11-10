@@ -45,7 +45,6 @@ export interface AgentInfo {
   description: string
   /** Allowed tool patterns; null = every tool. */
   tools: string[] | null
-  brain?: 'local' | 'hermes'
   temperature?: number
   /** The instructions as written in its file (comments kept). */
   body: string

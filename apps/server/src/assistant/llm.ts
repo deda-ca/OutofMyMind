@@ -1,9 +1,7 @@
 // Streaming chat completions from an OpenAI-compatible server: llama.cpp's
-// llama-server (the local LLM) or Nous Hermes Agent's API server (the agent,
-// with tools). Hermes adds named SSE events for tool progress and approvals.
+// llama-server (the local LLM), or any service that speaks the same API.
 
 import { config } from '../config.ts'
-import { HERMES_SESSION_KEY, hermesSessionId } from './hermesSession.ts'
 import { contextMonitor } from './context.ts'
 import { llmTap, teeBody, traceHeaders } from './llmTap.ts'
 
@@ -12,19 +10,10 @@ export interface ChatMessage {
   content: string
 }
 
-export type Brain = 'local' | 'hermes'
-
 export interface ChatTarget {
-  brain: Brain
   url: string
   model: string
   apiKey?: string
-  /**
-   * Hermes: the session Jarvis talks in (X-Hermes-Session-Id). Hermes then
-   * keeps the conversation and loads its history itself, so only the system
-   * prompt and the new message are sent. Needs the API key.
-   */
-  sessionId?: string
   /** Extra request fields (e.g. llama.cpp's chat_template_kwargs). */
   extra?: Record<string, unknown>
 }
@@ -34,23 +23,19 @@ export function authHeader(target: Pick<ChatTarget, 'apiKey'>): Record<string, s
   return target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}
 }
 
-export function chatTarget(brain: Brain): ChatTarget {
-  if (brain === 'hermes') {
-    // Session continuity requires API-key auth on Hermes's side.
-    const sessionId = config.hermesApiKey ? hermesSessionId() : undefined
-    return { brain, url: config.hermesUrl, model: config.hermesModel, apiKey: config.hermesApiKey, sessionId }
-  }
+/** The LLM Jarvis answers with (LLM_URL, LLM_MODEL, LLM_API_KEY). */
+export function chatTarget(): ChatTarget {
   // Thinking off: for spoken conversation a fast short answer beats a slow considered one (0.3 s vs 1.3 s+ measured).
-  return { brain, url: config.llmUrl, model: config.llmModel, apiKey: config.llmApiKey, extra: { chat_template_kwargs: { enable_thinking: false } } }
+  return { url: config.llmUrl, model: config.llmModel, apiKey: config.llmApiKey, extra: { chat_template_kwargs: { enable_thinking: false } } }
 }
 
-/** Something the agent is doing, shown (not spoken) while it works. */
+/** A tool call the agent is making, shown while it works. */
 export interface AgentEvent {
-  kind: 'tool' | 'approval'
+  kind: 'tool'
   label: string
   emoji?: string
   status?: string
-  /** A harness tool call: sent when it starts (status "running") and again when it's done. */
+  /** Sent when it starts (status "running") and again when it's done. */
   call?: ToolCallDetail
 }
 
@@ -74,12 +59,9 @@ export interface ToolCallDetail {
 export class LlmError extends Error {
   /** The server couldn't be reached or refused us (vs. failing mid-answer). */
   readonly unreachable: boolean
-  /** Hermes no longer has the session we named (deleted there): start a new one. */
-  readonly sessionGone: boolean
-  constructor(message: string, unreachable = false, sessionGone = false) {
+  constructor(message: string, unreachable = false) {
     super(message)
     this.unreachable = unreachable
-    this.sessionGone = sessionGone
   }
 }
 
@@ -88,12 +70,11 @@ export class LlmError extends Error {
  * can't be reached or answers with an error.
  */
 export async function postChat(target: ChatTarget, body: Record<string, unknown>, signal?: AbortSignal): Promise<Response> {
-  const name = target.brain === 'hermes' ? 'Hermes' : 'the LLM'
+  const name = 'the LLM'
   const url = new URL('/v1/chat/completions', target.url)
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...authHeader(target),
-    ...(target.sessionId ? { 'X-Hermes-Session-Id': target.sessionId, 'X-Hermes-Session-Key': HERMES_SESSION_KEY } : {}),
   }
   // max_tokens: a cap, not a target (spoken replies stay short); room for a tool call that writes a file.
   const json = {
@@ -102,7 +83,7 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     max_tokens: 8192,
     temperature: 0.7,
     // llama-server then ends the stream with its token counts (for the context meter).
-    ...(target.brain === 'local' ? { stream_options: { include_usage: true } } : {}),
+    stream_options: { include_usage: true },
     ...target.extra,
     ...body,
   }
@@ -126,7 +107,7 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     })
   }
   if (traceId) {
-    llmTap.emit('request', { id: traceId, at: new Date().toISOString(), brain: target.brain, model: target.model, method: 'POST', url: url.href, headers: traceHeaders(headers), body: json })
+    llmTap.emit('request', { id: traceId, at: new Date().toISOString(), model: target.model, method: 'POST', url: url.href, headers: traceHeaders(headers), body: json })
   }
 
   let response: Response
@@ -149,12 +130,7 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     const fullDetail = await response.text().catch(() => '')
     traceResponse(response.status, traceHeaders(response.headers), fullDetail, null)
     const detail = fullDetail.slice(0, 300)
-    const sessionGone = !!target.sessionId && response.status === 404 && /not_found/.test(detail)
-    throw new LlmError(
-      `${name} returned HTTP ${response.status}: ${detail}`,
-      response.status === 401 || response.status === 403 || response.status === 404,
-      sessionGone,
-    )
+    throw new LlmError(`${name} returned HTTP ${response.status}: ${detail}`, response.status === 401 || response.status === 403 || response.status === 404)
   }
   return response
 }
@@ -192,29 +168,12 @@ export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator
   }
 }
 
-/**
- * Streams a reply, calling `onDelta` with each piece of text as it arrives
- * (and `onEvent` for agent tool progress). Returns the full reply.
- */
-export async function streamChat(
-  target: ChatTarget,
-  messages: ChatMessage[],
-  onDelta: (text: string) => void,
-  signal?: AbortSignal,
-  onEvent?: (event: AgentEvent) => void,
-): Promise<string> {
+/** Streams a reply, calling `onDelta` with each piece of text as it arrives. Returns the full reply. */
+export async function streamChat(target: ChatTarget, messages: ChatMessage[], onDelta: (text: string) => void, signal?: AbortSignal): Promise<string> {
   const response = await postChat(target, { messages }, signal)
   let full = ''
   for await (const { event, data: parsed } of readSse(response.body!)) {
-    if (event === 'hermes.tool.progress') {
-      if (parsed.status === 'running') onEvent?.({ kind: 'tool', label: String(parsed.label ?? parsed.tool ?? 'working'), emoji: parsed.emoji as string | undefined, status: 'running' })
-      continue
-    }
-    if (event === 'approval.request') {
-      onEvent?.({ kind: 'approval', label: String(parsed.description ?? parsed.command ?? parsed.tool ?? 'an action'), status: 'waiting' })
-      continue
-    }
-    if (event) continue // other named events (status, …)
+    if (event) continue // named events: not part of the text
     const delta = (parsed as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content
     if (delta) {
       full += delta

@@ -7,7 +7,6 @@
 //   name: Email
 //   description: Drafts replies to email
 //   tools: [files__read_text_file, files__list_directory, email__*]   # or "all" (default) or "none"
-//   brain: local            # optional: local | hermes (otherwise the brain setting decides)
 //   temperature: 0.4        # optional
 //   ---
 //   You handle the owner's email. …
@@ -19,7 +18,6 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import type { Brain } from '../assistant/llm.ts'
 
 export interface Agent {
   /** The file name without ".md". */
@@ -28,7 +26,6 @@ export interface Agent {
   description: string
   /** Allowed tool function names; "*" matches anything ("files__*"). null: every tool. */
   tools: string[] | null
-  brain?: Brain
   temperature?: number
   /** The agent's part of the system prompt (comments removed; fill `{{owner}}` with fillOwner()). */
   instructions: string
@@ -41,7 +38,6 @@ export interface AgentInput {
   name: string
   description: string
   tools: string[] | null
-  brain?: Brain
   temperature?: number
   /** The instructions, as written (comments allowed). */
   body: string
@@ -261,14 +257,12 @@ export function parseAgent(id: string, text: string): Agent {
   const str = (key: string) => (typeof meta[key] === 'string' ? (meta[key] as string) : undefined)
   const toolsRaw = meta.tools
   const tools = toolsRaw === undefined || toolsRaw === 'all' ? null : toolsRaw === 'none' ? [] : Array.isArray(toolsRaw) ? toolsRaw : [toolsRaw]
-  const brain = str('brain')
   const temperature = Number(str('temperature'))
   return {
     id,
     name: str('name') || id,
     description: str('description') ?? '',
     tools,
-    ...(brain === 'local' || brain === 'hermes' ? { brain } : {}),
     ...(str('temperature') !== undefined && Number.isFinite(temperature) && temperature >= 0 && temperature <= 2 ? { temperature } : {}),
     instructions: stripComments(body),
     body: body.replace(/^\n+/, '').replace(/\s+$/, ''),
@@ -293,7 +287,6 @@ export function toAgentFile(agent: AgentInput): string {
     `name: ${JSON.stringify(agent.name)}`,
     `description: ${JSON.stringify(agent.description)}`,
     `tools: ${tools}`,
-    ...(agent.brain ? [`brain: ${agent.brain}`] : []),
     ...(agent.temperature !== undefined ? [`temperature: ${agent.temperature}`] : []),
     '---',
     agent.body.trim(),
@@ -316,13 +309,12 @@ export function validate(input: AgentInput): AgentInput {
     }
     tools = [...new Set(input.tools)]
   }
-  if (input.brain !== undefined && input.brain !== 'local' && input.brain !== 'hermes') throw new AgentError('The brain is local or hermes (or not set)', 400)
   if (input.temperature !== undefined && !(typeof input.temperature === 'number' && input.temperature >= 0 && input.temperature <= 2)) {
     throw new AgentError('The temperature is a number from 0 to 2 (or not set)', 400)
   }
   const body = String(input.body ?? '')
   if (body.length > 20000) throw new AgentError('The instructions are at most 20,000 characters', 400)
-  return { name, description, tools, ...(input.brain ? { brain: input.brain } : {}), ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), body }
+  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), body }
 }
 
 /** "Email helper!" → "email-helper". */

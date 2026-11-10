@@ -7,7 +7,6 @@ import { ref, shallowRef, watch } from 'vue'
 export interface LlmRequestTrace {
   id: number
   at: string
-  brain: string
   model: string
   method: string
   url: string
@@ -79,7 +78,7 @@ export interface ParsedResponse {
   toolCalls: { name: string; arguments: string }[]
   finishReason?: string
   usage?: Record<string, unknown>
-  /** Named events (e.g. Hermes's tool progress). */
+  /** Named server-sent events, if the server sends any. */
   events: string[]
   chunks: number
 }

@@ -5,7 +5,7 @@ import { applyAgents, sessions, type AgentInfo, type AgentListing } from '../ses
 // Create, edit, delete agents and choose the default one (server:
 // apps/server/src/agents/routes.ts). Each agent is a file in
 // WORKSPACE_DIR/agents: instructions, which tools it may use, and optionally
-// its own brain and temperature.
+// its own temperature.
 
 interface CatalogTool {
   fn: string
@@ -27,7 +27,6 @@ const form = reactive({
   id: '',
   idTouched: false,
   description: '',
-  brain: '' as '' | 'local' | 'hermes',
   /** v-model on a number input gives a number (or '' when empty). */
   temperature: '' as string | number,
   toolsMode: 'all' as 'all' | 'none' | 'some',
@@ -86,7 +85,7 @@ function slug(name: string): string {
 }
 
 function startCreate(): void {
-  Object.assign(form, { name: '', id: '', idTouched: false, description: '', brain: '', temperature: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
+  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
   editing.value = { id: null }
 }
 
@@ -98,7 +97,6 @@ function startEdit(agent: AgentInfo): void {
     id: agent.id,
     idTouched: true,
     description: agent.description,
-    brain: agent.brain ?? '',
     temperature: agent.temperature === undefined ? '' : String(agent.temperature),
     toolsMode: agent.tools === null ? 'all' : agent.tools.length === 0 ? 'none' : 'some',
     // Exact tool names become ticks; wildcards and tools of plugins that aren't running stay as patterns.
@@ -146,7 +144,7 @@ async function save(): Promise<void> {
     return
   }
   const temperature = String(form.temperature).trim() === '' ? null : Number(form.temperature)
-  const body = { name: form.name, description: form.description, tools, brain: form.brain || null, temperature, body: form.body }
+  const body = { name: form.name, description: form.description, tools, temperature, body: form.body }
   const id = editing.value?.id
   const ok = await act(async () => {
     applyAgents(id ? await api<AgentListing>(`/api/agents/${encodeURIComponent(id)}`, json('PUT', body)) : await api<AgentListing>('/api/agents', json('POST', { ...body, id: form.id || undefined })))
@@ -177,7 +175,7 @@ onMounted(load)
     <div class="d-flex align-items-center gap-3 flex-wrap">
       <span class="text-sm fg-3">
         An agent is who Jarvis is in a session: its instructions (added to SYSTEM.md in every request), which tools it
-        may use, and optionally its own brain and temperature. Sessions without their own agent use the default one.
+        may use, and optionally its own temperature. Sessions without their own agent use the default one.
         Agents are files in the workspace's <code>agents/</code> folder.
       </span>
       <button type="button" class="btn-solid theme-primary btn-sm ms-auto" :disabled="busy || editing !== null" @click="startCreate">+ New agent</button>
@@ -219,14 +217,6 @@ onMounted(load)
           <div class="col-12 vstack gap-1">
             <label for="agent-description" class="form-label m-0 fw-semibold">Description</label>
             <input id="agent-description" v-model="form.description" class="form-control" maxlength="200" placeholder="What it's for, shown in the session picker" />
-          </div>
-          <div class="col-12 md:col-6 vstack gap-1">
-            <label for="agent-brain" class="form-label m-0 fw-semibold">Brain</label>
-            <select id="agent-brain" v-model="form.brain" class="form-control">
-              <option value="">The brain setting (local or Hermes, as switched)</option>
-              <option value="local">Always the local model</option>
-              <option value="hermes">Always Hermes</option>
-            </select>
           </div>
           <div class="col-12 md:col-6 vstack gap-1">
             <label for="agent-temperature" class="form-label m-0 fw-semibold">Temperature</label>
@@ -301,7 +291,6 @@ onMounted(load)
         <span v-if="agent.description" class="text-sm">{{ agent.description }}</span>
         <span class="text-sm fg-3">
           {{ toolsSummary(agent) }}
-          <template v-if="agent.brain"> · brain: {{ agent.brain }}</template>
           <template v-if="agent.temperature !== undefined"> · temperature {{ agent.temperature }}</template>
           <template v-if="agent.builtIn"> · the fallback agent: can be edited, not deleted</template>
         </span>

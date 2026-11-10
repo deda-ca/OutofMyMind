@@ -88,7 +88,7 @@ function sectionsFor(e: Exchange) {
     </div>
 
     <p class="text-sm fg-3 m-0">
-      Every request to the model (local LLM or Hermes) and its response, exactly as the server sends and receives them:
+      Every request to the model and its response, exactly as the server sends and receives them:
       headers, the full JSON body (system prompt, history, tools), and the raw streamed reply. API keys are masked.
       Nothing is saved; it stays in this page until you clear or reload it.
     </p>
@@ -104,7 +104,7 @@ function sectionsFor(e: Exchange) {
           <span class="fg-3">{{ open[e.id] ? '▾' : '▸' }}</span>
           <span class="fw-semibold">#{{ e.id }}</span>
           <span class="text-sm fg-3">{{ time(e.request.at) }}</span>
-          <span class="badge theme-secondary badge-subtle">{{ e.request.brain }} · {{ e.request.model }}</span>
+          <span class="badge theme-secondary badge-subtle">{{ e.request.model }}</span>
           <span class="badge" :class="status(e).theme">{{ status(e).label }}</span>
           <span v-if="e.response" class="text-sm fg-3">
             {{ e.response.firstByteMs ?? '–' }} ms to first byte · {{ e.response.durationMs }} ms total

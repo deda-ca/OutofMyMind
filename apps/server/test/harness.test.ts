@@ -31,7 +31,7 @@ let target: ChatTarget
 before(async () => {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as { port: number }
-  target = { brain: 'local', url: `http://127.0.0.1:${port}`, model: 'test' }
+  target = { url: `http://127.0.0.1:${port}`, model: 'test' }
 })
 after(() => server.close())
 

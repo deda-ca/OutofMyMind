@@ -8,7 +8,6 @@ import { EventEmitter } from 'node:events'
 export interface LlmRequestTrace {
   id: number
   at: string
-  brain: string
   model: string
   method: 'POST'
   url: string

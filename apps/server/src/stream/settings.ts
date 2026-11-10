@@ -27,8 +27,6 @@ export interface StreamSettings {
   speakReplies: number
   /** 1 = while an answer takes a while, Jarvis says what it's doing ("Searching the web…"); 0 = silence. */
   speakProgress: number
-  /** Who answers: 0 = the local LLM (llama.cpp), 1 = Nous Hermes Agent (tools, memory). */
-  brain: number
   /** 1 = no follow-ups: every request needs "Jarvis" (for when the owner is talking with people). */
   wakeWordOnly: number
   /** How far back the room note sent with each request reaches (who's around, what they said). 0 = off. */
@@ -49,7 +47,6 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   followUpMs: 30000,
   speakReplies: 1,
   speakProgress: 1,
-  brain: 0,
   wakeWordOnly: 0,
   roomMemoryMs: 5 * 60_000,
 }
@@ -67,7 +64,6 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   followUpMs: [5000, 180000],
   speakReplies: [0, 1],
   speakProgress: [0, 1],
-  brain: [0, 1],
   wakeWordOnly: [0, 1],
   roomMemoryMs: [0, 30 * 60_000],
 }

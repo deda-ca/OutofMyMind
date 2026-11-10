@@ -10,8 +10,9 @@ import { SessionStore } from '../src/sessions/store.ts'
 import { StreamSession } from '../src/stream/session.ts'
 
 test('agent files: frontmatter (inline and block lists, all/none), comments left out', () => {
+  // A leftover "brain:" line (from when Hermes was an option) is ignored.
   const email = parseAgent('email', '---\nname: Email\ndescription: "Drafts replies"\ntools: [files__read_text_file, email__*]  # read only\nbrain: local\ntemperature: 0.4\n---\n<!-- note to self -->\nDraft replies for {{owner}}.\n')
-  assert.deepEqual(email, { id: 'email', name: 'Email', description: 'Drafts replies', tools: ['files__read_text_file', 'email__*'], brain: 'local', temperature: 0.4, instructions: 'Draft replies for {{owner}}.', body: '<!-- note to self -->\nDraft replies for {{owner}}.' })
+  assert.deepEqual(email, { id: 'email', name: 'Email', description: 'Drafts replies', tools: ['files__read_text_file', 'email__*'], temperature: 0.4, instructions: 'Draft replies for {{owner}}.', body: '<!-- note to self -->\nDraft replies for {{owner}}.' })
   assert.deepEqual(parseAgent('t', '---\ntools:\n  - files__*\n  - weather__get_weather\n---\nTest things.').tools, ['files__*', 'weather__get_weather'])
   assert.equal(parseAgent('a', '---\ntools: all\n---\n').tools, null)
   assert.deepEqual(parseAgent('n', '---\ntools: none\ntemperature: 9\nbrain: gpt\n---\n').tools, [])
@@ -19,7 +20,7 @@ test('agent files: frontmatter (inline and block lists, all/none), comments left
   assert.equal(plain.name, 'plain')
   assert.equal(plain.tools, null)
   assert.equal(plain.temperature, undefined)
-  assert.equal(parseAgent('n', '---\ntemperature: 9\nbrain: gpt\n---\n').brain, undefined)
+  assert.equal(parseAgent('n', '---\ntemperature: 9\n---\n').temperature, undefined)
 })
 
 test('tool patterns: exact names and * wildcards', () => {
@@ -81,7 +82,7 @@ test("a request carries SYSTEM.md, the session's agent and its temperature, with
 
     const sent: { type: string; text?: string }[] = []
     const s = new StreamSession((m) => sent.push(m as { type: string }), { sessions: store, agents, log: () => {} })
-    s.start(16000, 'English', { speakReplies: 0, brain: 0 })
+    s.start(16000, 'English', { speakReplies: 0 })
     s.typed('Reply to Maria saying yes.')
     for (let i = 0; i < 100 && !sent.some((m) => m.type === 'assistant.done'); i++) await new Promise((r) => setTimeout(r, 20))
     s.close()
@@ -105,13 +106,13 @@ test('agents from the editor: create, edit, delete, default; files read back the
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-ws-'))
   const lib = new AgentLibrary(ws, path.join(ws, 'agents.json'))
   lib.seed()
-  const input = { name: 'Email #1: replies', description: 'Drafts "replies" # not a comment', tools: ['files__read_*', 'files__write_file'], brain: 'local' as const, temperature: 0.4, body: '<!-- mine -->\nDraft replies for {{owner}}.' }
+  const input = { name: 'Email #1: replies', description: 'Drafts "replies" # not a comment', tools: ['files__read_*', 'files__write_file'], temperature: 0.4, body: '<!-- mine -->\nDraft replies for {{owner}}.' }
 
   const id = lib.create(input)
   assert.equal(id, 'email-1-replies')
   const saved = lib.get(id)
   assert.deepEqual(
-    { name: saved.name, description: saved.description, tools: saved.tools, brain: saved.brain, temperature: saved.temperature, body: saved.body, instructions: saved.instructions },
+    { name: saved.name, description: saved.description, tools: saved.tools, temperature: saved.temperature, body: saved.body, instructions: saved.instructions },
     { ...input, instructions: 'Draft replies for {{owner}}.' },
   )
   assert.throws(() => lib.create(input), /already an agent/)
@@ -119,11 +120,10 @@ test('agents from the editor: create, edit, delete, default; files read back the
   assert.throws(() => lib.create({ ...input, name: 'x', tools: ['rm -rf'] }), /function names/)
   assert.throws(() => lib.create({ ...input, name: 'y', temperature: 5 }), /temperature/)
 
-  lib.update(id, { ...input, tools: [], temperature: undefined, brain: undefined, body: 'Shorter.' })
+  lib.update(id, { ...input, tools: [], temperature: undefined, body: 'Shorter.' })
   const edited = lib.get(id)
   assert.deepEqual(edited.tools, [])
   assert.equal(edited.temperature, undefined)
-  assert.equal(edited.brain, undefined)
   assert.equal(edited.instructions, 'Shorter.')
   assert.equal(lib.get(id).name, 'Email #1: replies') // the id (file name) stays when edited
   assert.match(toAgentFile({ ...input, tools: null }), /^---\nname: "Email #1: replies"\n.*tools: all\n/s)

@@ -21,12 +21,11 @@ import { harness, type BuiltinTool, type CallHooks, type LoopMessage, type LoopR
 import type { SpeakerTag } from '../speaker/speakers.ts'
 import type { SessionEntry } from '../sessions/format.ts'
 import { historyMessages, toolUses } from '../sessions/history.ts'
-import { detectBrainSwitch, detectControl, detectListenMode, detectNewSession, type Control } from './controls.ts'
+import { detectControl, detectListenMode, detectNewSession, type Control } from './controls.ts'
 import { contextMonitor } from './context.ts'
 import { liveScheduleTools, notifier } from '../schedule/index.ts'
 import { Room, type RoomLine } from './room.ts'
-import { newHermesSession } from './hermesSession.ts'
-import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
+import { LlmError, chatTarget, streamChat, type AgentEvent, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
 import { ProgressSpeaker } from './progress.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
@@ -52,7 +51,7 @@ export type AssistantMessage =
    * a barge-in pause that turned out not to be for Jarvis).
    */
   | { type: 'assistant.control'; action: Control | 'resume'; replyId: number }
-  /** What the agent is doing (Hermes tool use), or a note about the reply (e.g. fell back to the local model). Shown, not spoken. */
+  /** A tool the agent is using, or a note about the reply (e.g. tools unavailable). Shown, not spoken. */
   | { type: 'assistant.tool'; replyId: number; kind: AgentEvent['kind'] | 'notice'; label: string; emoji?: string; call?: ToolCallDetail }
   /** Open a workspace file in the client's viewer (path relative to the workspace). */
   | { type: 'assistant.show'; replyId: number; path: string }
@@ -75,10 +74,6 @@ export interface AssistantOptions {
   emit: (message: AssistantMessage) => void
   /** Archives a reply. */
   saveReply: (phraseArchiveId: number | null, kind: ReplyKind | 'error' | 'control', text: string, latencyMs: number | null, model: string | null) => void
-  /** Who answers: the local LLM or Hermes. */
-  brain: () => Brain
-  /** Change who answers (voice command); the session updates its settings and tells the client. */
-  setBrain: (brain: Brain) => void
   /** Whether the owner has trained their voice (otherwise anyone may talk to Jarvis). */
   ownerTrained: () => boolean
   /** How long Jarvis keeps listening for follow-ups without the wake word. */
@@ -119,8 +114,7 @@ function memorySession(): SessionLink {
 
 const HISTORY_MAX = 24
 /** Say what Jarvis is doing (or "One moment.") if no words have come after this long (progress.ts). */
-const HERMES_FILLER_MS = 1500
-const LOCAL_FILLER_MS = 4000
+const FILLER_MS = 4000
 
 export class Assistant {
   private state: AssistantState = 'idle'
@@ -131,15 +125,6 @@ export class Assistant {
   private readonly session: SessionLink
   private readonly agents: AgentLibrary
   private readonly skills: SkillLibrary
-  /**
-   * What Hermes hasn't seen yet. Hermes keeps its own copy of the
-   * conversation (one long-lived session, hermesSession.ts) and ignores the
-   * history we'd send, so other people's lines, the context before Jarvis was
-   * called, and answers from the local model are passed along with the next
-   * Hermes request instead. Survives the end of a conversation. Plain chat
-   * only: the local brain's tool calls and results stay out of it.
-   */
-  private hermesBacklog: ChatMessage[] = []
   /** Everything heard lately, for the room note (room.ts). */
   private readonly room: Room
   /** The room line of the phrase being handled: marked when it goes into the session. */
@@ -210,16 +195,12 @@ export class Assistant {
       this.extendFollowUp()
       return
     }
-    const brainSwitch = detectBrainSwitch(text)
     const control = detectControl(text)
     const listenMode = detectListenMode(text)
     if (detectNewSession(text)) {
       this.newSession(phrase)
     } else if (listenMode) {
       this.setListenMode(phrase, listenMode)
-    } else if (brainSwitch) {
-      this.o.setBrain(brainSwitch)
-      this.say(phrase, 'wake', brainSwitch === 'hermes' ? 'Switched to Hermes.' : 'Using the local model.')
     } else if (control && this.lastAnswerId > 0) {
       this.control(control)
       this.o.saveReply(phrase.archiveId, 'control', control, 0, null)
@@ -266,7 +247,6 @@ export class Assistant {
     // Stop / continue / repeat: harmless, and a one-word "stop" is too short
     // for a reliable voiceprint, so only a voice that's clearly someone else
     // is ignored.
-    // "Jarvis, use Hermes" / "use the local model": the owner only, when talking to Jarvis.
     // "Jarvis, new session": the owner only, when talking to Jarvis.
     // Commands count only when addressed to Jarvis: with its name, or in a conversation (unless "wake word only").
     const addressed = hasWakeWord(text) || (this.state === 'conversation' && !this.wakeWordOnly)
@@ -282,15 +262,6 @@ export class Assistant {
     if (listenMode && addressed) {
       this.state = 'conversation'
       this.setListenMode(phrase, listenMode)
-      this.extendFollowUp()
-      return true
-    }
-
-    const brainSwitch = authorised ? detectBrainSwitch(text) : null
-    if (brainSwitch && addressed) {
-      this.state = 'conversation'
-      this.o.setBrain(brainSwitch)
-      this.say(phrase, 'wake', brainSwitch === 'hermes' ? 'Switched to Hermes.' : 'Using the local model.')
       this.extendFollowUp()
       return true
     }
@@ -394,9 +365,9 @@ export class Assistant {
     this.generating = abort
     const unanswered = { text: request, abort }
     this.unanswered = unanswered
-    // The session's agent: its instructions, tools, and optionally its brain and temperature.
+    // The session's agent: its instructions, tools, and optionally its temperature.
     const agent = this.agents.get(this.session.agentId())
-    let target = forAgent(chatTarget(agent.brain ?? this.o.brain()), agent)
+    const target = forAgent(chatTarget(), agent)
     // The agent may take a while (tools): say what it's doing rather than leave silence (progress.ts).
     const progress =
       this.o.speakProgress?.() === false
@@ -405,7 +376,7 @@ export class Assistant {
             say: (line) => {
               if (!this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, line)
             },
-            firstAfterMs: target.brain === 'hermes' ? HERMES_FILLER_MS : LOCAL_FILLER_MS,
+            firstAfterMs: FILLER_MS,
           })
     const onDelta = (delta: string) => {
       if (this.unanswered === unanswered) this.unanswered = undefined // it has started answering
@@ -423,10 +394,6 @@ export class Assistant {
     const notice = (label: string) => {
       if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: 'notice', label })
     }
-    // Everything in the backlog now (ending with this request) goes to Hermes with it.
-    let backlogSent = this.hermesBacklog.length
-    /** Whether Hermes got (and keeps) this turn in its session. */
-    const inHermesSession = () => !!target.sessionId
     const builtins = this.builtins(replyId)
     // Skills the request calls for ("add … to my to-do list") go with it; the guard makes sure
     // a skill's rules are seen before any file it governs is changed.
@@ -436,52 +403,29 @@ export class Assistant {
     const hooks = { before: guard.before.bind(guard), after: guard.after.bind(guard) }
     const nothingSaid = () => partial === ''
     try {
-      let answer: LoopResult
-      try {
-        answer = await this.ask(target, this.messagesFor(target, request, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
-      } catch (err) {
-        if (err instanceof LlmError && err.sessionGone && nothingSaid()) {
-          // The session was deleted in Hermes: start a new one and give it the conversation so far.
-          this.o.log(`assistant: Hermes session is gone, starting a new one: ${err.message}`)
-          newHermesSession()
-          this.hermesBacklog = plainChat(this.history())
-          backlogSent = this.hermesBacklog.length
-          target = forAgent(chatTarget('hermes'), agent)
-          answer = await this.ask(target, this.messagesFor(target, request, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
-        } else {
-          // Hermes not running (or its API server off): answer with the local model instead.
-          if (!(err instanceof LlmError && err.unreachable && target.brain === 'hermes' && nothingSaid())) throw err
-          this.o.log(`assistant: Hermes unavailable, using the local model: ${err.message}`)
-          notice("Hermes isn't reachable, so the local model answered.")
-          target = forAgent(chatTarget('local'), agent)
-          answer = await this.ask(target, this.messagesFor(target, request, agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
-        }
-      }
+      const answer = await this.ask(target, this.messagesFor(agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
       const clean = answer.text.trim()
-      if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
       const tools = toolUses(answer.steps)
-      this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean, ...(tools.length ? { tools } : {}) }, inHermesSession())
+      this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean, ...(tools.length ? { tools } : {}) })
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
-      this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
+      this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, target.model)
     } catch (err) {
       if (abort.signal.aborted && nothingSaid()) {
         // The owner carried on (or asked something else) before Jarvis said a word: no
         // answer to keep. Not saved as an empty "…" turn, which the model would copy.
-        if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
         if (!this.closed) this.o.emit({ type: 'assistant.cancel', replyId })
-        this.o.saveReply(phrase.archiveId, 'reply', '(interrupted before answering)', null, `${target.brain}:${target.model}`)
+        this.o.saveReply(phrase.archiveId, 'reply', '(interrupted before answering)', null, target.model)
       } else if (abort.signal.aborted) {
         // Interrupted by a new request: keep what was said so far.
         const clean = `${partial.trim()} …`
-        if (inHermesSession()) this.hermesBacklog.splice(0, backlogSent)
-        this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean }, inHermesSession())
+        this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean })
         if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
-        this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, `${target.brain}:${target.model}`)
+        this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, target.model)
       } else {
         const message = err instanceof LlmError ? err.message : `Jarvis couldn't answer: ${(err as Error).message}`
         if (!this.closed) this.o.emit({ type: 'assistant.error', replyId, message })
-        this.o.saveReply(phrase.archiveId, 'error', message, null, `${target.brain}:${target.model}`)
+        this.o.saveReply(phrase.archiveId, 'error', message, null, target.model)
       }
     } finally {
       progress?.stop()
@@ -493,8 +437,8 @@ export class Assistant {
   }
 
   /**
-   * The local brain answers through the harness (with plugin tools) when any
-   * plugin is up; Hermes has its own tools. If the tool request is refused
+   * The LLM answers through the harness (with plugin tools) when any plugin is
+   * up, else as plain chat. If the tool request is refused
    * before anything was said (e.g. a llama-server without tool support), the
    * reply is retried as plain chat: the client is told, and the model is told
    * it has no tools this time, so it can't claim to have saved anything.
@@ -512,7 +456,7 @@ export class Assistant {
     hooks: CallHooks = {},
   ): Promise<LoopResult> {
     const allow = (name: string) => toolAllowed(agent, name)
-    if (target.brain !== 'local' || !harness.hasTools(allow)) return { text: await streamChat(target, plainChat(messages), onDelta, signal, onEvent), steps: [] }
+    if (!harness.hasTools(allow)) return { text: await streamChat(target, plainChat(messages), onDelta, signal), steps: [] }
     try {
       return await harness.run(target, messages, onDelta, signal, onEvent, allow, builtins, hooks)
     } catch (err) {
@@ -712,8 +656,8 @@ ${updated.body}`, isError: false }
     this.announce()
   }
 
-  /** Adds to the session. `hermesKnows`: it's already in Hermes's own session (its answer). */
-  private record(entry: SessionEntry, hermesKnows = false): void {
+  /** Adds to the session. */
+  private record(entry: SessionEntry): void {
     // A request or context line now in the conversation: the room note needn't repeat it.
     if ((entry.kind === 'owner' || entry.kind === 'context') && this.hearing) this.hearing.inSession = true
     try {
@@ -721,10 +665,6 @@ ${updated.body}`, isError: false }
     } catch (err) {
       this.o.log('assistant: could not save to the session', err)
     }
-    if (hermesKnows) return
-    // Hermes gets plain chat only; for "earlier", just the context, not the "Understood." after it.
-    const messages = plainChat(historyMessages([entry], Infinity))
-    for (const m of entry.kind === 'earlier' ? messages.slice(0, 1) : messages) this.addToBacklog(m)
   }
 
   /** What the LLM sees of the session: its last messages. */
@@ -745,45 +685,29 @@ ${updated.body}`, isError: false }
   private newSession(phrase: AssistantPhrase): void {
     this.generating?.abort()
     this.session.startNew()
-    this.hermesBacklog = []
     this.say(phrase, 'wake', 'New session.')
   }
 
-  private addToBacklog(message: ChatMessage): void {
-    this.hermesBacklog.push(message)
-    if (this.hermesBacklog.length > HISTORY_MAX) this.hermesBacklog.splice(0, this.hermesBacklog.length - HISTORY_MAX)
-  }
-
   /**
-   * The request as sent. The local model gets the whole conversation. Hermes,
-   * in its own session, gets just the new message, with anything it hasn't
-   * seen yet (the backlog, minus this request at its end) in front of it.
+   * The request as sent: the system prompt and the conversation (the request
+   * at its end; `request` picks the skills that go with it), with the room
+   * note and those skills just before the latest message.
    */
-  private messagesFor(target: ChatTarget, text: string, agent: Agent, skills: Skill[] = []): LoopMessage[] {
-    const system = this.systemMessage(target, agent)
+  private messagesFor(agent: Agent, skills: Skill[] = []): LoopMessage[] {
+    const system = this.systemMessage(agent)
     const notes = [
       this.room.note(),
       ...(skills.length ? [`(This request is about ${skills.map((s) => `"${s.name}"`).join(' and ')}. ${skills.map(skillText).join('\n\n')})`] : []),
     ].filter((n): n is string => !!n)
     const room = notes.length ? notes.join('\n\n') : null
-    if (!target.sessionId) {
-      const history = this.history()
-      if (!room) return [system, ...history]
-      // Just before the latest message: it changes with every phrase, so it stays out of the cached prefix.
-      return [system, ...history.slice(0, -1), { role: 'user', content: room }, ...history.slice(-1)]
-    }
-    const missed = this.hermesBacklog.slice(0, -1)
-    const lines = missed.map((m) => (m.role === 'assistant' ? `[You answered]: ${m.content}` : m.content))
-    const parts = [
-      ...(room ? [room] : []),
-      ...(lines.length ? [`(Since my last message to you, for context, not requests:)\n${lines.join('\n')}`] : []),
-      text,
-    ]
-    return [system, { role: 'user', content: parts.join('\n\n') }]
+    const history = this.history()
+    if (!room) return [system, ...history]
+    // Just before the latest message: it changes with every phrase, so it stays out of the cached prefix.
+    return [system, ...history.slice(0, -1), { role: 'user', content: room }, ...history.slice(-1)]
   }
 
-  private systemMessage(target: ChatTarget, agent: Agent): ChatMessage {
-    return systemPrompt(target, agent, this.agents, this.skills)
+  private systemMessage(agent: Agent): ChatMessage {
+    return systemPrompt(agent, this.agents, this.skills)
   }
 
 }
@@ -796,11 +720,11 @@ ${updated.body}`, isError: false }
  * which changes every minute. `extra` goes just before the time (e.g. the
  * scheduler's rules for a scheduled run).
  */
-export function systemPrompt(target: ChatTarget, agent: Agent, agents: AgentLibrary, skills: SkillLibrary, extra: [string, string][] = []): ChatMessage {
+export function systemPrompt(agent: Agent, agents: AgentLibrary, skills: SkillLibrary, extra: [string, string][] = []): ChatMessage {
   const owner = config.ownerName || 'the owner'
   const now = new Date().toLocaleString('en-CA', { dateStyle: 'full', timeStyle: 'short' })
   const allow = (name: string) => toolAllowed(agent, name)
-  const tools = target.brain === 'local' && harness.hasTools(allow)
+  const tools = harness.hasTools(allow)
   // Labelled, so the context meter can show what each part costs.
   const parts: [string, string | false | null | undefined][] = [
     ['SYSTEM.md', agents.system(config.ownerName)],
@@ -819,7 +743,7 @@ export function systemPrompt(target: ChatTarget, agent: Agent, agents: AgentLibr
     ['Schedule rule', tools && SCHEDULE_RULE.replaceAll('{owner}', owner)],
     // A limited agent is told exactly what it has: otherwise a read-only agent asked to add
     // something says "I've added it" without any tool to do it with (seen with Qwen3.6).
-    ['Tool limits', target.brain === 'local' && agent.tools !== null && limitsLine(harness.toolNames(allow))],
+    ['Tool limits', agent.tools !== null && limitsLine(harness.toolNames(allow))],
     ...extra,
     // "1:40 p.m." already ends with a period.
     ['Date & time', `It is ${now}${now.endsWith('.') ? '' : '.'} For stamps: ${stampNow()}.`],
@@ -873,7 +797,7 @@ function forAgent(target: ChatTarget, agent: Agent): ChatTarget {
   return agent.temperature === undefined ? target : { ...target, extra: { ...target.extra, temperature: agent.temperature } }
 }
 
-/** The history for plain chat (Hermes, or no tools): tool calls and results left out. */
+/** The history for plain chat (no tools): tool calls and results left out. */
 function plainChat(messages: LoopMessage[]): ChatMessage[] {
   return messages.filter((m): m is ChatMessage => m.role !== 'tool' && !('tool_calls' in m))
 }

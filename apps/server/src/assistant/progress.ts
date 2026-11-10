@@ -16,7 +16,7 @@ export const STILL = ['Still working on it.', 'Still on it.', 'Almost there.', '
 export interface ProgressOptions {
   /** Speak a line (queued after any sentences of the answer already said). */
   say: (line: string) => void
-  /** Silence before the first line (shorter for Hermes, which nearly always uses tools). */
+  /** Silence before the first line. */
   firstAfterMs: number
   /** Silence before each line after that. */
   againAfterMs?: number
@@ -54,12 +54,8 @@ export class ProgressSpeaker {
     this.lastSound = this.o.now()
   }
 
-  /** A tool started or finished, or Hermes asks for approval. */
+  /** A tool started or finished. */
   event(event: AgentEvent): void {
-    if (event.kind === 'approval') {
-      this.speak('Hermes needs your approval for that.')
-      return
-    }
     if (event.call?.status === 'done') {
       this.toolRunning = false
       return
@@ -100,10 +96,9 @@ export class ProgressSpeaker {
   }
 }
 
-/** What a tool call (or a Hermes progress label) is doing, as Jarvis would say it. */
+/** What a tool call is doing, as Jarvis would say it. */
 export function describeActivity(event: AgentEvent): string {
-  if (event.call) return describeCall(event.call.name, parseArgs(event.call.args), event.call.crud)
-  return describeLabel(event.label)
+  return event.call ? describeCall(event.call.name, parseArgs(event.call.args), event.call.crud) : 'Working on it.'
 }
 
 function parseArgs(args: string): Record<string, unknown> {
@@ -180,16 +175,4 @@ function describeCall(name: string, args: Record<string, unknown>, crud: string[
     default:
       return crud.length && crud.every((k) => k === 'read') ? 'Looking that up.' : 'Working on it.'
   }
-}
-
-/** Hermes says only a label for each step ("web_search", "terminal: ls", …). */
-function describeLabel(label: string): string {
-  const l = label.toLowerCase()
-  if (/search/.test(l)) return 'Searching the web.'
-  if (/browser|navigate|click/.test(l)) return 'Working in the browser.'
-  if (/extract|fetch|scrape|crawl|url|web/.test(l)) return 'Reading a web page.'
-  if (/terminal|shell|command|exec|bash|run/.test(l)) return 'Running a command.'
-  if (/memory|remember|recall/.test(l)) return 'Checking what I remember.'
-  if (/file|read|write|patch|edit/.test(l)) return 'Working with files.'
-  return 'Working on it.'
 }

@@ -15,7 +15,7 @@ test('the debug tap copies the request and the raw response, without changing th
     })
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const target = { brain: 'local' as const, url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, model: 'm', apiKey: 'secret-key-1234567890' }
+  const target = { url: `http://127.0.0.1:${(server.address() as { port: number }).port}`, model: 'm', apiKey: 'secret-key-1234567890' }
   const requests: LlmRequestTrace[] = []
   const responses: LlmResponseTrace[] = []
   try {
@@ -53,7 +53,7 @@ test('an unreachable server is traced too', async () => {
   const responses: LlmResponseTrace[] = []
   const onResponse = (t: LlmResponseTrace) => responses.push(t)
   llmTap.on('response', onResponse)
-  await assert.rejects(streamChat({ brain: 'local', url: 'http://127.0.0.1:1', model: 'm' }, [], () => {}))
+  await assert.rejects(streamChat({ url: 'http://127.0.0.1:1', model: 'm' }, [], () => {}))
   llmTap.off('response', onResponse)
   assert.equal(responses[0]?.status, 0)
   assert.ok(responses[0]?.ended)

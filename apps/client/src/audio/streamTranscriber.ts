@@ -31,8 +31,6 @@ export interface StreamSettings {
   speakReplies: number
   /** 1 = while an answer takes a while, Jarvis says what it's doing. */
   speakProgress: number
-  /** Who answers: 0 = the local LLM, 1 = Nous Hermes Agent. */
-  brain: number
   /** 1 = no follow-ups: every request needs "Jarvis". */
   wakeWordOnly: number
   /** How far back the room note (who's around, what they said) reaches; 0 = off. */
@@ -57,7 +55,6 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   followUpMs: 30000,
   speakReplies: 1,
   speakProgress: 1,
-  brain: 0,
   wakeWordOnly: 0,
   roomMemoryMs: 5 * 60_000,
   bargeIn: 1,
@@ -76,7 +73,7 @@ export type AssistantMessage =
   | { type: 'assistant.cancel'; replyId: number }
   | { type: 'assistant.audio'; replyId: number; seq: number; text: string; wav: string; synthMs: number }
   | { type: 'assistant.control'; action: 'stop' | 'continue' | 'repeat' | 'resume'; replyId: number }
-  | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'approval' | 'notice'; label: string; emoji?: string; call?: ToolCallInfo }
+  | { type: 'assistant.tool'; replyId: number; kind: 'tool' | 'notice'; label: string; emoji?: string; call?: ToolCallInfo }
   /** Jarvis opened a workspace file on screen. */
   | { type: 'assistant.show'; replyId: number; path: string }
 
@@ -150,7 +147,7 @@ export interface TranscriberEvents {
   onSplit?(id: number, into: number[]): void
   /** Jarvis: state changes and replies. */
   onAssistant?(message: AssistantMessage): void
-  /** The server's view of the settings (it may change some itself, e.g. the brain by voice). */
+  /** The server's view of the settings (it may change some itself, e.g. wake-word-only by voice). */
   onServerSettings?(settings: StreamSettings): void
   /** A session was added to, renamed, switched, … (here or on another device). */
   onSessionsChanged?(activeId: string | null): void
@@ -328,7 +325,7 @@ export class StreamTranscriber {
       case 'settings':
         // The server may have clamped values; it decides how long we keep sending after speech.
         this.hangoverFrames = Math.ceil(message.sendHangoverMs / FRAME_MS)
-        // Settings changed on the server's side too (e.g. "Jarvis, use Hermes").
+        // Settings changed on the server's side too (e.g. "Jarvis, only when I say your name").
         this.events.onServerSettings?.(message.settings)
         break
       case 'phrase':

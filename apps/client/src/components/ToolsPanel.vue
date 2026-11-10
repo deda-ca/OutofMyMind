@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 
 // The harness's plugins (MCP servers) and their tools, with on/off switches
 // (server: apps/server/src/harness/routes.ts). Each tool is tagged with what it
-// does (create / read / update / delete); a tool is offered to the local brain
+// does (create / read / update / delete); a tool is offered to the LLM
 // only when it, its plugin, and every kind of thing it does are switched on.
 
 type Crud = 'create' | 'read' | 'update' | 'delete'

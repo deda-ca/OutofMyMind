@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { detectBrainSwitch, detectControl } from '../src/assistant/controls.ts'
+import { detectControl } from '../src/assistant/controls.ts'
 
 test('stop', () => {
   for (const t of ['Stop.', 'Stop!', 'Jarvis, stop.', 'Stop talking.', 'Okay, that’s enough.', 'Quiet please.', 'Wait.', 'Hold on.', 'Hang on, Jarvis.', 'Shut up.', 'Pause.']) {
@@ -33,14 +33,3 @@ test('sentences that merely contain the words are not commands', () => {
   }
 })
 
-test('switching brains by voice', () => {
-  for (const t of ['Jarvis, use Hermes.', 'Switch to Hermes.', 'Jarvis, switch to Hermes mode please.', 'Let me talk to Hermes.', 'Use the Hermes agent.', 'Hermes mode.']) {
-    assert.equal(detectBrainSwitch(t), 'hermes', t)
-  }
-  for (const t of ['Jarvis, use the local model.', 'Switch to the local LLM.', 'Go back to the local model.', 'Local mode.', 'Use the default model.']) {
-    assert.equal(detectBrainSwitch(t), 'local', t)
-  }
-  for (const t of ['Hermes.', 'Jarvis, what is Hermes?', 'Tell me about the Greek god Hermes.', 'Is the local library open?', 'Use the local bus schedule.']) {
-    assert.equal(detectBrainSwitch(t), null, t)
-  }
-})

@@ -58,12 +58,6 @@ test('nothing while the answer is being said; a tool after it is announced after
   assert.deepEqual(said, ['Checking the weather in Gatineau.'])
 })
 
-test('Hermes approval requests are said straight away', () => {
-  const { speaker, said } = setup()
-  speaker.event({ kind: 'approval', label: 'rm -rf build' })
-  assert.deepEqual(said, ['Hermes needs your approval for that.'])
-})
-
 test('what each tool is doing, in words', () => {
   const W = '/home/me/jarvis/data/workspace'
   assert.equal(describeActivity(call('files__read_text_file', { path: `${W}/todo.md` })), 'Reading your to-do list.')
@@ -77,8 +71,5 @@ test('what each tool is doing, in words', () => {
   assert.equal(describeActivity(call('scripts__run_script', { code: '1+1' }, ['create'])), 'Working that out.')
   assert.equal(describeActivity(call('jarvis__set_schedule', {}, ['create'])), 'Setting that up.')
   assert.equal(describeActivity(call('github__get_issue', {})), 'Looking that up.')
-  // Hermes: a label only.
-  assert.equal(describeActivity({ kind: 'tool', label: 'web_search' }), 'Searching the web.')
-  assert.equal(describeActivity({ kind: 'tool', label: 'terminal: ls -la' }), 'Running a command.')
-  assert.equal(describeActivity({ kind: 'tool', label: 'something new' }), 'Working on it.')
+  assert.equal(describeActivity({ kind: 'tool', label: 'something' }), 'Working on it.')
 })

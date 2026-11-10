@@ -59,9 +59,8 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
     if (this.systemParts.size > 8) this.systemParts.delete(this.systemParts.keys().next().value!)
   }
 
-  /** A request to the local model is about to be sent. */
+  /** A request to the model is about to be sent. */
   request(target: ChatTarget, body: Record<string, unknown>): void {
-    if (target.brain !== 'local') return
     this.last = { target, body, at: new Date().toISOString() }
   }
 

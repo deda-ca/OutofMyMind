@@ -25,8 +25,8 @@ test('LLM_API_KEY goes to the local LLM as a Bearer token; no key, no header', a
   mutable.llmUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`
 
   mutable.llmApiKey = 'sk-test-123'
-  assert.equal(await streamChat(chatTarget('local'), [{ role: 'user', content: 'hello' }], () => {}), 'Hi.')
+  assert.equal(await streamChat(chatTarget(), [{ role: 'user', content: 'hello' }], () => {}), 'Hi.')
   mutable.llmApiKey = undefined
-  assert.equal(await streamChat(chatTarget('local'), [{ role: 'user', content: 'hello' }], () => {}), 'Hi.')
+  assert.equal(await streamChat(chatTarget(), [{ role: 'user', content: 'hello' }], () => {}), 'Hi.')
   assert.deepEqual(seen, ['Bearer sk-test-123', undefined])
 })

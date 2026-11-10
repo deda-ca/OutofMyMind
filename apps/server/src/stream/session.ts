@@ -126,8 +126,6 @@ export class StreamSession {
         ? new Assistant({
             emit: (message) => this.emit(message),
             saveReply: (phraseId, kind, text, latencyMs, model) => this.recorder?.saveReply(phraseId, kind, text, model, latencyMs),
-            brain: () => (this.settings.brain >= 0.5 ? 'hermes' : 'local'),
-            setBrain: (brain) => this.updateSettings({ brain: brain === 'hermes' ? 1 : 0 }),
             ownerTrained: () => (speakers ? speakers.ownerClips().length > 0 : false),
             followUpMs: () => this.settings.followUpMs,
             speak: () => this.settings.speakReplies >= 0.5,

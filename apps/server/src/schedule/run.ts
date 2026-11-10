@@ -24,7 +24,7 @@ export function scheduledRun(deps: { agents: AgentLibrary; skills: SkillLibrary;
     const s = req.schedule
     const owner = config.ownerName || 'the owner'
     const agent = deps.agents.get(undefined)
-    const target = chatTarget('local')
+    const target = chatTarget()
     const allow = (name: string) => toolAllowed(agent, name) && (s.allowChanges === true || !harness.crudOf(name).some((k) => k === 'update' || k === 'delete'))
     const now = new Date()
     const repeat = s.repeat ? describeRepeat(s.repeat, new Date(s.start)) : 'once'
@@ -34,7 +34,7 @@ export function scheduledRun(deps: { agents: AgentLibrary; skills: SkillLibrary;
       `If the instructions (or ${owner}'s rules) say to reach them another way (a messaging tool such as Telegram or email), use that tool; then your reply is only noted, not spoken. jarvis__presence tells you whether anyone is at a Jarvis screen.`,
       s.allowChanges ? '' : `You can look things up and send messages, but not change or delete ${owner}'s files or data in this turn. If the instructions need that, say it couldn't be done unattended.`,
     ].filter(Boolean).join('\n')
-    const system = systemPrompt(target, agent, deps.agents, deps.skills, [['Scheduled run', rules]])
+    const system = systemPrompt(agent, deps.agents, deps.skills, [['Scheduled run', rules]])
 
     let ask: string
     if (req.reason === 'unacknowledged') {

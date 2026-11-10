@@ -204,24 +204,6 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
         <div class="d-flex align-items-center gap-2">
           <div class="switch">
             <input
-              id="setting-brain"
-              type="checkbox"
-              :checked="settings.brain >= 0.5"
-              @change="settings.brain = ($event.target as HTMLInputElement).checked ? 1 : 0"
-            />
-          </div>
-          <label for="setting-brain">Use Hermes agent</label>
-        </div>
-        <div class="form-text">
-          Off: Jarvis answers straight from the local LLM (fast). On: requests go to Nous Hermes Agent, which can use
-          tools, files and memory (slower). Or say “Jarvis, use Hermes” / “Jarvis, use the local model”. If Hermes isn't
-          running, the local model answers.
-        </div>
-      </div>
-      <div>
-        <div class="d-flex align-items-center gap-2">
-          <div class="switch">
-            <input
               id="setting-bargeIn"
               type="checkbox"
               :checked="settings.bargeIn >= 0.5"

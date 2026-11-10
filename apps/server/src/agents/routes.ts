@@ -17,7 +17,6 @@ function input(body: unknown): AgentInput {
     name: String(b.name ?? ''),
     description: String(b.description ?? ''),
     tools: b.tools === null || b.tools === undefined ? null : (b.tools as string[]),
-    ...(b.brain === undefined || b.brain === null || b.brain === '' ? {} : { brain: b.brain as AgentInput['brain'] }),
     ...(b.temperature === undefined || b.temperature === null || b.temperature === '' ? {} : { temperature: Number(b.temperature) }),
     body: String(b.body ?? ''),
   }
@@ -29,12 +28,11 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
     const defaultAgent = agents.defaultId()
     return {
       defaultAgent,
-      agents: agents.list().map(({ id, name, description, tools, brain, temperature, body }) => ({
+      agents: agents.list().map(({ id, name, description, tools, temperature, body }) => ({
         id,
         name,
         description,
         tools,
-        brain,
         temperature,
         body,
         isDefault: id === defaultAgent,

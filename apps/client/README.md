@@ -49,9 +49,9 @@ Jarvis also **speaks** its replies (Qwen3-TTS, voice "jarvis"), sentence by sent
 
 **Interrupting:** start talking while Jarvis speaks and it first turns its volume down (to 30%); once it has heard about 0.4 s of clear speech it pauses ("Jarvis paused · listening to you"). A hiss, click or cough only dips the volume briefly. Then "stop" (or "quiet", "wait") stops it, "continue" (or "go on") picks up where it stopped, "repeat" (or "say that again") replays the answer, and a new question gets a new answer. If what you said wasn't for Jarvis, or someone else spoke, it carries on by itself. A very short "stop" may only dip the volume and take effect a second later; if a bare "stop" is missed, "stop talking" or "Jarvis, stop" are caught more reliably. Settings: "Interrupt by speaking", "Interrupt sensitivity" (speech needed before pausing, default 0.4 s), "Volume while unsure" (default 30%). The follow-up countdown starts only after Jarvis has finished talking. Logic and tests: `src/audio/bargeIn.ts`, `test/bargeIn.test.ts` (`npm test`).
 
-### Local LLM or Hermes
+### While Jarvis works
 
-The "Use Hermes agent" switch in Settings (or saying "Jarvis, use Hermes" / "Jarvis, use the local model") chooses who answers: the local LLM straight away, or Nous Hermes Agent, which can use tools, files and memory but takes longer. The header shows "Brain: local LLM" or "Brain: Hermes". While an answer takes a while, Jarvis says what it's doing ("Searching the web for …", "Reading your to-do list.") or "One moment.", unless "Say what I'm doing" is off in Settings. With Hermes, its steps (e.g. "🔎 Searching the web…") appear above its reply. If Hermes isn't running, the local model answers and a note says so.
+While an answer takes a while, Jarvis says what it's doing ("Searching the web for …", "Reading your to-do list.") or "One moment.", unless "Say what I'm doing" is off in Settings. Each tool it uses appears above its reply (⚙️ with the files it touched).
 
 ### History tab
 
