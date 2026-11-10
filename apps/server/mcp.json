@@ -46,6 +46,17 @@
           "delete"
         ]
       }
+    },
+    "web": {
+      "command": "node",
+      "args": [
+        "../../mcp-plugins/web/server.ts"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}",
+        "SEARXNG_URL": "${SEARXNG_URL}"
+      },
+      "timeoutMs": 30000
     }
   }
 }

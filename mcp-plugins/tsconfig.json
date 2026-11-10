@@ -23,6 +23,7 @@
     "notes/**/*.ts",
     "weather/**/*.ts",
     "scripts/**/*.ts",
+    "web/**/*.ts",
     "test/**/*.ts"
   ]
 }
