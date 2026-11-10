@@ -90,11 +90,16 @@ const ticker = setInterval(() => (now.value = Date.now()), 1000)
 /** What Jarvis's voice is doing. */
 const playback = ref<PlayerState>('idle')
 const jarvisSpeaking = computed(() => playback.value === 'playing')
+/** Talking, or paused mid-sentence (someone started talking over it): ■ can stop it. */
+const jarvisTalking = computed(() => playback.value === 'playing' || playback.value === 'paused')
+/** The live reply the player is on (for its ■). */
+const speakingReplyId = ref<number>()
 /** If a barge-in pause gets no answer from the server (e.g. connection trouble), carry on after this long. */
 const BARGE_IN_TIMEOUT_MS = 10000
 let bargeInTimer: ReturnType<typeof setTimeout> | undefined
 const player = new SpeechPlayer((state) => {
   playback.value = state
+  speakingReplyId.value = player.currentReplyId
   if (state !== 'paused') clearTimeout(bargeInTimer)
   // Jarvis stopped, finished, or the server decided: the next interruption starts fresh.
   if (state !== 'paused') bargeInDetector.reset()
@@ -428,6 +433,23 @@ watch(
   },
 )
 
+/** Stop Jarvis talking, as saying "stop" does ("continue" picks up again); a replay is cancelled. */
+function stopTalking(): void {
+  if (replay.key) void toggleReplay(player, replay.key, '')
+  else player.stop()
+}
+
+/** Whether Jarvis is saying this live reply right now (not as a replay): its button is ■. */
+function sayingNow(phrase: Phrase): boolean {
+  return jarvisTalking.value && speakingReplyId.value === -phrase.id && !replay.key
+}
+
+/** The button on a live reply: ■ while it's being said, else ▶ (play it again) or ■ (stop the replay). */
+function replyButton(phrase: Phrase): void {
+  if (sayingNow(phrase)) stopTalking()
+  else replayReply(`live-${phrase.id}`, phrase.text, -phrase.id)
+}
+
 /** ▶ / ■ on a reply: hear it again in Jarvis's voice, or stop. */
 function replayReply(key: string, text: string, liveReplyId?: number): void {
   toggleReplay(player, key, text, liveReplyId).catch((err: Error) => (error.value = `Couldn't replay that: ${err.message}`))
@@ -758,6 +780,15 @@ onBeforeUnmount(() => {
           >
             {{ muted ? 'Unmute' : 'Mute' }}
           </button>
+          <button
+            v-if="jarvisTalking"
+            type="button"
+            class="btn-lg btn-outline theme-info"
+            title="Stop Jarvis talking (say “continue” to hear the rest)"
+            @click="stopTalking"
+          >
+            ■&#xFE0E; Stop talking
+          </button>
         </div>
 
         <div v-if="error" class="alert theme-danger m-0 live-fixed" role="alert">{{ error }}</div>
@@ -811,16 +842,16 @@ onBeforeUnmount(() => {
                       <div v-if="phrase.jarvis === 'reply' && phrase.text" class="reply fg-info">
                         <MarkdownText :text="phrase.text" />
                         <button
-                          v-if="phrase.final"
+                          v-if="phrase.final || sayingNow(phrase)"
                           type="button"
                           class="btn-text btn-sm replay-button"
-                          :class="{ active: replay.key === `live-${phrase.id}` }"
-                          :title="replay.key === `live-${phrase.id}` ? 'Stop' : 'Play this again'"
-                          :aria-label="replay.key === `live-${phrase.id}` ? 'Stop playing' : 'Play this reply again'"
-                          @click="replayReply(`live-${phrase.id}`, phrase.text, -phrase.id)"
+                          :class="{ active: replay.key === `live-${phrase.id}` || sayingNow(phrase) }"
+                          :title="sayingNow(phrase) ? 'Stop talking' : replay.key === `live-${phrase.id}` ? 'Stop' : 'Play this again'"
+                          :aria-label="sayingNow(phrase) ? 'Stop talking' : replay.key === `live-${phrase.id}` ? 'Stop playing' : 'Play this reply again'"
+                          @click="replyButton(phrase)"
                         >
                           <span v-if="replay.key === `live-${phrase.id}` && replay.loading" class="spinner-border spinner-sm" aria-hidden="true"></span>
-                          <template v-else>{{ replay.key === `live-${phrase.id}` ? '■\uFE0E' : '▶\uFE0E' }}</template>
+                          <template v-else>{{ sayingNow(phrase) || replay.key === `live-${phrase.id}` ? '■\uFE0E' : '▶\uFE0E' }}</template>
                         </button>
                       </div>
                       <span v-else :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>

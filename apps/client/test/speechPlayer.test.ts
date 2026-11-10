@@ -161,3 +161,25 @@ test("an older reply's late sentences don't take over; a newer reply does", asyn
   await tick()
   assert.equal(playing(), 60)
 })
+
+test('stop (the ■ button) keeps the reply for "continue"; the player says which live reply it is on', async () => {
+  const { player, states } = newPlayer()
+  player.add(3, 0, wav(30))
+  player.add(3, 1, wav(31))
+  await tick()
+  await tick()
+  assert.equal(player.currentReplyId, 3)
+  assert.equal(playing(), 30)
+  player.stop()
+  assert.equal(player.playerState, 'stopped')
+  assert.equal(playing(), undefined)
+  assert.equal(states.at(-1), 'stopped')
+  player.continueSpeaking()
+  assert.equal(playing(), 30) // the interrupted sentence again, then on
+  await end()
+  assert.equal(playing(), 31)
+  const replaying = player.playFetched(1, async () => bytes(9))
+  assert.equal(player.currentReplyId, undefined)
+  player.cancel()
+  await replaying
+})

@@ -54,6 +54,11 @@ export class SpeechPlayer {
     return this.state
   }
 
+  /** The live reply being spoken (or last spoken); undefined during a replay of fetched speech. */
+  get currentReplyId(): number | undefined {
+    return this.current && this.current.id !== REPLAY_ID ? this.current.id : undefined
+  }
+
   /** Create or resume audio output; call from a user action (e.g. "Start listening") so the browser allows sound. */
   async unlock(): Promise<void> {
     this.output()
