@@ -9,7 +9,7 @@ import { VoiceprintModel } from './speaker/voiceprint.ts'
 
 const voiceprintModel = await VoiceprintModel.load(config.voiceprintModel, (message) => console.warn(message))
 const access = loadAccessKey(config.dataDir, config.accessKey)
-const app = buildApp({ voiceprintModel, accessKey: access.key })
+const app = buildApp({ voiceprintModel, accessKey: access.key, schedules: true })
 app.addHook('onClose', () => harness.close())
 // The file tools' folder must exist before their plugin starts (it refuses to run without it).
 fs.mkdirSync(config.workspaceDir, { recursive: true })

@@ -22,6 +22,8 @@ import PeoplePanel from './components/PeoplePanel.vue'
 import SessionsPanel from './components/SessionsPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import SkillsPanel from './components/SkillsPanel.vue'
+import SchedulePanel from './components/SchedulePanel.vue'
+import NotificationStack from './components/NotificationStack.vue'
 import DocumentViewer from './components/DocumentViewer.vue'
 import FileChips from './components/FileChips.vue'
 import ReaderPanel from './components/ReaderPanel.vue'
@@ -38,12 +40,13 @@ import type { ToolCallInfo } from './toolCalls'
 import { addFiles, type FileRef } from './uploads'
 import { closeFile, openFile, refreshFile, viewer } from './viewer'
 import { openReader, pause as pauseReader, reader, resume as resumeReader } from './reader'
+import { acknowledge, connectNotifications, disconnectNotifications, notices, unlockSound } from './notifications'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'debug' | 'monitor'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'debug' | 'monitor'
 
 const tab = ref<Tab>('live')
 
@@ -118,6 +121,22 @@ function bargeInFrame(probability: number): void {
     bargeInTimer = setTimeout(() => player.resume(), BARGE_IN_TIMEOUT_MS)
   }
 }
+// Notifications (timers, alarms, reminders) reach every open tab while signed in, listening or not.
+unlockSound()
+watch(signedIn, (yes) => (yes ? connectNotifications() : disconnectNotifications()), { immediate: true })
+/** Running timers, as countdowns in the header. */
+const timers = computed(() =>
+  notices.schedules
+    .filter((s) => s.kind === 'timer' && s.enabled && s.due)
+    .map((s) => {
+      const left = Math.max(0, Math.round((new Date(s.due!).getTime() - now.value) / 1000))
+      const h = Math.floor(left / 3600)
+      const clock = `${h ? `${h}:` : ''}${String(Math.floor((left % 3600) / 60)).padStart(h ? 2 : 1, '0')}:${String(left % 60).padStart(2, '0')}`
+      return { id: s.id, title: s.title, clock }
+    }),
+)
+const ringingCount = computed(() => notices.shown.filter((n) => n.ring).length)
+
 const followUpSeconds = computed(() =>
   assistant.value?.followUpEndsAt ? Math.max(0, Math.ceil((assistant.value.followUpEndsAt - now.value) / 1000)) : 0,
 )
@@ -571,6 +590,7 @@ onBeforeUnmount(() => {
     <DocumentViewer standalone />
   </main>
   <main v-else-if="signedIn" class="app container-fluid" :class="{ 'app-fill': tab === 'live' }">
+    <NotificationStack />
     <div class="app-top">
       <div class="vstack gap-3">
         <header class="d-flex align-items-center gap-3 flex-wrap">
@@ -610,6 +630,10 @@ onBeforeUnmount(() => {
               Anyone can talk to Jarvis until you train your voice
             </span>
           </template>
+          <button v-for="t in timers" :key="t.id" type="button" class="badge theme-info badge-subtle font-monospace" :title="`Timer: ${t.title}. Click for the Schedule tab.`" @click="tab = 'schedule'">
+            ⏱ {{ t.title }} {{ t.clock }}
+          </button>
+          <button v-if="ringingCount" type="button" class="badge theme-danger" title="Stop what's ringing" @click="acknowledge(null, 'dismiss')">⏰ Stop</button>
           <span class="ms-auto"><ContextMeter /></span>
           <button
             type="button"
@@ -656,6 +680,11 @@ onBeforeUnmount(() => {
           </li>
           <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
+          </li>
+          <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'schedule' }" @click="tab = 'schedule'">
+              Schedule<span v-if="notices.schedules.filter((s) => s.enabled && s.due).length" class="badge theme-secondary badge-subtle ms-2">{{ notices.schedules.filter((s) => s.enabled && s.due).length }}</span>
+            </button>
           </li>
           <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'debug' }" @click="tab = 'debug'">
@@ -896,6 +925,12 @@ onBeforeUnmount(() => {
     <div v-if="tab === 'skills'" class="row justify-content-center mt-5">
       <div class="col-12">
         <SkillsPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'schedule'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <SchedulePanel />
       </div>
     </div>
 

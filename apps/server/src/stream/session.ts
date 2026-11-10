@@ -15,6 +15,7 @@ import type { AgentLibrary } from '../agents/library.ts'
 import type { SkillLibrary } from '../skills/library.ts'
 import type { SessionStore } from '../sessions/store.ts'
 import type { SpeakerTag, Speakers } from '../speaker/speakers.ts'
+import { notifier } from '../schedule/index.ts'
 import { PhraseSegmenter, type SegmenterEvent, type SegmenterOptions } from './phraseSegmenter.ts'
 import { STREAM_SAMPLE_RATE, type RequestLog, type ServerMessage } from './protocol.ts'
 import { DEFAULT_SETTINGS, mergeSettings, sendHangoverMs, type StreamSettings } from './settings.ts'
@@ -191,6 +192,11 @@ export class StreamSession {
     this.restartPartialTimer()
     this.send({ type: 'ready', settings: this.settings, sendHangoverMs: sendHangoverMs(this.settings) })
     this.assistant?.announce()
+    // A microphone is listening for Jarvis (presence, for scheduled runs).
+    if (this.assistant) {
+      notifier.setListening(1)
+      this.listening = true
+    }
   }
 
   updateSettings(update: unknown): void {
@@ -266,7 +272,11 @@ export class StreamSession {
    * finished and archived anyway (everything is recorded), and the
    * conversation is closed once its last phrase is saved.
    */
+  private listening = false
+
   close(): void {
+    if (this.listening) notifier.setListening(-1)
+    this.listening = false
     this.closed = true
     clearInterval(this.partialTimer)
     this.unsubscribe?.()

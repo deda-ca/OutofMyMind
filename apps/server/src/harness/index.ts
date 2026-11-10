@@ -139,6 +139,11 @@ class Harness {
     return runLoop(target, messages, host, { onDelta, onEvent, signal })
   }
 
+  /** What a plugin tool does (create/read/update/delete), by function name; [] if there's no such tool. */
+  crudOf(name: string): Crud[] {
+    return this.hub?.crudOf(name) ?? []
+  }
+
   /** The function names of the tools offered right now (switched on, allowed for the agent). */
   toolNames(allow: ToolAllow = () => true): string[] {
     return (this.hub?.tools() ?? []).map((t) => t.function.name).filter(allow)

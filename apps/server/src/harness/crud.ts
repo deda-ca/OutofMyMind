@@ -26,6 +26,8 @@ const VERBS: [Crud[], RegExp][] = [
   [['delete'], /^(delete|remove|rm|unlink|destroy|drop|erase|purge|trash|clear|wipe|del)$/],
   [['create', 'update'], /^(write|append|save|put|upsert|store)$/],
   [['create'], /^(create|add|new|make|insert|copy|duplicate|upload|post|mkdir|touch|clone)$/],
+  // Sending a message makes a new one (and changes nothing that's there): Telegram, email, SMS, …
+  [['create'], /^(send|notify|email|sms|publish|alert|ping|broadcast|dm|reply|forward|tweet)$/],
   [['update'], /^(update|edit|set|modify|change|move|rename|patch|replace|mark|toggle|mv|archive|restore)$/],
   [['read'], /^(get|read|list|ls|search|find|query|fetch|show|view|info|tree|stat|stats|lookup|describe|count|check|open|cat|grep|load|download|preview|inspect)$/],
 ]

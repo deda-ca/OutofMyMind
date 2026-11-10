@@ -16,6 +16,8 @@ import { ttsRoutes } from './assistant/ttsRoutes.ts'
 import { config } from './config.ts'
 import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
+import { startSchedules, stopSchedules } from './schedule/index.ts'
+import { scheduleRoutes } from './schedule/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
 import { SessionStore } from './sessions/store.ts'
 import { SkillLibrary } from './skills/library.ts'
@@ -28,7 +30,7 @@ import { streamRoute } from './stream/route.ts'
 /** 30 s of 16 kHz s16le mono is ~1 MB; anything far beyond that is a mistake. */
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
-export function buildApp(options: { voiceprintModel: VoiceprintModel | null; accessKey: string }): FastifyInstance {
+export function buildApp(options: { voiceprintModel: VoiceprintModel | null; accessKey: string; schedules?: boolean }): FastifyInstance {
   const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
@@ -37,6 +39,12 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   const skills = new SkillLibrary(config.workspaceDir)
   const sessions = new SessionStore(path.join(config.workspaceDir, 'sessions'), path.join(config.dataDir, 'sessions.json'))
   app.addHook('onClose', async () => db.close())
+  // Timers, alarms, reminders (off in tests unless asked for).
+  if (options.schedules) {
+    // At listen time: after the plugins have started (main.ts), so a schedule due at start-up has its tools.
+    app.addHook('onReady', async () => void startSchedules({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
+    app.addHook('onClose', async () => stopSchedules())
+  }
 
   // Audio arrives as raw bytes.
   app.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: MAX_AUDIO_BYTES }, (_req, body, done) =>
@@ -98,6 +106,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   void app.register(agentRoutes, { agents })
   void app.register(skillRoutes, { skills })
   void app.register(ttsRoutes)
+  void app.register(scheduleRoutes)
   void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
 
   return app
