@@ -46,6 +46,8 @@ export interface AgentInfo {
   /** Allowed tool patterns; null = every tool. */
   tools: string[] | null
   temperature?: number
+  /** Its text-to-speech voice; unset: the default (TTS_VOICE). */
+  voice?: string
   /** The instructions as written in its file (comments kept). */
   body: string
   /** Sessions without their own agent use the default one. */

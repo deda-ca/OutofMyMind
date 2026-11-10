@@ -27,7 +27,7 @@ import { liveScheduleTools, notifier } from '../schedule/index.ts'
 import { Room, type RoomLine } from './room.ts'
 import { LlmError, chatTarget, streamChat, type AgentEvent, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
 import { ProgressSpeaker } from './progress.ts'
-import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
+import { SentenceSplitter, forSpeech, synthesize, ttsVoices } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
 /** After a request, how long a phrase scored as "someone else" is still taken as maybe the owner (it doesn't end the conversation). */
@@ -135,6 +135,8 @@ export class Assistant {
   private nextReplyId = 1
   /** The reply being spoken; sentences of older replies are dropped. */
   private speakingReplyId = 0
+  /** Agent voices audio.cpp didn't have (logged once each). */
+  private readonly missingVoices = new Set<string>()
   /** The last real answer (not "Yes?"/"Okay."), for "repeat". */
   private lastAnswerId = 0
   private speechQueue: Promise<void> = Promise.resolve()
@@ -374,7 +376,7 @@ export class Assistant {
         ? undefined
         : new ProgressSpeaker({
             say: (line) => {
-              if (!this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, line)
+              if (!this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, line, agent.voice)
             },
             firstAfterMs: FILLER_MS,
           })
@@ -385,7 +387,7 @@ export class Assistant {
       firstWordMs ??= Math.round(performance.now() - started)
       if (this.closed) return
       this.o.emit({ type: 'assistant.delta', replyId, delta })
-      for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
+      for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence, agent.voice)
     }
     const onEvent = (event: AgentEvent) => {
       progress?.event(event)
@@ -404,7 +406,7 @@ export class Assistant {
     const nothingSaid = () => partial === ''
     try {
       const answer = await this.ask(target, this.messagesFor(agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
-      for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence)
+      for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence, agent.voice)
       const clean = answer.text.trim()
       const tools = toolUses(answer.steps)
       this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean, ...(tools.length ? { tools } : {}) })
@@ -607,15 +609,16 @@ ${updated.body}`, isError: false }
     this.speakingReplyId = replyId
     this.o.emit({ type: 'assistant.start', replyId, toPhraseId: phrase.id })
     this.o.emit({ type: 'assistant.done', replyId, text, kind })
-    this.speakSentence(replyId, 0, text)
+    this.speakSentence(replyId, 0, text, this.agents.get(this.session.agentId()).voice)
     this.o.saveReply(phrase.archiveId, kind, text, 0, null)
   }
 
   /**
    * Queues one sentence for text-to-speech. Sentences are synthesised one at
    * a time, in order; those of a reply that's been superseded are dropped.
+   * In the agent's voice, if it has one audio.cpp knows; else TTS_VOICE.
    */
-  private speakSentence(replyId: number, seq: number, sentence: string): void {
+  private speakSentence(replyId: number, seq: number, sentence: string, voice?: string): void {
     if (!this.o.speak()) return
     const text = forSpeech(sentence)
     if (!/[\p{L}\p{N}]/u.test(text)) return
@@ -623,11 +626,22 @@ ${updated.body}`, isError: false }
       .then(async () => {
         if (this.closed || replyId !== this.speakingReplyId) return
         const started = performance.now()
-        const wav = await synthesize(text)
+        const wav = await synthesize(text, undefined, await this.voiceFor(voice))
         if (this.closed || replyId !== this.speakingReplyId) return
         this.o.emit({ type: 'assistant.audio', replyId, seq, text, wav: wav.toString('base64'), synthMs: Math.round(performance.now() - started) })
       })
       .catch((err: unknown) => this.o.log(`assistant: could not speak "${text.slice(0, 40)}"`, err))
+  }
+
+  /** The agent's voice if audio.cpp has it; else TTS_VOICE (said once in the log). */
+  private async voiceFor(voice: string | undefined): Promise<string> {
+    if (!voice || voice === config.ttsVoice) return config.ttsVoice
+    if ((await ttsVoices()).includes(voice)) return voice
+    if (!this.missingVoices.has(voice)) {
+      this.missingVoices.add(voice)
+      this.o.log(`assistant: audio.cpp has no voice "${voice}" (an agent's voice:), speaking in "${config.ttsVoice}"`)
+    }
+    return config.ttsVoice
   }
 
   private dismiss(phrase: AssistantPhrase): void {

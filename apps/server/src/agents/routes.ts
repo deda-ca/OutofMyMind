@@ -18,6 +18,7 @@ function input(body: unknown): AgentInput {
     description: String(b.description ?? ''),
     tools: b.tools === null || b.tools === undefined ? null : (b.tools as string[]),
     ...(b.temperature === undefined || b.temperature === null || b.temperature === '' ? {} : { temperature: Number(b.temperature) }),
+    ...(typeof b.voice === 'string' && b.voice.trim() ? { voice: b.voice.trim() } : {}),
     body: String(b.body ?? ''),
   }
 }
@@ -28,12 +29,13 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
     const defaultAgent = agents.defaultId()
     return {
       defaultAgent,
-      agents: agents.list().map(({ id, name, description, tools, temperature, body }) => ({
+      agents: agents.list().map(({ id, name, description, tools, temperature, voice, body }) => ({
         id,
         name,
         description,
         tools,
         temperature,
+        voice,
         body,
         isDefault: id === defaultAgent,
         /** The fallback agent: editable, not deletable. */

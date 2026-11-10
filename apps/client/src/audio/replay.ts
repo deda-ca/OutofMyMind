@@ -23,7 +23,7 @@ let pressed = 0
  * Replay (or, if it's the one playing, stop) a reply. `liveReplyId`: the
  * server's reply id, for a reply from this page's live conversation.
  */
-export async function toggleReplay(player: SpeechPlayer, key: string, text: string, liveReplyId?: number): Promise<void> {
+export async function toggleReplay(player: SpeechPlayer, key: string, text: string, liveReplyId?: number, voice?: string): Promise<void> {
   if (replay.key === key) {
     pressed++ // a replay still fetching its first sentence won't start
     replay.key = ''
@@ -38,7 +38,7 @@ export async function toggleReplay(player: SpeechPlayer, key: string, text: stri
   void player.unlock()
   try {
     if (liveReplyId !== undefined && player.has(liveReplyId)) await player.repeat(liveReplyId)
-    else await speak(player, text, () => press === pressed)
+    else await speak(player, text, () => press === pressed, voice)
   } finally {
     if (press === pressed) {
       replay.key = ''
@@ -47,14 +47,15 @@ export async function toggleReplay(player: SpeechPlayer, key: string, text: stri
   }
 }
 
-async function speak(player: SpeechPlayer, text: string, current: () => boolean): Promise<void> {
+/** `voice`: the agent's (unset: Jarvis's default). */
+async function speak(player: SpeechPlayer, text: string, current: () => boolean, voice?: string): Promise<void> {
   replay.loading = true
   const response = await fetch('/api/tts/sentences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
   if (!response.ok) throw new Error(await problem(response))
   const { sentences } = (await response.json()) as { sentences: string[] }
   if (!current() || sentences.length === 0) return
   const finished = player.playFetched(sentences.length, async (i, signal) => {
-    const r = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: sentences[i] }), signal })
+    const r = await fetch('/api/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: sentences[i], ...(voice ? { voice } : {}) }), signal })
     if (!r.ok) throw new Error(await problem(r))
     if (i === 0 && current()) replay.loading = false
     return r.arrayBuffer()

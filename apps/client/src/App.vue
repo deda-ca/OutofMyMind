@@ -455,9 +455,16 @@ function replyButton(phrase: Phrase): void {
   else replayReply(`live-${phrase.id}`, phrase.text, -phrase.id)
 }
 
-/** ▶ / ■ on a reply: hear it again in Jarvis's voice, or stop. */
+/** The voice of the shown session's agent (undefined: the default voice). */
+function sessionVoice(): string | undefined {
+  const session = sessions.list.find((s) => s.id === (sessions.shownId ?? sessions.activeId))
+  const agentId = (session ? session.agent : sessions.newAgent) || sessions.defaultAgent
+  return sessions.agents.find((a) => a.id === agentId)?.voice
+}
+
+/** ▶ / ■ on a reply: hear it again in its agent's voice, or stop. */
 function replayReply(key: string, text: string, liveReplyId?: number): void {
-  toggleReplay(player, key, text, liveReplyId).catch((err: Error) => (error.value = `Couldn't replay that: ${err.message}`))
+  toggleReplay(player, key, text, liveReplyId, sessionVoice()).catch((err: Error) => (error.value = `Couldn't replay that: ${err.message}`))
 }
 
 /** Saved messages of the session on screen, as transcript lines. */

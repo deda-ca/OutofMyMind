@@ -5,7 +5,7 @@ import { applyAgents, sessions, type AgentInfo, type AgentListing } from '../ses
 // Create, edit, delete agents and choose the default one (server:
 // apps/server/src/agents/routes.ts). Each agent is a file in
 // WORKSPACE_DIR/agents: instructions, which tools it may use, and optionally
-// its own temperature.
+// its own temperature and voice.
 
 interface CatalogTool {
   fn: string
@@ -19,6 +19,9 @@ const error = ref('')
 const notice = ref('')
 const busy = ref(false)
 const catalog = ref<CatalogTool[]>([])
+/** The text-to-speech voices audio.cpp has, and the one Jarvis speaks in by default (TTS_VOICE). */
+const voices = ref<string[]>([])
+const defaultVoice = ref('')
 
 /** The editor: null when closed; `id` null when creating. */
 const editing = ref<{ id: string | null } | null>(null)
@@ -29,6 +32,8 @@ const form = reactive({
   description: '',
   /** v-model on a number input gives a number (or '' when empty). */
   temperature: '' as string | number,
+  /** '' = the default voice. */
+  voice: '',
   toolsMode: 'all' as 'all' | 'none' | 'some',
   picked: new Set<string>(),
   patterns: '',
@@ -76,6 +81,9 @@ async function load(): Promise<void> {
   await act(async () => {
     applyAgents(await api<AgentListing>('/api/agents'))
     const { plugins: list } = await api<{ plugins: { name: string; tools: { name: string; description?: string; crud: string[] }[] }[] }>('/api/tools')
+    const tts = await api<{ voices: string[]; jarvis: string }>('/api/tts/voices').catch(() => ({ voices: [], jarvis: '' }))
+    voices.value = tts.voices
+    defaultVoice.value = tts.jarvis
     catalog.value = list.flatMap((p) => p.tools.map((t) => ({ fn: `${p.name}__${t.name}`, name: t.name, plugin: p.name, description: t.description, crud: t.crud })))
   })
 }
@@ -85,7 +93,7 @@ function slug(name: string): string {
 }
 
 function startCreate(): void {
-  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
+  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', voice: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
   editing.value = { id: null }
 }
 
@@ -98,6 +106,7 @@ function startEdit(agent: AgentInfo): void {
     idTouched: true,
     description: agent.description,
     temperature: agent.temperature === undefined ? '' : String(agent.temperature),
+    voice: agent.voice ?? '',
     toolsMode: agent.tools === null ? 'all' : agent.tools.length === 0 ? 'none' : 'some',
     // Exact tool names become ticks; wildcards and tools of plugins that aren't running stay as patterns.
     picked: new Set(tools.filter((t) => known.has(t))),
@@ -144,7 +153,7 @@ async function save(): Promise<void> {
     return
   }
   const temperature = String(form.temperature).trim() === '' ? null : Number(form.temperature)
-  const body = { name: form.name, description: form.description, tools, temperature, body: form.body }
+  const body = { name: form.name, description: form.description, tools, temperature, voice: form.voice, body: form.body }
   const id = editing.value?.id
   const ok = await act(async () => {
     applyAgents(id ? await api<AgentListing>(`/api/agents/${encodeURIComponent(id)}`, json('PUT', body)) : await api<AgentListing>('/api/agents', json('POST', { ...body, id: form.id || undefined })))
@@ -159,6 +168,30 @@ async function makeDefault(agent: AgentInfo): Promise<void> {
 async function remove(agent: AgentInfo): Promise<void> {
   if (!confirm(`Delete the agent “${agent.name}”? Its file (agents/${agent.id}.md) is removed. Sessions that used it switch to the default agent.`)) return
   await act(async () => applyAgents(await api<AgentListing>(`/api/agents/${encodeURIComponent(agent.id)}`, { method: 'DELETE' })), `Deleted “${agent.name}”.`)
+}
+
+/** The voice options: audio.cpp's, plus the agent's own if audio.cpp doesn't have it (so it isn't lost on save). */
+const voiceOptions = computed(() => (form.voice && !voices.value.includes(form.voice) ? [...voices.value, form.voice] : voices.value))
+
+let sample: HTMLAudioElement | undefined
+const sampling = ref(false)
+/** Hear the chosen voice. */
+async function hearVoice(): Promise<void> {
+  sample?.pause()
+  sampling.value = true
+  try {
+    const voice = form.voice || defaultVoice.value
+    const response = await fetch('/api/tts', json('POST', { text: `Hello, I'm ${form.name.trim() || 'your assistant'}. This is how I sound.`, voice }))
+    if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${response.status}`)
+    const url = URL.createObjectURL(await response.blob())
+    sample = new Audio(url)
+    sample.onended = () => URL.revokeObjectURL(url)
+    await sample.play()
+  } catch (err) {
+    error.value = `Couldn't play the voice: ${(err as Error).message}`
+  } finally {
+    sampling.value = false
+  }
 }
 
 function toolsSummary(agent: AgentInfo): string {
@@ -222,6 +255,17 @@ onMounted(load)
             <label for="agent-temperature" class="form-label m-0 fw-semibold">Temperature</label>
             <input id="agent-temperature" v-model="form.temperature" type="number" min="0" max="2" step="0.1" class="form-control" placeholder="Default (0.7)" />
             <span class="form-text m-0">Lower is steadier and more literal, higher more varied. Leave empty for the default.</span>
+          </div>
+          <div class="col-12 md:col-6 vstack gap-1">
+            <label for="agent-voice" class="form-label m-0 fw-semibold">Voice</label>
+            <div class="d-flex gap-2">
+              <select id="agent-voice" v-model="form.voice" class="form-select">
+                <option value="">Default{{ defaultVoice ? ` (${defaultVoice})` : '' }}</option>
+                <option v-for="v in voiceOptions" :key="v" :value="v">{{ v }}{{ voices.includes(v) ? '' : ' (not on audio.cpp)' }}</option>
+              </select>
+              <button type="button" class="btn-outline theme-secondary" :disabled="sampling" title="Hear this voice" @click="hearVoice">{{ sampling ? '…' : '▶\uFE0E' }}</button>
+            </div>
+            <span class="form-text m-0">What it speaks in. Voices are the ones audio.cpp has; leave on Default for TTS_VOICE.</span>
           </div>
         </div>
 
@@ -292,6 +336,7 @@ onMounted(load)
         <span class="text-sm fg-3">
           {{ toolsSummary(agent) }}
           <template v-if="agent.temperature !== undefined"> · temperature {{ agent.temperature }}</template>
+          <template v-if="agent.voice"> · voice {{ agent.voice }}</template>
           <template v-if="agent.builtIn"> · the fallback agent: can be edited, not deleted</template>
         </span>
         <pre v-if="agent.body" class="instructions-preview m-0">{{ agent.body }}</pre>

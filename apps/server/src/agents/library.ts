@@ -8,6 +8,7 @@
 //   description: Drafts replies to email
 //   tools: [files__read_text_file, files__list_directory, email__*]   # or "all" (default) or "none"
 //   temperature: 0.4        # optional
+//   voice: male-tz-calm     # optional: the text-to-speech voice it speaks in (default TTS_VOICE)
 //   ---
 //   You handle the owner's email. …
 //
@@ -27,6 +28,8 @@ export interface Agent {
   /** Allowed tool function names; "*" matches anything ("files__*"). null: every tool. */
   tools: string[] | null
   temperature?: number
+  /** The text-to-speech voice it speaks in (one audio.cpp has); unset: TTS_VOICE. */
+  voice?: string
   /** The agent's part of the system prompt (comments removed; fill `{{owner}}` with fillOwner()). */
   instructions: string
   /** The file's text after the frontmatter, as written (comments kept): what the editor shows. */
@@ -39,6 +42,7 @@ export interface AgentInput {
   description: string
   tools: string[] | null
   temperature?: number
+  voice?: string
   /** The instructions, as written (comments allowed). */
   body: string
 }
@@ -264,6 +268,7 @@ export function parseAgent(id: string, text: string): Agent {
     description: str('description') ?? '',
     tools,
     ...(str('temperature') !== undefined && Number.isFinite(temperature) && temperature >= 0 && temperature <= 2 ? { temperature } : {}),
+    ...(str('voice') && VOICE.test(str('voice')!) ? { voice: str('voice') } : {}),
     instructions: stripComments(body),
     body: body.replace(/^\n+/, '').replace(/\s+$/, ''),
   }
@@ -288,6 +293,7 @@ export function toAgentFile(agent: AgentInput): string {
     `description: ${JSON.stringify(agent.description)}`,
     `tools: ${tools}`,
     ...(agent.temperature !== undefined ? [`temperature: ${agent.temperature}`] : []),
+    ...(agent.voice ? [`voice: ${agent.voice}`] : []),
     '---',
     agent.body.trim(),
   ]
@@ -295,6 +301,8 @@ export function toAgentFile(agent: AgentInput): string {
 }
 
 const TOOL_PATTERN = /^[A-Za-z0-9_*-]{1,128}$/
+/** A voice name as audio.cpp has them ("jarvis", "male-tz-calm"). */
+const VOICE = /^[A-Za-z0-9_.-]{1,64}$/
 
 /** Checks and tidies what the editor sent; throws an AgentError (400) saying what's wrong. */
 export function validate(input: AgentInput): AgentInput {
@@ -312,9 +320,11 @@ export function validate(input: AgentInput): AgentInput {
   if (input.temperature !== undefined && !(typeof input.temperature === 'number' && input.temperature >= 0 && input.temperature <= 2)) {
     throw new AgentError('The temperature is a number from 0 to 2 (or not set)', 400)
   }
+  const voice = String(input.voice ?? '').trim()
+  if (voice && !VOICE.test(voice)) throw new AgentError('The voice is a name like "jarvis" (letters, digits, - _ and .)', 400)
   const body = String(input.body ?? '')
   if (body.length > 20000) throw new AgentError('The instructions are at most 20,000 characters', 400)
-  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), body }
+  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), ...(voice ? { voice } : {}), body }
 }
 
 /** "Email helper!" → "email-helper". */

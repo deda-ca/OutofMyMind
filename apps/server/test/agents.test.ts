@@ -139,3 +139,26 @@ test('agents from the editor: create, edit, delete, default; files read back the
   assert.equal(lib.defaultId(), 'jarvis')
   assert.equal(lib.get(id).id, 'jarvis') // a session that used it falls back
 })
+
+test('an agent can have its own voice: read from its file, written back, checked', () => {
+  const agent = parseAgent('coach', '---\nname: Coach\nvoice: male-tz-calm   # calmer\n---\nKeep {{owner}} on track.\n')
+  assert.equal(agent.voice, 'male-tz-calm')
+  assert.equal(parseAgent('x', '---\nname: X\n---\n').voice, undefined)
+  assert.equal(parseAgent('x', '---\nvoice: "not a voice!"\n---\n').voice, undefined)
+  const file = toAgentFile({ name: 'Coach', description: '', tools: null, voice: 'male-tz-calm', body: 'Hi.' })
+  assert.match(file, /^voice: male-tz-calm$/m)
+  assert.equal(parseAgent('coach', file).voice, 'male-tz-calm')
+  assert.doesNotMatch(toAgentFile({ name: 'Plain', description: '', tools: null, body: '' }), /voice:/)
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-agents-'))
+  try {
+    const library = new AgentLibrary(dir)
+    const id = library.create({ name: 'Coach', description: '', tools: null, voice: 'female-au-bright', body: '' })
+    assert.equal(library.get(id).voice, 'female-au-bright')
+    library.update(id, { name: 'Coach', description: '', tools: null, body: '' })
+    assert.equal(library.get(id).voice, undefined)
+    assert.throws(() => library.create({ name: 'Bad', description: '', tools: null, voice: 'a b', body: '' }), /voice/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
