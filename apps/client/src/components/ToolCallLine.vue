@@ -1,19 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CRUD_PILLS, filesIn, prettyArgs, shortPath, type ToolCallInfo } from '../toolCalls'
-import { openFile, viewable } from '../viewer'
+import { CRUD_PILLS, filesIn, prettyArgs, shortPath, workspaceFile, type ToolCallInfo } from '../toolCalls'
+import { openFile } from '../viewer'
 
-/** A workspace path from a tool's (absolute) one, if it's in the workspace. */
-const inWorkspace = (p: string) => (p.includes('/workspace/') ? p.slice(p.lastIndexOf('/workspace/') + '/workspace/'.length) : null)
-
-// One tool call in the transcript: ⚙️ what it was, a pill per kind of thing it
-// does (create / read / update / delete), and on click: the files it touched,
-// its arguments and what came back.
+// One tool call in the transcript: ⚙️ what it was, the files it touched (each
+// opens in the side panel), a pill per kind of thing it does (create / read /
+// update / delete), and on click: its arguments and what came back.
 
 const props = defineProps<{ label: string; call: ToolCallInfo }>()
 
 const open = ref(false)
-const files = computed(() => filesIn(props.call.args))
+/** The files it named, and the workspace file each opens (null: not one the side panel shows). */
+const files = computed(() => filesIn(props.call.args).map((path) => ({ path, open: workspaceFile(props.call, path) })))
 const pills = computed(() => props.call.crud.map((k) => ({ kind: k, ...(CRUD_PILLS[k] ?? { label: k, theme: 'theme-secondary' }) })))
 const running = computed(() => props.call.status === 'running')
 const verb = computed(() => {
@@ -31,7 +29,20 @@ const verb = computed(() => {
     <span class="d-flex align-items-center gap-2 flex-wrap text-sm fg-3">
       <span aria-hidden="true">⚙️</span>
       <span>{{ label }}</span>
-      <span v-if="files.length" class="text-truncate files-inline" :title="files.join('\n')">· {{ files.map(shortPath).join(', ') }}</span>
+      <span v-if="files.length" class="text-truncate files-inline">
+        ·
+        <template v-for="(f, i) in files" :key="f.path"
+          ><button
+            v-if="f.open"
+            type="button"
+            class="btn-text p-0 file-link"
+            :title="`Open ${f.open} beside the conversation`"
+            @click="openFile(f.open)"
+          >{{ shortPath(f.path) }}</button
+          ><span v-else :title="f.path">{{ shortPath(f.path) }}</span
+          >{{ i < files.length - 1 ? ', ' : '' }}</template
+        >
+      </span>
       <button
         v-for="p in pills"
         :key="p.kind"
@@ -53,15 +64,15 @@ const verb = computed(() => {
       <span><span class="fw-semibold">Tool:</span> <code>{{ call.name }}</code></span>
       <span v-if="files.length" class="vstack gap-1">
         <span class="fw-semibold">{{ verb }}:</span>
-        <template v-for="f in files" :key="f">
+        <template v-for="f in files" :key="f.path">
           <button
-            v-if="inWorkspace(f) && viewable(f)"
+            v-if="f.open"
             type="button"
-            class="btn-text btn-sm p-0 text-start file-link"
-            :title="`Open ${shortPath(f)}`"
-            @click="openFile(inWorkspace(f)!)"
-          ><code class="text-break">{{ shortPath(f) }}</code> ↗</button>
-          <code v-else class="text-break" :title="f">{{ shortPath(f) }}</code>
+            class="btn-text btn-sm p-0 text-start"
+            :title="`Open ${f.open} beside the conversation`"
+            @click="openFile(f.open)"
+          ><code class="text-break">{{ shortPath(f.path) }}</code> ↗</button>
+          <code v-else class="text-break" :title="f.path">{{ shortPath(f.path) }}</code>
         </template>
       </span>
       <span class="vstack gap-1">
@@ -95,6 +106,20 @@ const verb = computed(() => {
 
 .files-inline {
   max-width: 28rem;
+}
+
+/* A file on the ⚙️ line: opens in the side panel. */
+.file-link {
+  font: inherit;
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  vertical-align: baseline;
+}
+.file-link:hover,
+.file-link:focus-visible {
+  color: var(--bs-link-color, inherit);
+  text-decoration-style: solid;
 }
 
 .detail {

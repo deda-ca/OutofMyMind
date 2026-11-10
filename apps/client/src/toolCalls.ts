@@ -44,6 +44,29 @@ export function filesIn(args: string): string[] {
   return [...new Set(found)]
 }
 
+/** Files the side panel can't show (it shows Markdown, images, PDFs and any text). */
+const BINARY = /\.(zip|gz|tgz|tar|7z|rar|docx?|xlsx?|pptx?|odt|ods|mp3|wav|ogg|m4a|flac|mp4|mov|webm|mkv|exe|bin|so|dylib|dll|db|sqlite)$/i
+/** Tools that work on folders, whose paths aren't files to open. */
+const FOLDER_TOOL = /director|folder|_dir\b|tree|list_allowed/i
+
+/**
+ * The workspace path to open in the side panel for a path a tool call named,
+ * or null if it isn't a file there that can be shown (a folder, outside the
+ * workspace, binary, or deleted by the call). The notes plugin names notes by
+ * their path in notes/ ("shopping" → notes/shopping.md).
+ */
+export function workspaceFile(call: Pick<ToolCallInfo, 'name' | 'crud'>, path: string): string | null {
+  if (call.crud.includes('delete') || FOLDER_TOOL.test(call.name)) return null
+  let rel: string
+  const at = path.lastIndexOf('/workspace/')
+  if (at !== -1) rel = path.slice(at + '/workspace/'.length)
+  else if (call.name.startsWith('notes__') && !path.startsWith('/')) rel = `notes/${path.replace(/^\.?\/+/, '')}${/\.md$/i.test(path) ? '' : '.md'}`
+  else return null
+  const name = rel.split('/').pop() ?? ''
+  if (!rel || rel.split('/').includes('..') || !name.includes('.') || BINARY.test(name)) return null
+  return rel
+}
+
 /** A path as the owner thinks of it: from the workspace folder on, if it's inside one. */
 export function shortPath(path: string): string {
   const at = path.lastIndexOf('/workspace/')
