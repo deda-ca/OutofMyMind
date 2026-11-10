@@ -12,6 +12,7 @@ import { AgentLibrary } from './agents/library.ts'
 import { agentRoutes } from './agents/routes.ts'
 import { contextMonitor } from './assistant/context.ts'
 import { chatTarget } from './assistant/llm.ts'
+import { ttsRoutes } from './assistant/ttsRoutes.ts'
 import { config } from './config.ts'
 import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
@@ -96,6 +97,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   void app.register(sessionRoutes, { sessions, agents })
   void app.register(agentRoutes, { agents })
   void app.register(skillRoutes, { skills })
+  void app.register(ttsRoutes)
   void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
 
   return app

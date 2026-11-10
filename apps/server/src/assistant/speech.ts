@@ -6,14 +6,14 @@ import { config } from '../config.ts'
 
 export class SpeechError extends Error {}
 
-/** Synthesises one piece of text; returns a WAV file. */
-export async function synthesize(text: string, signal?: AbortSignal): Promise<Buffer> {
+/** Synthesises one piece of text (in Jarvis's voice unless another is given); returns a WAV file. */
+export async function synthesize(text: string, signal?: AbortSignal, voice = config.ttsVoice): Promise<Buffer> {
   let response: Response
   try {
     response = await fetch(new URL('/v1/audio/speech', config.audiocppUrl), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.ttsModel, input: text, voice: config.ttsVoice }),
+      body: JSON.stringify({ model: config.ttsModel, input: text, voice }),
       signal,
     })
   } catch (err) {
@@ -21,6 +21,21 @@ export async function synthesize(text: string, signal?: AbortSignal): Promise<Bu
   }
   if (!response.ok) throw new SpeechError(`Text-to-speech failed (HTTP ${response.status}): ${(await response.text().catch(() => '')).slice(0, 200)}`)
   return Buffer.from(await response.arrayBuffer())
+}
+
+let voiceCache: { voices: string[]; at: number } | undefined
+
+/** The voices audio.cpp offers (GET /v1/audio/voices), re-read every minute. */
+export async function ttsVoices(): Promise<string[]> {
+  if (voiceCache && Date.now() - voiceCache.at < 60_000) return voiceCache.voices
+  try {
+    const response = await fetch(new URL('/v1/audio/voices', config.audiocppUrl), { signal: AbortSignal.timeout(5000) })
+    const voices = ((await response.json()) as { voices?: unknown }).voices
+    if (Array.isArray(voices)) voiceCache = { voices: voices.map(String), at: Date.now() }
+  } catch {
+    // keep what we had (or just Jarvis's)
+  }
+  return voiceCache?.voices ?? [config.ttsVoice]
 }
 
 /** Makes LLM text sound right when read aloud (no markdown symbols, no URLs spelled out). */

@@ -2,6 +2,7 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { openReader } from '../reader'
 import { closeFile, openFile, resolvePath, viewer } from '../viewer'
 
 // A workspace file, read-only: Markdown formatted (headings, lists, tables,
@@ -13,6 +14,8 @@ const props = defineProps<{ standalone?: boolean }>()
 
 const html = ref('')
 const text = ref<string | null>(null)
+/** The file's text as read (Markdown or plain), for "read aloud". */
+const source = ref('')
 const error = ref('')
 const loading = ref(false)
 const body = ref<HTMLElement | null>(null)
@@ -36,15 +39,16 @@ async function load(): Promise<void> {
   try {
     const response = await fetch(url(at), { cache: 'no-store' })
     if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP ${response.status}`)
-    const source = await response.text()
+    const raw = await response.text()
     if (viewer.path !== at) return
+    source.value = raw
     if (kind.value === 'markdown') {
-      html.value = DOMPurify.sanitize(await marked.parse(source, { gfm: true, breaks: false }))
+      html.value = DOMPurify.sanitize(await marked.parse(raw, { gfm: true, breaks: false }))
       text.value = null
       await nextTick()
       fixLinks(at)
     } else {
-      text.value = source
+      text.value = raw
       html.value = ''
     }
   } catch (err) {
@@ -120,6 +124,14 @@ onBeforeUnmount(() => {
         <code class="text-sm fg-3 text-truncate d-none sm:d-inline">workspace/{{ path }}</code>
         <span v-if="loading" class="spinner-border spinner-sm" aria-label="Loading"></span>
         <span class="ms-auto d-flex gap-1">
+          <button
+            v-if="!standalone && (kind === 'markdown' || kind === 'text') && source"
+            type="button"
+            class="btn-text btn-sm"
+            title="Read it aloud"
+            aria-label="Read it aloud"
+            @click="openReader(source, name)"
+          >🔊</button>
           <button type="button" class="btn-text btn-sm" title="Reload" aria-label="Reload" @click="load">⟳</button>
           <button v-if="!standalone" type="button" class="btn-text btn-sm" title="Open in a new tab" aria-label="Open in a new tab" @click="openInTab">↗</button>
           <a class="btn-text btn-sm" :href="`${url(path)}&download=1`" title="Download" aria-label="Download">⤓</a>

@@ -257,6 +257,15 @@ How full the local model's context is, and with what (`src/assistant/context.ts`
 - Pushed to clients after every request (`{ type: "context", stats }` on `/api/stream`, each tool-loop step being one); `GET /api/context` for a page load.
 - First measurement (Qwen3.6, 262,144-token window): a request with one tool call was 5.9K tokens, 60% of it tool definitions (the files plugin alone 2.4K), the system prompt 1K; 99% came from the cache.
 
+# Read aloud
+
+Paste text (or press 🔊 on a document) and hear it, with the sentence and the word being read highlighted (client: `ReaderPanel.vue`, `reader.ts`; server: `src/assistant/ttsRoutes.ts`). It opens in the side panel where documents show.
+
+- **Voices** come from audio.cpp (`GET /api/tts/voices` → its `/v1/audio/voices`, re-read every minute), so the reader can use a voice other than Jarvis's (`TTS_VOICE`); add one in audio.cpp and it appears in the picker. `POST /api/tts { text, voice }` → WAV, a sentence at a time (at most 1,000 characters); closing or skipping cancels it.
+- **Sentences:** the client renders the text (Markdown or plain), wraps every word, and groups words into sentences (not at "Mr." or "4.5"; long ones split at a comma after ~220 characters; code blocks aren't read). audio.cpp makes speech at ~8× real time, so audio is fetched 2 sentences ahead (gapless) and kept (going back is instant).
+- **Highlighting:** the sentence is exact (its audio is playing); the word is estimated: the clip's length spread over its words by length, a little more at commas and full stops.
+- **Start anywhere:** click a word, or select text, and reading starts there (mid-sentence: only the rest of that sentence is synthesised). Play/pause, stop, previous/next sentence, speed 0.75–1.75× (pitch kept). Jarvis talking pauses it; it carries on after. The browser remembers the text, voice, speed and sentence.
+
 # Not in the MVP
 
 Single user, one stream per connection, no authentication, localhost only. Before the server is reachable from a network (e.g. for the Android app): authentication, TLS, and reconnect handling. Opus compression (~10× less upload) when cellular matters.

@@ -24,6 +24,7 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import SkillsPanel from './components/SkillsPanel.vue'
 import DocumentViewer from './components/DocumentViewer.vue'
 import FileChips from './components/FileChips.vue'
+import ReaderPanel from './components/ReaderPanel.vue'
 import ToolCallLine from './components/ToolCallLine.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
 import ToolsPanel from './components/ToolsPanel.vue'
@@ -35,7 +36,8 @@ import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './se
 import { settings } from './settings'
 import type { ToolCallInfo } from './toolCalls'
 import { addFiles, type FileRef } from './uploads'
-import { openFile, refreshFile, viewer } from './viewer'
+import { closeFile, openFile, refreshFile, viewer } from './viewer'
+import { openReader, pause as pauseReader, reader, resume as resumeReader } from './reader'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
@@ -472,6 +474,31 @@ async function addDroppedFiles(files: File[]): Promise<void> {
   }
 }
 
+// The side panel shows one thing: opening a document closes the reader, and the other way round.
+watch(
+  () => viewer.path,
+  (path) => {
+    if (path && reader.open) reader.open = false
+  },
+)
+watch(
+  () => reader.open,
+  (open) => {
+    if (open && viewer.path) closeFile()
+  },
+)
+// Jarvis talking pauses the reader; it carries on when Jarvis is done.
+let readerPausedForJarvis = false
+watch(playback, (state) => {
+  if (state === 'playing' && reader.state === 'playing') {
+    pauseReader()
+    readerPausedForJarvis = true
+  } else if (state === 'idle' && readerPausedForJarvis) {
+    readerPausedForJarvis = false
+    if (reader.state === 'paused') resumeReader()
+  }
+})
+
 /** "/?view=todo.md": a tab with just that document (the viewer's ↗ button). */
 const standaloneView = new URLSearchParams(location.search).get('view')
 if (standaloneView) openFile(standaloneView)
@@ -793,6 +820,15 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="btn-outline theme-secondary attach-button"
+              title="Read aloud: paste text and hear it, with the words highlighted"
+              aria-label="Read aloud"
+              @click="openReader()"
+            >
+              🔊
+            </button>
+            <button
+              type="button"
+              class="btn-outline theme-secondary attach-button"
               title="Add files to this conversation (or drop them anywhere here)"
               aria-label="Add files"
               :disabled="!!uploading"
@@ -824,9 +860,10 @@ onBeforeUnmount(() => {
         </form>
       </div>
 
-      <!-- The document viewer: beside the conversation (over it on narrow screens). -->
-      <aside v-if="viewer.path" class="live-viewer">
-        <DocumentViewer />
+      <!-- The side panel: the document viewer or the reader, beside the conversation (over it on narrow screens). -->
+      <aside v-if="viewer.path || reader.open" class="live-viewer">
+        <ReaderPanel v-if="reader.open" />
+        <DocumentViewer v-else />
       </aside>
     </div>
 
