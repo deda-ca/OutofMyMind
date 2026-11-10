@@ -212,3 +212,53 @@ test('results read well', () => {
   assert.match(describeResults('zzz', [], 'SearXNG'), /found nothing/)
   assert.equal(clean('a&#39;b &#x41; &nbsp;<b>c</b>'), "a'b A c")
 })
+
+// ── Searching in the browser: reading results pages ──
+
+import { parseHTML } from 'linkedom'
+import { extractResults, pageState } from '../web/browserSearch.ts'
+
+const DDG = `<html><body><div id="links">
+  <article data-testid="result"><div><span>nodejs.org › en › blog</span></div>
+    <h2><a data-testid="result-title-a" href="https://nodejs.org/en/blog/release/v24.0.0"><span>Node.js 24.0.0 (Current)</span></a></h2>
+    <div><span>May 6, 2025</span><span>We're excited to announce the release of Node.js 24!</span></div></article>
+  <article data-testid="result"><h2><a href="https://versionlog.com/nodejs/24/">Node.js 24 (LTS)</a></h2><div>Today<span>Complete release history.</span></div></article>
+  <article><h2><a href="https://duckduckgo.com/?q=more">More results</a></h2></article>
+</div></body></html>`
+
+const GOOGLE = `<html><body><div id="search"><h2>Web results</h2>
+  <div class="g"><a href="/url?q=https://endoflife.date/nodejs&amp;sa=U"><h3>Node.js</h3><cite>https://endoflife.date › nodejs</cite></a>
+    <div>Oct 29, 2026 — Node.js 24 (LTS), released 06 May 2025.Read more</div></div>
+  <div class="g"><a href="https://nodejs.org/en/about/previous-releases"><h3>Node.js Releases</h3></a><div>Web results Major versions enter Current status for six months.</div></div>
+  <div class="g"><a href="https://nodejs.org/en/about/previous-releases"><h3>Node.js Releases (again)</h3></a></div>
+</div></body></html>`
+
+test('results are read off DuckDuckGo and Google pages, engine links and repeats left out', () => {
+  assert.deepEqual(extractResults(parseHTML(DDG).document as never), [
+    { title: 'Node.js 24.0.0 (Current)', url: 'https://nodejs.org/en/blog/release/v24.0.0', snippet: "May 6, 2025 — We're excited to announce the release of Node.js 24!" },
+    { title: 'Node.js 24 (LTS)', url: 'https://versionlog.com/nodejs/24/', snippet: 'Today — Complete release history.' },
+  ])
+  assert.deepEqual(extractResults(parseHTML(GOOGLE).document as never), [
+    { title: 'Node.js', url: 'https://endoflife.date/nodejs', snippet: 'Oct 29, 2026 — Node.js 24 (LTS), released 06 May 2025.' },
+    { title: 'Node.js Releases', url: 'https://nodejs.org/en/about/previous-releases', snippet: 'Major versions enter Current status for six months.' },
+  ])
+})
+
+test('a CAPTCHA or bot check is recognised, so the tab is handed to the owner', () => {
+  const at = (path: string) => ({ hostname: 'www.google.com', pathname: path })
+  const state = (html: string, path = '/search') => pageState(parseHTML(html).document as never, at(path))
+  assert.equal(state('<html><body>Our systems have detected unusual traffic from your computer network.</body></html>'), 'challenge')
+  assert.equal(state('<html><body>hi</body></html>', '/sorry/index'), 'challenge')
+  assert.equal(state('<html><body>Unfortunately, bots use DuckDuckGo too.<form id="challenge-form"></form></body></html>'), 'challenge')
+  assert.equal(state(GOOGLE), 'ready')
+  assert.equal(state('<html><body>Your search did not match any documents.</body></html>'), 'ready')
+  assert.equal(state('<html><body><div id="root"></div></body></html>'), 'loading')
+})
+
+test("a top result's sitelinks don't crowd out other sites", async () => {
+  const { varied } = await import('../web/browserSearch.ts')
+  const r = (url: string) => ({ url })
+  const results = ['https://nhl.com/a', 'https://www.nhl.com/b', 'https://nhl.com/c', 'https://x.org/', 'https://nhl.com/d', 'https://y.org/']
+  assert.deepEqual(varied(results.map(r), 4).map((x) => x.url), ['https://nhl.com/a', 'https://www.nhl.com/b', 'https://x.org/', 'https://y.org/'])
+  assert.deepEqual(varied(results.map(r), 5).map((x) => x.url), ['https://nhl.com/a', 'https://www.nhl.com/b', 'https://nhl.com/c', 'https://x.org/', 'https://y.org/'])
+})

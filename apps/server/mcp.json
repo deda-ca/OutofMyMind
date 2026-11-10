@@ -54,9 +54,19 @@
       ],
       "env": {
         "BRAVE_API_KEY": "${BRAVE_API_KEY}",
-        "SEARXNG_URL": "${SEARXNG_URL}"
+        "SEARXNG_URL": "${SEARXNG_URL}",
+        "WEB_SEARCH_ENGINE": "${WEB_SEARCH_ENGINE}",
+        "BROWSER_DIR": "${DATA_DIR}/browser",
+        "BROWSER_PORT": "${BROWSER_PORT}",
+        "BROWSER_EXECUTABLE": "${BROWSER_EXECUTABLE}",
+        "BROWSER_HEADLESS": "${BROWSER_HEADLESS}",
+        "DISPLAY": "${DISPLAY}",
+        "WAYLAND_DISPLAY": "${WAYLAND_DISPLAY}",
+        "XAUTHORITY": "${XAUTHORITY}",
+        "XDG_RUNTIME_DIR": "${XDG_RUNTIME_DIR}",
+        "DBUS_SESSION_BUS_ADDRESS": "${DBUS_SESSION_BUS_ADDRESS}"
       },
-      "timeoutMs": 30000
+      "timeoutMs": 45000
     },
     "browser": {
       "command": "node",
