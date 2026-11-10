@@ -27,6 +27,7 @@ import { liveScheduleTools, notifier } from '../schedule/index.ts'
 import { Room, type RoomLine } from './room.ts'
 import { newHermesSession } from './hermesSession.ts'
 import { LlmError, chatTarget, streamChat, type AgentEvent, type Brain, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
+import { ProgressSpeaker } from './progress.ts'
 import { SentenceSplitter, forSpeech, synthesize } from './speech.ts'
 import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
 
@@ -84,6 +85,8 @@ export interface AssistantOptions {
   followUpMs: () => number
   /** Whether replies are spoken (text-to-speech). */
   speak: () => boolean
+  /** Whether Jarvis says what it's doing while an answer takes a while (default on). */
+  speakProgress?: () => boolean
   /** "Wake word only": no follow-ups; every request needs "Jarvis". */
   wakeWordOnly?: () => boolean
   /** Change it (voice command); the session updates its settings and tells the client. */
@@ -115,7 +118,7 @@ function memorySession(): SessionLink {
 }
 
 const HISTORY_MAX = 24
-/** Say "One moment." if no words have come after this long (the agent may be running tools). */
+/** Say what Jarvis is doing (or "One moment.") if no words have come after this long (progress.ts). */
 const HERMES_FILLER_MS = 1500
 const LOCAL_FILLER_MS = 4000
 
@@ -394,12 +397,19 @@ export class Assistant {
     // The session's agent: its instructions, tools, and optionally its brain and temperature.
     const agent = this.agents.get(this.session.agentId())
     let target = forAgent(chatTarget(agent.brain ?? this.o.brain()), agent)
-    // The agent may take a while (tools): say so rather than leave silence.
-    const filler = setTimeout(() => {
-      if (firstWordMs === null && !this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, 'One moment.')
-    }, target.brain === 'hermes' ? HERMES_FILLER_MS : LOCAL_FILLER_MS)
+    // The agent may take a while (tools): say what it's doing rather than leave silence (progress.ts).
+    const progress =
+      this.o.speakProgress?.() === false
+        ? undefined
+        : new ProgressSpeaker({
+            say: (line) => {
+              if (!this.closed && this.speakingReplyId === replyId) this.speakSentence(replyId, seq++, line)
+            },
+            firstAfterMs: target.brain === 'hermes' ? HERMES_FILLER_MS : LOCAL_FILLER_MS,
+          })
     const onDelta = (delta: string) => {
       if (this.unanswered === unanswered) this.unanswered = undefined // it has started answering
+      progress?.text()
       partial += delta
       firstWordMs ??= Math.round(performance.now() - started)
       if (this.closed) return
@@ -407,6 +417,7 @@ export class Assistant {
       for (const sentence of sentences.push(delta)) this.speakSentence(replyId, seq++, sentence)
     }
     const onEvent = (event: AgentEvent) => {
+      progress?.event(event)
       if (!this.closed) this.o.emit({ type: 'assistant.tool', replyId, kind: event.kind, label: event.label, emoji: event.emoji, ...(event.call ? { call: event.call } : {}) })
     }
     const notice = (label: string) => {
@@ -473,7 +484,7 @@ export class Assistant {
         this.o.saveReply(phrase.archiveId, 'error', message, null, `${target.brain}:${target.model}`)
       }
     } finally {
-      clearTimeout(filler)
+      progress?.stop()
       if (this.generating === abort) this.generating = undefined
       if (this.unanswered === unanswered) this.unanswered = undefined
     }

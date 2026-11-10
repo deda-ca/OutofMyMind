@@ -171,6 +171,21 @@ const isDefault = (key: keyof TranscriberSettings) => settings[key] === DEFAULT_
         <div class="d-flex align-items-center gap-2">
           <div class="switch">
             <input
+              id="setting-speakProgress"
+              type="checkbox"
+              :checked="settings.speakProgress >= 0.5"
+              :disabled="settings.speakReplies < 0.5"
+              @change="settings.speakProgress = ($event.target as HTMLInputElement).checked ? 1 : 0"
+            />
+          </div>
+          <label for="setting-speakProgress">Say what I’m doing</label>
+        </div>
+        <div class="form-text">While an answer takes a while, Jarvis says what it’s doing (“Searching the web for…”, “Opening nhl.com.”) or “One moment.”, instead of staying silent. Off = silence until the answer.</div>
+      </div>
+      <div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="switch">
+            <input
               id="setting-wakeWordOnly"
               type="checkbox"
               :checked="settings.wakeWordOnly >= 0.5"

@@ -29,6 +29,8 @@ export interface StreamSettings {
   followUpMs: number
   /** 1 = Jarvis speaks its replies, 0 = text only. */
   speakReplies: number
+  /** 1 = while an answer takes a while, Jarvis says what it's doing. */
+  speakProgress: number
   /** Who answers: 0 = the local LLM, 1 = Nous Hermes Agent. */
   brain: number
   /** 1 = no follow-ups: every request needs "Jarvis". */
@@ -54,6 +56,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakerChangeThreshold: 0.3,
   followUpMs: 30000,
   speakReplies: 1,
+  speakProgress: 1,
   brain: 0,
   wakeWordOnly: 0,
   roomMemoryMs: 5 * 60_000,

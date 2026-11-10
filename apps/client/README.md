@@ -51,7 +51,7 @@ Jarvis also **speaks** its replies (Qwen3-TTS, voice "jarvis"), sentence by sent
 
 ### Local LLM or Hermes
 
-The "Use Hermes agent" switch in Settings (or saying "Jarvis, use Hermes" / "Jarvis, use the local model") chooses who answers: the local LLM straight away, or Nous Hermes Agent, which can use tools, files and memory but takes longer. The header shows "Brain: local LLM" or "Brain: Hermes". With Hermes, Jarvis says "One moment." if the answer takes a while, and Hermes's steps (e.g. "🔎 Searching the web…") appear above its reply. If Hermes isn't running, the local model answers and a note says so.
+The "Use Hermes agent" switch in Settings (or saying "Jarvis, use Hermes" / "Jarvis, use the local model") chooses who answers: the local LLM straight away, or Nous Hermes Agent, which can use tools, files and memory but takes longer. The header shows "Brain: local LLM" or "Brain: Hermes". While an answer takes a while, Jarvis says what it's doing ("Searching the web for …", "Reading your to-do list.") or "One moment.", unless "Say what I'm doing" is off in Settings. With Hermes, its steps (e.g. "🔎 Searching the web…") appear above its reply. If Hermes isn't running, the local model answers and a note says so.
 
 ### History tab
 
