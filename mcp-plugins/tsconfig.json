@@ -22,6 +22,7 @@
     "kit/**/*.ts",
     "notes/**/*.ts",
     "weather/**/*.ts",
+    "scripts/**/*.ts",
     "test/**/*.ts"
   ]
 }
