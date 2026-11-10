@@ -8,12 +8,14 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"test/**/*.test.ts\""
+    "test": "node --test \"test/**/*.test.ts\"",
+    "browser": "BROWSER_DIR=../apps/server/data/browser node browser/open.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@modelcontextprotocol/server-filesystem": "2.2.0",
     "@mozilla/readability": "^0.6.0",
+    "@playwright/mcp": "0.0.83",
     "linkedom": "^0.18.15",
     "undici": "^8.12.4",
     "zod": "^4.6.7"

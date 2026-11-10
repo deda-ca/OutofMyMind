@@ -46,7 +46,7 @@ export type ToolFilter = (plugin: string, tool: string, crud: Crud[]) => boolean
 
 const CONNECT_TIMEOUT_MS = 15_000
 const RETRY_AFTER_MS = 30_000
-/** Longest tool result handed back to the LLM (its context is limited). */
+/** Longest tool result handed back to the LLM (its context is limited), unless the plugin sets maxResultChars. */
 const MAX_RESULT_CHARS = 8000
 
 interface Connection {
@@ -144,7 +144,7 @@ export class McpHub {
     if (!this.permitted(connection, tool)) return { text: `The tool "${name}" is switched off.`, isError: true }
     try {
       const result = await connection.client!.callTool({ name: tool.name, arguments: args }, undefined, { signal, timeout: connection.config.timeoutMs })
-      const outcome = { text: truncate(resultText(result)), isError: result.isError === true }
+      const outcome = { text: truncate(resultText(result), connection.config.maxResultChars), isError: result.isError === true }
       this.log(`harness: ${connection.config.name}.${tool.name} ${oneLine(JSON.stringify(args), 160)} → ${outcome.isError ? 'error: ' : ''}${oneLine(outcome.text, 160)}`)
       return outcome
     } catch (err) {
@@ -173,7 +173,7 @@ export class McpHub {
         let cursor: string | undefined
         do {
           const page = await client.listTools(cursor ? { cursor } : undefined)
-          tools.push(...page.tools)
+          tools.push(...page.tools.filter((t) => !c.config.exclude?.includes(t.name)))
           cursor = page.nextCursor
         } while (cursor)
         client.onclose = () => {
@@ -250,8 +250,8 @@ function oneLine(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
-function truncate(text: string): string {
-  return text.length > MAX_RESULT_CHARS ? `${text.slice(0, MAX_RESULT_CHARS)}\n… (cut: ${text.length - MAX_RESULT_CHARS} more characters)` : text
+function truncate(text: string, max = MAX_RESULT_CHARS): string {
+  return text.length > max ? `${text.slice(0, max)}\n… (cut: ${text.length - max} more characters)` : text
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {

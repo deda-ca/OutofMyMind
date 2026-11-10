@@ -34,6 +34,10 @@ export interface PluginConfig {
   instructions?: string
   /** CRUD tags for tools whose names don't say what they do (mcp.json "crud": { "<tool>": ["read"] }). */
   crud?: Record<string, Crud[]>
+  /** Tools never offered to the LLM, and refused if called (mcp.json "exclude": ["<tool>"]): too dangerous to switch on from the Tools tab. */
+  exclude?: string[]
+  /** Longest tool result handed to the LLM (mcp.json "maxResultChars"; default 8,000). */
+  maxResultChars?: number
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -57,12 +61,20 @@ export function loadPluginConfig(file: string): PluginConfig[] {
     const timeoutMs = typeof entry.timeoutMs === 'number' && entry.timeoutMs > 0 ? entry.timeoutMs : DEFAULT_TIMEOUT_MS
     const instructions = typeof entry.instructions === 'string' && entry.instructions.trim() ? expand(entry.instructions.trim()) : undefined
     const crud = crudOverrides(entry.crud, `${file}: plugin "${name}" crud`)
+    const extra: Pick<PluginConfig, 'exclude' | 'maxResultChars'> = {}
+    if (entry.exclude !== undefined) extra.exclude = stringArray(entry.exclude, `${name}.exclude`)
+    if (entry.maxResultChars !== undefined) {
+      if (typeof entry.maxResultChars !== 'number' || !Number.isInteger(entry.maxResultChars) || entry.maxResultChars < 1000 || entry.maxResultChars > 100_000)
+        throw new Error(`${file}: plugin "${name}" maxResultChars must be a whole number from 1000 to 100000`)
+      extra.maxResultChars = entry.maxResultChars
+    }
     if (typeof entry.command === 'string') {
       plugins.push({
         name,
         timeoutMs,
         instructions,
         crud,
+        ...extra,
         transport: {
           kind: 'stdio',
           command: expand(entry.command),
@@ -72,7 +84,7 @@ export function loadPluginConfig(file: string): PluginConfig[] {
         },
       })
     } else if (typeof entry.url === 'string') {
-      plugins.push({ name, timeoutMs, instructions, crud, transport: { kind: 'http', url: expand(entry.url), headers: mapValues(stringRecord(entry.headers, `${name}.headers`), expand) } })
+      plugins.push({ name, timeoutMs, instructions, crud, ...extra, transport: { kind: 'http', url: expand(entry.url), headers: mapValues(stringRecord(entry.headers, `${name}.headers`), expand) } })
     } else {
       throw new Error(`${file}: plugin "${name}" needs a "command" (stdio) or a "url" (HTTP)`)
     }

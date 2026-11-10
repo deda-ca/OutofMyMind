@@ -20,6 +20,7 @@
   },
   "include": [
     "kit/**/*.ts",
+    "browser/**/*.ts",
     "notes/**/*.ts",
     "weather/**/*.ts",
     "scripts/**/*.ts",

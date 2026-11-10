@@ -100,14 +100,19 @@ test('plugin config: mcpServers format, disabled entries skipped, ${VAR} expande
         a: { command: 'node', args: ['a.ts'], env: { X: '${JARVIS_TEST_TOKEN}' } },
         b: { url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer ${JARVIS_TEST_TOKEN}' } },
         c: { command: 'node', enabled: false },
+        d: { command: 'node', exclude: ['run_anything'], maxResultChars: 20000 },
       },
     }),
   )
   const plugins = loadPluginConfig(file)
-  assert.deepEqual(plugins.map((p) => p.name), ['a', 'b'])
+  assert.deepEqual(plugins.map((p) => p.name), ['a', 'b', 'd'])
+  assert.deepEqual([plugins[2].exclude, plugins[2].maxResultChars], [['run_anything'], 20000])
+  assert.equal('exclude' in plugins[0], false)
   assert.deepEqual(plugins[0].transport, { kind: 'stdio', command: 'node', args: ['a.ts'], env: { X: 'secret' }, cwd: dir })
   assert.deepEqual(plugins[1].transport, { kind: 'http', url: 'http://127.0.0.1:1/mcp', headers: { Authorization: 'Bearer secret' } })
   assert.deepEqual(loadPluginConfig(path.join(dir, 'missing.json')), [])
+  fs.writeFileSync(file, JSON.stringify({ mcpServers: { e: { command: 'node', maxResultChars: 50 } } }))
+  assert.throws(() => loadPluginConfig(file), /maxResultChars/)
 })
 
 test('the hub runs the real notes plugin over stdio', async () => {
@@ -183,4 +188,28 @@ test('a cut-off tool call is not run, goes back as {} (so llama-server can parse
   assert.equal(sentBack[0]!.tool_calls![0]!.function.arguments, '{}')
   assert.match(String(sentBack[1]!.content), /^Error: Not done: .* Split the work into smaller calls/)
   assert.equal(events.at(-1)!.call!.isError, true)
+})
+
+test("a plugin's excluded tools are never offered or run; its result limit applies", async () => {
+  const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-notes-'))
+  fs.writeFileSync(path.join(notesDir, 'long.md'), 'x'.repeat(5000))
+  const pluginsDir = path.resolve(import.meta.dirname, '../../../mcp-plugins')
+  const hub = new McpHub(
+    [{ name: 'notes', timeoutMs: 10_000, exclude: ['append_to_note'], maxResultChars: 1000, transport: { kind: 'stdio', command: process.execPath, args: ['notes/server.ts'], env: { NOTES_DIR: notesDir }, cwd: pluginsDir } }],
+    () => {},
+  )
+  try {
+    await hub.start()
+    const names = hub.tools().map((t) => t.function.name)
+    assert.ok(names.includes('notes__read_note'), names.join())
+    assert.ok(!names.includes('notes__append_to_note'))
+    assert.ok(!hub.catalog()[0].tools.some((t) => t.name === 'append_to_note'))
+    const refused = await hub.call('notes__append_to_note', { path: 'x', text: 'y' })
+    assert.equal(refused.isError, true)
+    assert.equal(fs.existsSync(path.join(notesDir, 'x.md')), false)
+    assert.match((await hub.call('notes__read_note', { path: 'long' })).text, /^x{1000}\n… \(cut: 400\d more characters\)$/)
+  } finally {
+    await hub.close()
+    fs.rmSync(notesDir, { recursive: true, force: true })
+  }
 })
