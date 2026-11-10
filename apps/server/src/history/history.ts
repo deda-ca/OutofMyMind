@@ -28,10 +28,15 @@ export const GITIGNORE = `# Jarvis data history: what is NOT kept in it (big, bi
 /audio/
 /browser/
 /access-key
+/secrets.json
+/services/
 /workspace/scripts/tmp/
 *.tmp
 *.swp
 `
+
+/** Always ignored, even in a .gitignore the owner edited: secrets, and big or churning runtime folders. */
+const REQUIRED_IGNORES = ['/access-key', '/secrets.json', '/services/']
 
 export interface HistoryOptions {
   /** The data folder: the repository's root. */
@@ -46,7 +51,7 @@ export interface HistoryOptions {
 }
 
 /** Folders and files under DATA_DIR not watched (ignored, or churning without anything to keep). */
-const UNWATCHED = /^(\.git|audio|browser|jarvis\.db.*|access-key)(\/|$)|(^|\/)scripts\/tmp(\/|$)|\.(tmp|swp)$/
+const UNWATCHED = /^(\.git|audio|browser|services|jarvis\.db.*|access-key|secrets\.json)(\/|$)|(^|\/)scripts\/tmp(\/|$)|\.(tmp|swp)$/
 
 export class DataHistory {
   private readonly o: Required<HistoryOptions>
@@ -77,6 +82,12 @@ export class DataHistory {
     }
     const ignore = path.join(dataDir, '.gitignore')
     if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, GITIGNORE)
+    else {
+      // Lines that must be there whatever the owner edited (secrets, and what came later).
+      const text = fs.readFileSync(ignore, 'utf8')
+      const missing = REQUIRED_IGNORES.filter((line) => !text.split(/\r?\n/).some((l) => l.trim() === line))
+      if (missing.length) fs.appendFileSync(ignore, `${text.endsWith('\n') ? '' : '\n'}# Added by Jarvis (never kept in the history):\n${missing.join('\n')}\n`)
+    }
     if (!inside(workspaceDir, dataDir)) this.o.log(`history: the workspace (${workspaceDir}) is outside ${dataDir}, so its files aren't kept in the history`)
     await this.commit('While Jarvis was off')
     this.watch()

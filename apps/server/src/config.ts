@@ -44,6 +44,15 @@ export const config = {
   accessKey: process.env.ACCESS_KEY,
   /** Optional: the owner's name, for the assistant's prompt. */
   ownerName: env('OWNER_NAME', ''),
+  /** Background services Jarvis writes (docs/services.md). On unless SERVICES=off. */
+  services: !/^(0|off|false|no)$/i.test(env('SERVICES', 'on')),
+  /** LLM turns all services together may start in a day. */
+  servicesDailyTurns: Math.max(0, Math.floor(Number(env('SERVICES_DAILY_TURNS', '200'))) || 0),
+  /** "host:port" services may reach although they resolve to a private address (a device at home), comma-separated. */
+  servicesLocalHosts: env('SERVICES_LOCAL_HOSTS', '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean),
   /** Voiceprint model (npm run fetch-models). Speaker recognition is off if the file is missing. */
   voiceprintModel: path.resolve(env('VOICEPRINT_MODEL', 'models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx')),
 } as const

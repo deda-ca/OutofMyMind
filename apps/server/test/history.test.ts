@@ -118,3 +118,19 @@ test('commit messages', () => {
   )
   assert.equal(commitMessage([{ status: 'added', path: 'a.md' }, { status: 'added', path: 'b.md' }]).split('\n')[0], 'Add 2 files: a.md, b.md')
 })
+
+test("an existing .gitignore gets the lines that must be there (secrets, services); the owner's edits stay", async (t) => {
+  const { dataDir, history } = setup()
+  t.after(async () => {
+    await history.stop()
+    fs.rmSync(dataDir, { recursive: true, force: true })
+  })
+  fs.writeFileSync(path.join(dataDir, '.gitignore'), '# mine\n/jarvis.db\n/access-key\n')
+  fs.writeFileSync(path.join(dataDir, 'secrets.json'), '{"x":{"value":"s"}}')
+  fs.mkdirSync(path.join(dataDir, 'services', 'email'), { recursive: true })
+  fs.writeFileSync(path.join(dataDir, 'services', 'email', 'log.txt'), 'log')
+  await history.start()
+  const ignore = fs.readFileSync(path.join(dataDir, '.gitignore'), 'utf8')
+  assert.match(ignore, /^# mine\n\/jarvis.db\n\/access-key\n# Added by Jarvis.*\n\/secrets.json\n\/services\/\n$/)
+  assert.ok(!tracked(dataDir).some((f) => f.startsWith('secrets') || f.startsWith('services/')))
+})

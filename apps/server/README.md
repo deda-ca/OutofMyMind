@@ -31,6 +31,9 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `ACCESS_KEY` | (generated) | Pass-key for the API. Unset: one is generated on first start, saved in `DATA_DIR/access-key` and printed in the log. Set your own in `.env.local`. |
 | `ALLOWED_ORIGINS` | `https://127.0.0.1:5173,https://localhost:5173` | Browser origins allowed to call the API. For phone access add the client's LAN address in `.env.local`, e.g. `https://192.168.1.50:5173`. |
 | `DATA_DIR` | `data` | Database and audio archive. **Private conversations: git-ignored, never commit it** to the Jarvis repository (it has its own, see [Data history](#data-history)). |
+| `SERVICES` | `on` | Background services Jarvis writes (see [Services](#services)). `off` runs none. |
+| `SERVICES_DAILY_TURNS` | `200` | LLM turns all services together may start in a day. |
+| `SERVICES_LOCAL_HOSTS` | (none) | `host:port` services may reach although they're on this machine or the LAN (a device at home), comma-separated. |
 | `DATA_HISTORY` | `on` | Keep `DATA_DIR` in its own git repository, committing every change. `off` turns it off. See [Data history](#data-history). |
 | `LLM_URL` | `http://127.0.0.1:5550` | OpenAI-compatible chat server (llama.cpp's `llama-server`) for Jarvis's replies |
 | `LLM_MODEL` | `Qwen3.6-35B-A3B` | Model id on that server |
@@ -290,6 +293,19 @@ Each schedule is *when* plus *what to tell the LLM then*; the LLM decides what t
 - **Screens:** every open tab connects to `GET /api/notifications/stream` (server-sent events), listening or not. Notifications are shown (ringing card with Stop / Snooze, or a toast), spoken in Jarvis's voice (`/api/tts`), and shown as system notifications when the tab is in the background (if allowed). Nobody connected: kept, and delivered when a screen opens ("while you were away"). Saying "stop", "I'm up", "snooze", "snooze for five minutes" while something rings is handled in code, not by the LLM, and anyone may say it.
 - **Schedule tab:** create, edit, pause, run now, skip next, delete; recent notifications; whether this screen is connected; quiet mode; the browser permission. Running timers count down in the header.
 - **API:** `GET/POST /api/schedules`, `PATCH/DELETE /api/schedules/:id`, `POST /api/schedules/:id/run`, `POST /api/schedules/:id/skip`, `GET /api/notifications`, `POST /api/notifications/:id/ack` `{ action: "dismiss" | "snooze", minutes }` (`ringing` for all), `GET /api/notifications/stream?device=`.
+
+# Services
+
+Background programs Jarvis writes for itself, each a folder `WORKSPACE_DIR/services/<id>/` with `service.md` (schedule, hosts, secrets, packages, and what to do with each event) and `main.ts`. Design and rules: [docs/services.md](../../docs/services.md). Code: `src/services/`, client `ServicesPanel.vue`.
+
+- **Approval:** nothing runs until the owner approves it in the Services tab, which shows the permissions in words and the code diff; every change waits again, and the approved copy (`DATA_DIR/services/<id>/run/`) keeps running meanwhile. Approvals are in `DATA_DIR/services.json`.
+- **Development mode:** the owner can let Jarvis change and run a service without asking (for 2 h, a day, a week, or until locked): every saved change is approved automatically, permissions included, and `jarvis__service_run_now` runs the latest version. "Lock it" (or the time running out) ends it.
+- **Sandbox:** bubblewrap with no network, plus Node's permission model: a service sees only its approved copy, its state folder and the kit (`jarvis:service`). Its only way out is the gate (`gate.ts`): Unix sockets per run that tunnel to the approved `host:port`s (public addresses only, unless in `SERVICES_LOCAL_HOSTS`), hand out approved secrets, and take events.
+- **Secrets:** `DATA_DIR/secrets.json` (mode 600, never in the data history), typed by the owner in the Services tab; no API returns a value. Values are blanked out of logs and events.
+- **Events:** de-duplicated by `payload.id`, batched, limited (`max_per_hour`, `SERVICES_DAILY_TURNS`), and handled one turn at a time by the trigger's agent with no tool that changes or deletes, the payload marked untrusted. The reply is a notification, not spoken, and noted in the active session.
+- **Jarvis's tools:** `jarvis__services_list`, `jarvis__service_log`, `jarvis__service_run_now`, `jarvis__service_pause` / `_resume`, `jarvis__services_stop_all`, `jarvis__service_needs_secret`. The `services` skill (written once) teaches the format with a worked email example.
+- **Failing:** 3 failures in a row → wait 10 min, then 1 h, then paused with a notification.
+- **API:** `GET /api/services`, `GET /api/services/:id/changes`, `POST /api/services/:id/approve|reject` `{hash}` (approve also takes `develop`: hours, or null until locked), `POST /api/services/:id/develop` `{hours}`, `POST /api/services/:id/lock`, `POST /api/services/:id/run|pause|resume`, `DELETE /api/services/:id`, `GET /api/services/:id/log`, `POST /api/services/stop-all`, `PUT/DELETE /api/secrets/:name`.
 
 # Not in the MVP
 

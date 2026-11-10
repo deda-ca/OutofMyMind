@@ -17,6 +17,8 @@ import { config } from './config.ts'
 import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
 import { startSchedules, stopSchedules } from './schedule/index.ts'
+import { startServices, stopServices } from './services/index.ts'
+import { serviceRoutes } from './services/routes.ts'
 import { scheduleRoutes } from './schedule/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
 import { SessionStore } from './sessions/store.ts'
@@ -44,6 +46,9 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
     // At listen time: after the plugins have started (main.ts), so a schedule due at start-up has its tools.
     app.addHook('onReady', async () => void startSchedules({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
     app.addHook('onClose', async () => stopSchedules())
+    // Background services Jarvis writes (docs/services.md), with the schedules: started after the plugins.
+    app.addHook('onReady', async () => void startServices({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
+    app.addHook('onClose', async () => stopServices())
   }
 
   // Audio arrives as raw bytes.
@@ -107,6 +112,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   void app.register(skillRoutes, { skills })
   void app.register(ttsRoutes)
   void app.register(scheduleRoutes)
+  void app.register(serviceRoutes)
   void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
 
   return app

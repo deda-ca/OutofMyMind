@@ -26,6 +26,8 @@ export interface Notification {
   ring: boolean
   /** The schedule it came from, if any. */
   scheduleId?: string
+  /** Shown, never spoken (a service's notifications). */
+  silent?: boolean
   /**
    * active: on screen (ringing, if it rings); pending: nobody was there yet;
    * shown: delivered, nothing to acknowledge; dismissed / snoozed; unanswered: rang out.
@@ -41,6 +43,7 @@ export type NotifierEvent =
   | { type: 'notify'; notification: Notification; speak: boolean }
   | { type: 'ended'; id: string; status: Notification['status'] }
   | { type: 'schedules' }
+  | { type: 'services' }
 
 interface Screen {
   id: number
@@ -96,7 +99,7 @@ export class Notifier extends EventEmitter<{
     for (const n of pending) {
       n.status = 'shown'
       n.late = true
-      send({ type: 'notify', notification: { ...n, ring: false }, speak: true })
+      send({ type: 'notify', notification: { ...n, ring: false }, speak: !n.silent })
     }
     if (pending.length) this.saved()
     return () => this.screens.delete(screen.id)
@@ -137,8 +140,8 @@ export class Notifier extends EventEmitter<{
 
   // ------------------------------------------------------------------ notifications
 
-  /** Puts a notification on every open screen (spoken). Kept for later if none is open. */
-  notify(input: { title: string; text: string; urgency?: Urgency; ring?: boolean; scheduleId?: string }): { notification: Notification; screens: number } {
+  /** Puts a notification on every open screen (spoken, unless `speak: false`). Kept for later if none is open. */
+  notify(input: { title: string; text: string; urgency?: Urgency; ring?: boolean; scheduleId?: string; speak?: boolean }): { notification: Notification; screens: number } {
     const urgency = input.urgency ?? 'info'
     const n: Notification = {
       id: randomUUID(),
@@ -148,6 +151,7 @@ export class Notifier extends EventEmitter<{
       urgency,
       ring: input.ring ?? urgency === 'alarm',
       ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
+      ...(input.speak === false ? { silent: true } : {}),
       status: 'pending',
     }
     this.list.push(n)
@@ -155,7 +159,7 @@ export class Notifier extends EventEmitter<{
     const screens = this.screens.size
     if (screens > 0) {
       n.status = n.ring ? 'active' : 'shown'
-      this.broadcast({ type: 'notify', notification: n, speak: true })
+      this.broadcast({ type: 'notify', notification: n, speak: !n.silent })
       if (n.ring) this.startRinging(n)
     } else if (n.ring) {
       // Nobody to hear it now: still counts as unanswered after a while, so the LLM can try another way.

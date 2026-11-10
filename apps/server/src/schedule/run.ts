@@ -17,7 +17,7 @@ import type { RunOutcome, RunRequest } from './scheduler.ts'
 import { describeRepeat, describeTime } from './when.ts'
 
 /** Tools that reach the owner (by name): a call to one that succeeded means the owner was told. */
-const MESSAGING = /(^|_)(send|notify|message|messages|email|mail|sms|text|telegram|whatsapp|signal|matrix|slack|discord|push|ntfy|publish|post|alert|dm)(_|$)/i
+export const MESSAGING = /(^|_)(send|notify|message|messages|email|mail|sms|text|telegram|whatsapp|signal|matrix|slack|discord|push|ntfy|publish|post|alert|dm)(_|$)/i
 
 export function scheduledRun(deps: { agents: AgentLibrary; skills: SkillLibrary; notifier: Notifier; builtins: (scheduleId: string, followUp: boolean) => BuiltinTool[] }) {
   return async (req: RunRequest): Promise<RunOutcome> => {

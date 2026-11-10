@@ -46,4 +46,5 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 | Harness: Jarvis's own tool loop with plug-and-play MCP plugins; plugins: markdown notes, weather (Open-Meteo; needs the internet) | ✅ Built (start) |
 | More plugins: calendar, files, … | Planned |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
+| Services: background programs Jarvis writes itself (email first), sandboxed, owner-approved, waking Jarvis with events | 📝 [Design](docs/services.md) |
 | Android app | Planned |

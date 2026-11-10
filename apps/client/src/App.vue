@@ -14,6 +14,8 @@ import { replay, toggleReplay } from './audio/replay'
 import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import { signOut, signedIn } from './auth'
 import AgentsPanel from './components/AgentsPanel.vue'
+import ServicesPanel from './components/ServicesPanel.vue'
+import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
 import DebugPanel from './components/DebugPanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
@@ -48,7 +50,7 @@ import { acknowledge, connectNotifications, disconnectNotifications, notices, un
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'debug' | 'monitor'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'services' | 'debug' | 'monitor'
 
 const tab = ref<Tab>('live')
 
@@ -725,6 +727,11 @@ onBeforeUnmount(() => {
             </button>
           </li>
           <li class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'services' }" @click="tab = 'services'">
+              Services<span v-if="servicesNeedingOwner()" class="badge theme-warning badge-subtle ms-2" title="Waiting for you: approvals or secrets">{{ servicesNeedingOwner() }}</span>
+            </button>
+          </li>
+          <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'debug' }" @click="tab = 'debug'">
               Debug<span v-if="debugEnabled" class="badge theme-warning badge-subtle ms-2" title="Capturing LLM traffic">on</span>
             </button>
@@ -1004,6 +1011,12 @@ onBeforeUnmount(() => {
     <div v-if="tab === 'schedule'" class="row justify-content-center mt-5">
       <div class="col-12">
         <SchedulePanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'services'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <ServicesPanel />
       </div>
     </div>
 

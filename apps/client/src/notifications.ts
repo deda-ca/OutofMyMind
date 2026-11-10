@@ -9,6 +9,7 @@
 // countdowns), reloaded whenever the server says it changed.
 
 import { reactive } from 'vue'
+import { loadServices } from './services'
 
 export interface Notice {
   id: string
@@ -74,6 +75,7 @@ export function connectNotifications(device = deviceName()): void {
   source.onopen = () => {
     notices.connected = true
     void loadSchedules()
+    void loadServices()
   }
   source.onerror = () => {
     notices.connected = false
@@ -85,9 +87,10 @@ export function connectNotifications(device = deviceName()): void {
     }
   }
   source.onmessage = (e) => {
-    const event = JSON.parse(String(e.data)) as { type: 'notify'; notification: Notice; speak: boolean } | { type: 'ended'; id: string; status: Notice['status'] } | { type: 'schedules' }
+    const event = JSON.parse(String(e.data)) as { type: 'notify'; notification: Notice; speak: boolean } | { type: 'ended'; id: string; status: Notice['status'] } | { type: 'schedules' } | { type: 'services' }
     if (event.type === 'notify') arrive(event.notification, event.speak)
     else if (event.type === 'ended') end(event.id)
+    else if (event.type === 'services') void loadServices()
     else void loadSchedules()
   }
 }
