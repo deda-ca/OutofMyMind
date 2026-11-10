@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { SentenceSplitter, forSpeech } from '../src/assistant/speech.ts'
+import { SentenceSplitter, forSpeech, spokenSentences } from '../src/assistant/speech.ts'
 
 function split(chunks: string[]): string[] {
   const s = new SentenceSplitter()
@@ -35,4 +35,14 @@ test('questions, exclamations, quotes and line breaks end sentences', () => {
 test('markdown is cleaned for speaking', () => {
   assert.equal(forSpeech('**Ottawa** is the `capital`. See [the map](https://example.com) or https://x.y/z'), 'Ottawa is the capital. See the map or a link')
   assert.equal(forSpeech('- one\n- two'), 'one two')
+})
+
+test('a whole reply as spoken: sentences, markdown cleaned, long ones cut for text-to-speech', () => {
+  assert.deepEqual(spokenSentences('**Hi** there, friend. 4.5 km away!\n\n```\ncode\n```\n---'), ['Hi there, friend.', '4.5 km away!'])
+  const long = Array.from({ length: 120 }, (_, i) => `part ${i}`).join(', ') + '.'
+  const pieces = spokenSentences(long)
+  assert.ok(pieces.length >= 2)
+  assert.ok(pieces.every((p) => p.length <= 900))
+  assert.equal(pieces.join(' '), long)
+  assert.match(pieces[0]!, /,$/)
 })

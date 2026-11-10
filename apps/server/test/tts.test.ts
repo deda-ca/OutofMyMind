@@ -32,6 +32,9 @@ test('read aloud: voices from audio.cpp, speech in the chosen voice, unknown voi
     assert.equal((await app.inject({ method: 'POST', url: '/api/tts', payload: { text: 'x', voice: 'nobody' } })).statusCode, 400)
     assert.equal((await app.inject({ method: 'POST', url: '/api/tts', payload: { text: '' } })).statusCode, 400)
     assert.equal((await app.inject({ method: 'POST', url: '/api/tts', payload: { text: 'a'.repeat(1001) } })).statusCode, 400)
+    const sentences = await app.inject({ method: 'POST', url: '/api/tts/sentences', payload: { text: '## Today\n\nIt is **sunny** in Ottawa. See [the forecast](https://x.y).\n\n```js\nlet a = 1\n```\n- Take a hat' } })
+    assert.deepEqual(sentences.json(), { sentences: ['Today', 'It is sunny in Ottawa.', 'See the forecast.', 'Take a hat'] })
+    assert.equal((await app.inject({ method: 'POST', url: '/api/tts/sentences', payload: { text: ' ' } })).statusCode, 400)
   } finally {
     ;(config as { audiocppUrl: string }).audiocppUrl = saved
     await app.close()

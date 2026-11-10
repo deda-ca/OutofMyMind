@@ -10,6 +10,7 @@ import {
   type UploadStats,
 } from './audio/streamTranscriber'
 import { BargeIn } from './audio/bargeIn'
+import { replay, toggleReplay } from './audio/replay'
 import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import { signOut, signedIn } from './auth'
 import AgentsPanel from './components/AgentsPanel.vue'
@@ -26,6 +27,7 @@ import SchedulePanel from './components/SchedulePanel.vue'
 import NotificationStack from './components/NotificationStack.vue'
 import DocumentViewer from './components/DocumentViewer.vue'
 import FileChips from './components/FileChips.vue'
+import MarkdownText from './components/MarkdownText.vue'
 import ReaderPanel from './components/ReaderPanel.vue'
 import ToolCallLine from './components/ToolCallLine.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
@@ -426,6 +428,11 @@ watch(
   },
 )
 
+/** ▶ / ■ on a reply: hear it again in Jarvis's voice, or stop. */
+function replayReply(key: string, text: string, liveReplyId?: number): void {
+  toggleReplay(player, key, text, liveReplyId).catch((err: Error) => (error.value = `Couldn't replay that: ${err.message}`))
+}
+
 /** Saved messages of the session on screen, as transcript lines. */
 function entryBadge(entry: SessionEntry): { label: string; theme: string } {
   if (entry.kind === 'owner') return { label: 'You', theme: 'theme-primary' }
@@ -769,7 +776,21 @@ onBeforeUnmount(() => {
                     :call="{ id: `${i}-${k}`, name: t.name, args: t.args, result: t.result, crud: sessions.toolCrud[t.name] ?? [], status: 'done', isError: t.result.startsWith('Error:') }"
                   />
                   <FileChips v-if="entry.kind === 'files'" :files="entry.files" />
-                  <span v-if="entry.text" class="saved-text" :class="entry.kind === 'jarvis' ? 'fg-info' : entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
+                  <div v-if="entry.kind === 'jarvis' && entry.text" class="reply fg-info">
+                    <MarkdownText :text="entry.text" />
+                    <button
+                      type="button"
+                      class="btn-text btn-sm replay-button"
+                      :class="{ active: replay.key === `saved-${sessions.activeId}-${i}` }"
+                      :title="replay.key === `saved-${sessions.activeId}-${i}` ? 'Stop' : 'Play this again'"
+                      :aria-label="replay.key === `saved-${sessions.activeId}-${i}` ? 'Stop playing' : 'Play this reply again'"
+                      @click="replayReply(`saved-${sessions.activeId}-${i}`, entry.text)"
+                    >
+                      <span v-if="replay.key === `saved-${sessions.activeId}-${i}` && replay.loading" class="spinner-border spinner-sm" aria-hidden="true"></span>
+                      <template v-else>{{ replay.key === `saved-${sessions.activeId}-${i}` ? '■\uFE0E' : '▶\uFE0E' }}</template>
+                    </button>
+                  </div>
+                  <span v-else-if="entry.text" class="saved-text" :class="entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
                 </span>
               </div>
             </div>
@@ -787,7 +808,22 @@ onBeforeUnmount(() => {
                           {{ a.kind === 'approval' ? `Hermes is asking for approval: ${a.label} (approve it in Hermes for now)` : a.label }}
                         </span>
                       </template>
-                      <span :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>
+                      <div v-if="phrase.jarvis === 'reply' && phrase.text" class="reply fg-info">
+                        <MarkdownText :text="phrase.text" />
+                        <button
+                          v-if="phrase.final"
+                          type="button"
+                          class="btn-text btn-sm replay-button"
+                          :class="{ active: replay.key === `live-${phrase.id}` }"
+                          :title="replay.key === `live-${phrase.id}` ? 'Stop' : 'Play this again'"
+                          :aria-label="replay.key === `live-${phrase.id}` ? 'Stop playing' : 'Play this reply again'"
+                          @click="replayReply(`live-${phrase.id}`, phrase.text, -phrase.id)"
+                        >
+                          <span v-if="replay.key === `live-${phrase.id}` && replay.loading" class="spinner-border spinner-sm" aria-hidden="true"></span>
+                          <template v-else>{{ replay.key === `live-${phrase.id}` ? '■\uFE0E' : '▶\uFE0E' }}</template>
+                        </button>
+                      </div>
+                      <span v-else :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>
                     </span>
                   </template>
                   <template v-else-if="phrase.files">
@@ -1150,6 +1186,39 @@ onBeforeUnmount(() => {
 }
 .saved-text {
   white-space: pre-line;
+}
+/* A line's text column takes the rest of the row, so wide tables and code scroll inside it. */
+.transcript .vstack {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* A reply from Jarvis: formatted text, with ▶ (play it again) beside it on hover. */
+.reply {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.reply > .md {
+  flex: 1 1 auto;
+}
+.replay-button {
+  flex: none;
+  min-width: 1.75rem;
+  padding: 0.125rem 0.375rem;
+  line-height: 1;
+  font-size: 0.75rem;
+  color: var(--bs-fg-3, currentColor);
+}
+@media (hover: hover) {
+  .replay-button:not(.active) {
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .reply:hover .replay-button,
+  .replay-button:focus-visible {
+    opacity: 1;
+  }
 }
 
 .phrase-editable {

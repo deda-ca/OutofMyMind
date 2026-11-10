@@ -51,6 +51,34 @@ export function forSpeech(text: string): string {
     .trim()
 }
 
+/** Longest piece sent to text-to-speech at once (POST /api/tts takes up to 1,000 characters). */
+const MAX_SPOKEN_CHARS = 900
+
+/**
+ * A whole reply as Jarvis says it: split into sentences the way a streamed
+ * reply is, each cleaned with forSpeech (ones with nothing to say, like code blocks, dropped),
+ * and very long ones cut at a comma or space. For replaying an earlier reply.
+ */
+export function spokenSentences(text: string): string[] {
+  const splitter = new SentenceSplitter()
+  const out: string[] = []
+  // Code blocks span lines, and lines end sentences: take them out first.
+  const prose = text.replace(/```[\s\S]*?(```|$)/g, '\n')
+  for (const sentence of [...splitter.push(prose), ...splitter.flush()]) {
+    let rest = forSpeech(sentence)
+    if (!/[\p{L}\p{N}]/u.test(rest)) continue // nothing to say (a code block, a lone "—")
+    while (rest.length > MAX_SPOKEN_CHARS) {
+      const window = rest.slice(0, MAX_SPOKEN_CHARS)
+      const cut = Math.max(window.lastIndexOf(', '), window.lastIndexOf('; '))
+      const at = cut > MAX_SPOKEN_CHARS / 2 ? cut + 1 : window.lastIndexOf(' ') > 0 ? window.lastIndexOf(' ') : MAX_SPOKEN_CHARS
+      out.push(rest.slice(0, at).trim())
+      rest = rest.slice(at).trim()
+    }
+    if (rest) out.push(rest)
+  }
+  return out
+}
+
 /**
  * Collects streamed text and hands out complete sentences as soon as they
  * end. Short fragments are kept until they make a reasonable sentence, and a
