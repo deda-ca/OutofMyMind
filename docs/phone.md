@@ -184,6 +184,7 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 | `apps/server/src/phone/phone.ts` | The call in progress, the owner's device as a leg, limits, the call log; recordings and the transcript after each call |
 | `apps/server/src/phone/numbers.ts`, `transcript.ts` | North American numbers (911, N11, premium refused); cutting a leg into utterances, the transcript |
 | `apps/server/src/phone/index.ts` | Starting and stopping it with the server; the tools for live replies |
+| `apps/server/src/phone/live.ts` | The live transcript: each leg's utterances transcribed as they end; Marvin's from its words |
 | `apps/server/src/phone/voice.ts` | Marvin's voice as a leg: text-to-speech in (24 kHz WAV → 16 kHz), what the others say heard live (cut by loudness) and transcribed; half duplex |
 | `apps/server/src/phone/screening.ts` | Marvin answering: the script (greeting, who's calling, ringing the owner, the announcement, 1 / "connect" or 2, the message) |
 | `apps/server/src/phone/rules.ts` | Who gets put through: always, blocked, quiet hours, who answers; `DATA_DIR/phone/rules.json` |
@@ -191,7 +192,7 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 | `apps/server/src/phone/tools.ts`, `routes.ts` | The `jarvis__*` tools; the HTTP API for the Phone tab |
 | `apps/client/src/phone.ts` | The phone's state; this device's call audio (an AudioWorklet: microphone up, the other side down, 16 kHz) |
 | `apps/client/src/components/PhonePanel.vue` | Calls, texts, the line's status (rules in phase 2) |
-| `apps/server/test/screening.test.ts` | Rules, WAV resampling, live listening, the screening script (scripted legs), and the whole phone with stand-in calls: screened and put through on 1, blocked, a message in quiet hours |
+| `apps/server/test/screening.test.ts` | The live transcript (order, Marvin's lines, the last words at hang-up, dropped on request; the file growing during a call), rules, WAV resampling, live listening, the screening script (scripted legs), and the whole phone with stand-in calls: screened and put through on 1, blocked, a message in quiet hours |
 | `apps/server/test/phone.test.ts` | SIP parsing, digest auth (RFC 2617's example), SDP, G.711 and resampling, numbers, the bridge's mix, utterances, the two-step confirmation, texts against a fake API |
 
 ## What phase 1 does now
@@ -199,9 +200,10 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 - **The line** registers at start-up and stays registered (renewed at 80 % of what the provider grants; retried with backoff on failure). Only packets from the provider's server are accepted.
 - **Calls out**: the Phone tab (pressing Call is the owner's yes) or `jarvis__call` (two steps: a code, then the owner must have spoken or typed to Jarvis since; checked in the server). The device that placed the call carries the audio; when Jarvis places one, a screen that's listening joins. Jarvis's own microphone is muted while a device is on a call.
 - **Calls in**: ring every open screen (Answer / Decline in the header and the Phone tab) for `PHONE_RING_SECONDS`, then are turned away; a missed call is a notification and a note. For calls to come to Jarvis, the number's routing at VoIP.ms must point at the sub-account (not changed yet).
-- **After each call**: one Ogg Opus file per leg in `DATA_DIR/audio/calls/<id>/`, the transcript in `WORKSPACE_DIR/calls/<date time> to|from <number>.md`, a note in the active session, the call log in `DATA_DIR/phone/calls.json`.
+- **After each call**: one Ogg Opus file per leg in `DATA_DIR/audio/calls/<id>/`, the transcript (written live during the call, finished at the end) in `WORKSPACE_DIR/calls/<date time> to|from <number>.md`, a note in the active session, the call log in `DATA_DIR/phone/calls.json`.
 - **Texts**: the Phone tab and `jarvis__send_text` (same two steps, the exact message read back) send; new texts are polled, shown as a notification and noted in the session as information from outside.
-- **Not yet**: the Android app as a handset, live transcription during the call, texts waking Jarvis with an untrusted turn.
+- **Live transcription**: each leg is cut into utterances as it's heard (loudness, 0.7 s of silence ends one, 15 s at most) and transcribed at once, one at a time in order; Marvin's lines come from the text it says. The lines show on the call card as they arrive (about a second after someone stops talking, measured on the echo test), and the transcript file in `calls/` is rewritten as they come (marked "in progress"), so Jarvis can answer "what was the address they gave?" during the call; `jarvis__call_log` gives the latest lines of the call in progress. When the call ends, what was still being said is transcribed too and the file is finished (duration, how it ended). A caller who asks not to be recorded isn't transcribed either: the lines and the file are dropped.
+- **Not yet**: the Android app as a handset, texts waking Jarvis with an untrusted turn.
 
 ## What phase 2 does now
 

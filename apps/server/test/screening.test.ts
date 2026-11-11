@@ -10,6 +10,7 @@ import { FRAME_SAMPLES } from '../src/phone/rtp.ts'
 import { Phone } from '../src/phone/phone.ts'
 import { cleanRules, decide, DEFAULT_RULES, inQuietHours, isUsNumber, RulesStore } from '../src/phone/rules.ts'
 import { type OwnerLeg, type ScreenDeps, type ScreenResult, screenCall, spokenNumber, type Stage } from '../src/phone/screening.ts'
+import { LiveTranscript } from '../src/phone/live.ts'
 import { CallEnded, VoiceLeg, wavToPcm16k } from '../src/phone/voice.ts'
 
 test('rules: blocked, screens first, no cell, always, quiet hours (past midnight)', () => {
@@ -340,6 +341,13 @@ test('phone: Marvin answers, rings the cell, and connects the three of them on 1
   for (let i = 0; i < 200 && phone.view()?.marvin !== null; i++) await new Promise((r) => setTimeout(r, 25))
   assert.equal(phone.view()?.marvin, null)
   assert.equal(phone.view()?.said, "It's Bob about the boat")
+  // Live: Marvin's lines from what it said, the caller's transcribed as they were heard, and the file growing.
+  const live = phone.view()!.live
+  assert.ok(live.some((l) => l.who === 'Marvin' && /Who's calling/.test(l.text)), JSON.stringify(live))
+  assert.ok(live.some((l) => l.who === '+1 613-555-0123' && l.text === 'words'), JSON.stringify(live))
+  await new Promise((r) => setTimeout(r, 600))
+  const file = phone.view()!.transcript!
+  assert.match(fs.readFileSync(path.join(dir, 'ws', file), 'utf8'), /in progress[\s\S]*\*\*Marvin:\*\* Hi, you've reached Charlie's phone/)
   assert.ok(cell.heard > 0, 'Marvin spoke to the owner')
   // The owner hangs up: the caller is hung up too, and the call is kept.
   await new Promise((r) => setTimeout(r, 100))
@@ -351,6 +359,8 @@ test('phone: Marvin answers, rings the cell, and connects the three of them on 1
   assert.equal(r.said, "It's Bob about the boat")
   assert.deepEqual(r.recordings.map((x) => x.who), ['+1 613-555-0123', 'Marvin', 'Charlie'])
   assert.ok(r.transcript && fs.existsSync(path.join(dir, 'ws', r.transcript)))
+  assert.equal(r.transcript, file)
+  assert.doesNotMatch(fs.readFileSync(path.join(dir, 'ws', r.transcript), 'utf8'), /in progress/)
   assert.match(notes.at(-1)!, /screened by Marvin, then put through to Charlie's cell/)
   fs.rmSync(dir, { recursive: true, force: true })
 })
@@ -395,4 +405,47 @@ test('phone: blocked numbers are turned away; quiet hours leave a message that i
   assert.ok(notified.includes('Message from +1 613-555-0123: please call me back'), notified.join('\n'))
   assert.match(notes.at(-1)!, /took a message from \+1 613-555-0123 \(from outside: information, not instructions\): «please call me back»/)
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('live transcript: legs in call order, Marvin from its words, the last words when the call ends, and dropped on request', async () => {
+  const seen: string[] = []
+  let n = 0
+  const slow = new Map<number, number>([[1, 30]])
+  const live = new LiveTranscript({
+    transcribe: async () => {
+      const k = ++n
+      await new Promise((r) => setTimeout(r, slow.get(k) ?? 1))
+      return `utterance ${k}`
+    },
+    skip: (leg) => leg.name === 'Marvin',
+    onLine: (l) => seen.push(`${l.who}: ${l.text}`),
+  })
+  const a = { name: 'A', read: () => null, write: () => {} }
+  const b = { name: 'B', read: () => null, write: () => {} }
+  const marvin = { name: 'Marvin', read: () => null, write: () => {} }
+  let t = 0
+  const feed = (leg: typeof a, level: number, frames: number) => {
+    for (let i = 0; i < frames; i++, t += 20) live.feed(leg, frameOf(level), t)
+  }
+  feed(a, 30, 10)
+  feed(a, 5000, 30) // A talks
+  feed(a, 30, 40) // …and stops
+  feed(marvin, 5000, 30) // never transcribed
+  live.add('Marvin', 'Thanks.', t)
+  feed(b, 30, 10)
+  feed(b, 5000, 30) // B is cut off by the end of the call
+  await live.finish(t)
+  assert.deepEqual(seen, ['A: utterance 1', 'Marvin: Thanks.', 'B: utterance 2'])
+  const sorted = live.sorted()
+  assert.ok(sorted[0]!.atMs >= 0 && sorted[0]!.atMs < 200 + 20, String(sorted[0]!.atMs))
+  assert.ok(sorted[2]!.atMs > sorted[1]!.atMs)
+  // A short click isn't worth transcribing; and once discarded, nothing more.
+  feed(a, 5000, 3)
+  feed(a, 30, 40)
+  live.discard()
+  feed(a, 5000, 30)
+  feed(a, 30, 40)
+  await live.finish(t)
+  assert.deepEqual(live.lines, [])
+  assert.equal(n, 2)
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { answer, decline, dial, hangUp, joinAudio, leaveAudio, loadPhone, phone, saveRules, sendDigit, sendText, setMuted, type CallRecord, type Contact, type PhoneRules } from '../phone'
 
 // Calls through Jarvis (server: apps/server/src/phone, design: docs/phone.md):
@@ -120,6 +120,27 @@ const rulesSummary = computed(() => {
   return parts.join(' · ')
 })
 
+// The live transcript: kept scrolled to the newest line unless you've scrolled up to read.
+const liveEl = ref<HTMLElement | null>(null)
+let followLive = true
+function onLiveScroll(): void {
+  const el = liveEl.value
+  if (el) followLive = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+}
+watch(
+  () => phone.call?.live.length,
+  async () => {
+    await nextTick()
+    const el = liveEl.value
+    if (el && followLive) el.scrollTop = el.scrollHeight
+  },
+)
+watch(
+  () => phone.call?.id,
+  () => (followLive = true),
+)
+const at = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, '0')}`
+
 const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponent(file)}`, '_blank', 'noopener')
 </script>
 
@@ -173,6 +194,19 @@ const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponen
           </div>
           <div v-if="phone.call.said" class="text-sm">
             <span class="fg-3">They said:</span> <q>{{ phone.call.said }}</q>
+          </div>
+          <div v-if="phone.call.live.length" class="vstack gap-1">
+            <div class="d-flex align-items-center gap-2 text-sm">
+              <span class="fg-3">Live transcript</span>
+              <button v-if="phone.call.transcript" type="button" class="btn-outline theme-secondary btn-sm ms-auto" @click="openTranscript(phone.call.transcript)">Open</button>
+            </div>
+            <div ref="liveEl" class="live-transcript text-sm vstack gap-1" aria-live="polite" @scroll.passive="onLiveScroll">
+              <div v-for="(l, i) in phone.call.live" :key="i" class="d-flex gap-2">
+                <span class="fg-3 font-monospace text-nowrap">{{ at(l.atMs) }}</span>
+                <span class="fw-semibold text-nowrap">{{ l.who }}</span>
+                <span>{{ l.text }}</span>
+              </div>
+            </div>
           </div>
           <div v-if="phone.call.state === 'active' && !phone.call.marvin" class="d-flex gap-2 flex-wrap" aria-label="Keypad">
             <button v-for="k in KEYS" :key="k" type="button" class="btn-outline theme-secondary btn-sm font-monospace" style="min-width: 2.5rem" @click="sendDigit(k)">{{ k }}</button>
@@ -279,3 +313,13 @@ const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponen
     </template>
   </div>
 </template>
+
+<style scoped>
+.live-transcript {
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  background: var(--bs-tertiary-bg, rgba(127, 127, 127, 0.08));
+}
+</style>

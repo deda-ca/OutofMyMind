@@ -38,6 +38,8 @@ export class Bridge {
   /** Every leg ever joined, for the recording (kept after they leave). */
   private readonly history: Track[] = []
   private recording = true
+  /** Hears every leg's frame as it's mixed (while recording): the live transcript. */
+  tap: ((leg: Leg, frame: Int16Array, atMs: number) => void) | null = null
 
   private readonly maxFrames: number
 
@@ -105,6 +107,7 @@ export class Bridge {
         // Recorded aligned with the bridge's clock: a leg that joined late starts later.
         while (t.startFrame + t.frames.length < this.frame) t.frames.push(SILENCE)
         t.frames.push(inputs[i]!)
+        this.tap?.(t.leg, inputs[i]!, this.frame * FRAME_MS)
       }
     for (const [i, t] of this.tracks.entries()) {
       const out = new Int16Array(FRAME_SAMPLES)

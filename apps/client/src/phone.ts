@@ -24,6 +24,10 @@ export interface CallView {
   marvin: 'greeting' | 'asking' | 'ringing owner' | 'announcing' | 'connected' | 'taking a message' | 'done' | null
   /** What the caller said when Marvin asked who they are (their words). */
   said: string
+  /** The live transcript so far (latest lines, in call order). */
+  live: { atMs: number; who: string; text: string }[]
+  /** Its file in the workspace, written as the call goes. */
+  transcript: string | null
 }
 
 export interface CallRecord {

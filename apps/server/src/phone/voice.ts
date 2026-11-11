@@ -74,6 +74,74 @@ export interface Endpointing {
 
 const DEFAULT_ENDPOINTING: Endpointing = { endSilenceMs: 800, maxMs: 15_000 }
 
+/**
+ * Finds utterances in a stream of 20 ms frames by loudness, against a noise
+ * floor it keeps learning: speech starts after two loud frames (with a little
+ * of what came before), and ends after `endSilenceMs` of quiet or at `maxMs`.
+ */
+export class Endpointer {
+  ep: Endpointing
+  private floor = 200
+  private loud = 0
+  private quiet = 0
+  private preroll: Int16Array[] = []
+  private speech: Int16Array[] | null = null
+
+  constructor(ep: Partial<Endpointing> = {}) {
+    this.ep = { ...DEFAULT_ENDPOINTING, ...ep }
+  }
+
+  /** Someone is talking (an utterance has started and not ended). */
+  get inSpeech(): boolean {
+    return this.speech !== null
+  }
+
+  /** Adds a frame; returns the utterance it ended, if any. */
+  push(frame: Int16Array): Int16Array | null {
+    const level = rms(frame)
+    const threshold = Math.max(350, this.floor * 3)
+    if (!this.speech) {
+      this.preroll.push(frame)
+      if (this.preroll.length > 10) this.preroll.shift()
+      if (level > threshold) {
+        if (++this.loud >= 2) {
+          this.speech = [...this.preroll]
+          this.preroll = []
+          this.quiet = 0
+        }
+      } else {
+        this.loud = 0
+        this.floor = this.floor * 0.98 + Math.min(level, 2000) * 0.02
+      }
+      return null
+    }
+    this.speech.push(frame)
+    this.quiet = level > threshold ? 0 : this.quiet + 1
+    if (this.quiet * FRAME_MS >= this.ep.endSilenceMs || this.speech.length * FRAME_MS >= this.ep.maxMs) return this.flush()
+    return null
+  }
+
+  /** Ends the utterance in progress (if any) and returns it. */
+  flush(): Int16Array | null {
+    const frames = this.speech
+    this.speech = null
+    this.loud = 0
+    this.quiet = 0
+    if (!frames) return null
+    const pcm = new Int16Array(frames.length * FRAME_SAMPLES)
+    frames.forEach((f, i) => pcm.set(f, i * FRAME_SAMPLES))
+    return pcm
+  }
+
+  /** Forgets what was being heard (Marvin started talking). */
+  reset(): void {
+    this.speech = null
+    this.preroll = []
+    this.loud = 0
+    this.quiet = 0
+  }
+}
+
 export interface VoiceDeps {
   name: string
   /** Text → WAV (audio.cpp); overridable in tests. */
@@ -81,6 +149,8 @@ export interface VoiceDeps {
   /** 16 kHz → text (audio.cpp); overridable in tests. */
   transcribe?: (pcm: Int16Array) => Promise<string>
   voice?: string
+  /** Called with each thing Marvin says, as it starts saying it (for the live transcript). */
+  onSay?: (text: string) => void
 }
 
 export class CallEnded extends Error {
@@ -98,12 +168,7 @@ export class VoiceLeg implements Leg {
   private closed = false
 
   // Listening: the utterance being heard, and who's waiting for the next one.
-  private ep: Endpointing = DEFAULT_ENDPOINTING
-  private floor = 200
-  private loud = 0
-  private quiet = 0
-  private preroll: Int16Array[] = []
-  private speech: Int16Array[] | null = null
+  private readonly ears = new Endpointer()
   private waiting: ((pcm: Int16Array | null) => void) | null = null
   /** Not listening until then (ms): the echo of what Marvin just said. */
   private deafUntil = 0
@@ -132,35 +197,8 @@ export class VoiceLeg implements Leg {
   write(frame: Int16Array): void {
     // Half duplex: not while talking, and not for a moment after (the line's delay, the far end's echo).
     if (this.speaking || Date.now() < this.deafUntil) return
-    const level = rms(frame)
-    const threshold = Math.max(350, this.floor * 3)
-    if (!this.speech) {
-      this.preroll.push(frame)
-      if (this.preroll.length > 10) this.preroll.shift()
-      if (level > threshold) {
-        if (++this.loud >= 2) {
-          this.speech = [...this.preroll]
-          this.preroll = []
-          this.quiet = 0
-        }
-      } else {
-        this.loud = 0
-        this.floor = this.floor * 0.98 + Math.min(level, 2000) * 0.02
-      }
-      return
-    }
-    this.speech.push(frame)
-    this.quiet = level > threshold ? 0 : this.quiet + 1
-    if (this.quiet * FRAME_MS >= this.ep.endSilenceMs || this.speech.length * FRAME_MS >= this.ep.maxMs) this.endUtterance()
-  }
-
-  private endUtterance(): void {
-    const frames = this.speech ?? []
-    this.speech = null
-    this.loud = 0
-    this.quiet = 0
-    const pcm = new Int16Array(frames.length * FRAME_SAMPLES)
-    frames.forEach((f, i) => pcm.set(f, i * FRAME_SAMPLES))
+    const pcm = this.ears.push(frame)
+    if (!pcm) return
     const w = this.waiting
     this.waiting = null
     w?.(pcm)
@@ -170,6 +208,8 @@ export class VoiceLeg implements Leg {
   async say(text: string): Promise<void> {
     if (this.closed) throw new CallEnded()
     const wav = await (this.d.synthesize ?? ((t: string) => synthesize(t, undefined, this.d.voice)))(text)
+    if (this.closed) throw new CallEnded()
+    this.d.onSay?.(text)
     await this.play(wavToPcm16k(wav))
   }
 
@@ -177,8 +217,7 @@ export class VoiceLeg implements Leg {
   play(pcm: Int16Array): Promise<void> {
     if (this.closed) return Promise.reject(new CallEnded())
     // What was being heard is cut off: Marvin is talking now.
-    this.speech = null
-    this.preroll = []
+    this.ears.reset()
     for (let i = 0; i < pcm.length; i += FRAME_SAMPLES) {
       const frame = new Int16Array(FRAME_SAMPLES)
       frame.set(pcm.subarray(i, i + FRAME_SAMPLES))
@@ -200,11 +239,11 @@ export class VoiceLeg implements Leg {
    */
   hear(waitMs: number, ep: Partial<Endpointing> = {}): Promise<Int16Array | null> {
     if (this.closed) return Promise.reject(new CallEnded())
-    this.ep = { ...DEFAULT_ENDPOINTING, ...ep }
+    this.ears.ep = { ...DEFAULT_ENDPOINTING, ...ep }
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         // Still talking at the deadline: wait for them to finish.
-        if (this.speech) return
+        if (this.ears.inSpeech) return
         if (this.waiting === done) this.waiting = null
         resolve(null)
       }, waitMs)

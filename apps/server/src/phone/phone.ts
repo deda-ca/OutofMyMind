@@ -16,7 +16,8 @@ import { FRAME_SAMPLES } from './rtp.ts'
 import { decide, findContact, isUsNumber, type RulesStore } from './rules.ts'
 import { type OwnerLeg, screenCall, type ScreenDeps, type Stage, spokenNumber } from './screening.ts'
 import { VoiceLeg, type VoiceDeps } from './voice.ts'
-import { formatTranscript, PHONE_SAMPLE_RATE, utterances, type Line as TranscriptLine } from './transcript.ts'
+import { LiveTranscript } from './live.ts'
+import { formatTranscript, PHONE_SAMPLE_RATE, type Line as TranscriptLine } from './transcript.ts'
 
 export interface PhoneSettings {
   server: string
@@ -53,6 +54,9 @@ export interface PhoneDeps {
   /** Screening's waits (tests shorten them). */
   timing?: ScreenDeps['timing']
 }
+
+/** Lines of the live transcript sent to the screens (the file has them all). */
+const LIVE_LINES = 40
 
 /** How long the owner's cell rings before Marvin gives up on it. */
 const OWNER_RING_MS = 30_000
@@ -99,6 +103,10 @@ export interface CallView {
   marvin: Stage | null
   /** What the caller said when asked who they are. */
   said: string
+  /** The live transcript so far (the latest lines, in call order). */
+  live: TranscriptLine[]
+  /** Its file in the workspace (calls/…), written as the call goes. */
+  transcript: string | null
 }
 
 /** The owner's device as a leg: 16 kHz PCM both ways over a WebSocket. */
@@ -162,6 +170,11 @@ export class Phone extends EventEmitter<{ change: [] }> {
   private pickedUp = false
   /** Marvin answered the call in progress. */
   private marvinCall = false
+  /** The call in progress, transcribed as it goes, and its file (relative to the workspace). */
+  private live: LiveTranscript | null = null
+  private liveFile: string | null = null
+  private liveWrite: ReturnType<typeof setTimeout> | null = null
+  private callerLeg = ''
   private screened: { outcome: NonNullable<CallRecord['outcome']>; said: string; messageFromMs: number | null; recordingOff: boolean } | null = null
   private readonly logFile: string
   private log: CallRecord[] = []
@@ -234,6 +247,8 @@ export class Phone extends EventEmitter<{ change: [] }> {
       muted: this.muted,
       marvin: this.marvin && this.stage !== 'connected' && this.stage !== 'done' ? this.stage : null,
       said: this.said,
+      live: this.live ? this.live.sorted().slice(-LIVE_LINES) : [],
+      transcript: this.live?.lines.length ? this.liveFile : null,
     }
   }
 
@@ -351,14 +366,14 @@ export class Phone extends EventEmitter<{ change: [] }> {
     if (this.ringTimer) clearTimeout(this.ringTimer)
     const contact = findContact(this.d.rules.get().always, call.number)
     const label = contact?.name || (call.name ? `${call.name}, from ${spokenNumber(call.number)},` : /^\d{10,11}$/.test(call.number) ? `Someone at ${spokenNumber(call.number)}` : 'Someone with a hidden number')
-    const marvin = this.newVoice()
+    call.answer()
+    this.connect(call)
+    const marvin = this.newVoice(true)
     this.marvin = marvin
     this.stage = 'greeting'
     this.said = ''
     this.pickedUp = false
     this.marvinCall = true
-    call.answer()
-    this.connect(call)
     this.bridge!.join(marvin)
     const bridge = this.bridge!
     const rules = this.d.rules.get()
@@ -371,7 +386,10 @@ export class Phone extends EventEmitter<{ change: [] }> {
       recordingNotice: rules.recordingNotice || isUsNumber(call.number),
       ringOwner: () => this.ringOwner(),
       connect: (owner) => this.connectOwner(owner),
-      stopRecording: () => bridge.stopRecording(),
+      stopRecording: () => {
+        bridge.stopRecording()
+        this.dropLive()
+      },
       hangUp: () => call.hangUp('Marvin hung up'),
       stage: (stage) => {
         this.stage = stage
@@ -389,8 +407,11 @@ export class Phone extends EventEmitter<{ change: [] }> {
       })
   }
 
-  private newVoice(): VoiceLeg {
-    return new VoiceLeg({ name: this.d.assistantName, ...this.d.voice })
+  /** Marvin's voice; `transcribed`: what it says goes into the live transcript (the caller's side, not its asides to the owner). */
+  private newVoice(transcribed = false): VoiceLeg {
+    const live = transcribed ? this.live : null
+    const bridge = this.bridge
+    return new VoiceLeg({ name: this.d.assistantName, ...this.d.voice, onSay: live && bridge ? (text) => live.add(this.d.assistantName, text, bridge.seconds * 1000) : undefined })
   }
 
   /** Rings the owner's cell (from the DID): their leg once they answer, null if they don't. */
@@ -511,6 +532,19 @@ export class Phone extends EventEmitter<{ change: [] }> {
     bridge.join(phoneLeg)
     if (this.device) bridge.join(this.device)
     this.bridge = bridge
+    this.callerLeg = phoneLeg.name
+    // Transcribed as it goes (Marvin's lines come from what it says).
+    const live = new LiveTranscript({
+      transcribe: this.transcriber(),
+      skip: (leg) => leg instanceof VoiceLeg,
+      onLine: () => {
+        this.changed()
+        this.writeLiveSoon(call)
+      },
+    })
+    this.live = live
+    this.liveFile = `calls/${transcriptName(call.direction, call.number, new Date(call.createdAt))}`
+    bridge.tap = (leg, frame, atMs) => live.feed(leg, frame, atMs)
     bridge.start()
     // The longest call: hang up when the bridge stops at its limit.
     const limit = setInterval(() => {
@@ -522,6 +556,42 @@ export class Phone extends EventEmitter<{ change: [] }> {
     }, 5000)
   }
 
+  // ------------------------------------------------------------------ the live transcript
+
+  private transcriber(): (pcm: Int16Array) => Promise<string> {
+    return this.d.transcribe ?? ((pcm: Int16Array) => transcribePcm(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength), PHONE_SAMPLE_RATE, ''))
+  }
+
+  /** The file, rewritten at most twice a second while the call goes on. */
+  private writeLiveSoon(call: Call): void {
+    if (this.liveWrite) return
+    this.liveWrite = setTimeout(() => {
+      this.liveWrite = null
+      const live = this.live
+      if (!live || !this.liveFile || call !== this.call) return
+      const who = call.name ? `${call.name} (${display(call.number)})` : display(call.number)
+      this.writeTranscript(this.liveFile, [`# Call ${call.direction === 'out' ? 'to' : 'from'} ${who}`, '', `${new Date(call.createdAt).toLocaleString()} · in progress`, '', formatTranscript(live.sorted()), ''].join('\n'))
+    }, 500)
+  }
+
+  private writeTranscript(file: string, body: string): void {
+    const full = path.join(this.d.workspaceDir, file)
+    fs.mkdirSync(path.dirname(full), { recursive: true })
+    const tmp = `${full}.tmp`
+    fs.writeFileSync(tmp, body)
+    fs.renameSync(tmp, full)
+  }
+
+  /** The caller asked not to be recorded: the live transcript and its file go too. */
+  private dropLive(): void {
+    this.live?.discard()
+    if (this.liveWrite) clearTimeout(this.liveWrite)
+    this.liveWrite = null
+    if (this.liveFile) fs.rmSync(path.join(this.d.workspaceDir, this.liveFile), { force: true })
+    this.liveFile = null
+    this.changed()
+  }
+
   // ------------------------------------------------------------------ after the call
 
   private async finish(call: Call): Promise<void> {
@@ -530,6 +600,13 @@ export class Phone extends EventEmitter<{ change: [] }> {
     bridge?.stop()
     this.bridge = null
     this.call = null
+    const live = this.live
+    const liveFile = this.liveFile
+    const callerLeg = this.callerLeg
+    this.live = null
+    this.liveFile = null
+    if (this.liveWrite) clearTimeout(this.liveWrite)
+    this.liveWrite = null
     // Marvin and the owner's cell leave with the caller.
     this.marvin?.close()
     this.marvin = null
@@ -575,7 +652,7 @@ export class Phone extends EventEmitter<{ change: [] }> {
       return
     }
     try {
-      await this.keep(record, bridge, who, screened?.messageFromMs ?? null)
+      await this.keep(record, bridge, who, screened?.messageFromMs ?? null, live, liveFile, callerLeg)
       record.status = 'done'
     } catch (err) {
       record.status = 'failed'
@@ -586,30 +663,21 @@ export class Phone extends EventEmitter<{ change: [] }> {
   }
 
   /** Recordings into the audio archive, the transcript into the workspace, a note in the session. */
-  private async keep(record: CallRecord, bridge: Bridge, who: string, messageFromMs: number | null): Promise<void> {
+  private async keep(record: CallRecord, bridge: Bridge, who: string, messageFromMs: number | null, live: LiveTranscript | null, liveFile: string | null, callerLeg: string): Promise<void> {
     const dir = path.join(this.d.dataDir, 'audio', 'calls', record.id)
     fs.mkdirSync(dir, { recursive: true })
-    const transcribe = this.d.transcribe ?? ((pcm: Int16Array) => transcribePcm(Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength), PHONE_SAMPLE_RATE, ''))
-    const lines: TranscriptLine[] = []
-    let failed = 0
     for (const [i, rec] of bridge.recordings().entries()) {
       const file = path.join(dir, `${i + 1}.ogg`)
       fs.writeFileSync(file, await encodeOggOpus(rec.pcm, { TITLE: `Call ${record.direction === 'out' ? 'to' : 'from'} ${who}: ${rec.name}`, DATE: record.startedAt }))
       record.recordings.push({ who: rec.name, file: path.relative(this.d.dataDir, file) })
-      for (const u of utterances(rec.pcm, rec.offsetMs)) {
-        const text = (await transcribe(u.pcm).catch(() => {
-          failed++
-          return ''
-        })).trim()
-        if (text) lines.push({ atMs: u.startMs, who: rec.name, text })
-      }
     }
-    lines.sort((a, b) => a.atMs - b.atMs)
-    const callerName = bridge.recordings()[0]?.name
-    if (messageFromMs !== null) record.message = lines.filter((l) => l.who === callerName && l.atMs >= messageFromMs - 500).map((l) => l.text).join(' ')
+    // The live transcript, with whatever was still being said when the call ended.
+    await live?.finish(bridge.seconds * 1000)
+    const lines = live?.sorted() ?? []
+    const failed = live?.failed ?? 0
+    if (messageFromMs !== null) record.message = lines.filter((l) => l.who === callerLeg && l.atMs >= messageFromMs - 500).map((l) => l.text).join(' ')
     const started = new Date(record.startedAt)
-    const stamp = `${started.getFullYear()}-${String(started.getMonth() + 1).padStart(2, '0')}-${String(started.getDate()).padStart(2, '0')} ${String(started.getHours()).padStart(2, '0')}${String(started.getMinutes()).padStart(2, '0')}`
-    const name = `${stamp} ${record.direction === 'out' ? 'to' : 'from'} ${display(record.number).replace(/[^\w +-]/g, '')}.md`
+    const name = liveFile ?? `calls/${transcriptName(record.direction, record.number, started)}`
     const minutes = Math.max(1, Math.round(record.seconds / 60))
     const body = [
       `# Call ${record.direction === 'out' ? 'to' : 'from'} ${who}`,
@@ -620,10 +688,8 @@ export class Phone extends EventEmitter<{ change: [] }> {
       ...(failed ? ['', `_${failed} part${failed === 1 ? '' : 's'} couldn't be transcribed (is audio.cpp running?)._`] : []),
       '',
     ].join('\n')
-    const calls = path.join(this.d.workspaceDir, 'calls')
-    fs.mkdirSync(calls, { recursive: true })
-    fs.writeFileSync(path.join(calls, name), body)
-    record.transcript = `calls/${name}`
+    this.writeTranscript(name, body)
+    record.transcript = name
     if (record.message !== undefined) {
       const text = record.message || '(nothing that could be made out)'
       this.d.notify(`Message from ${who}`, text)
@@ -640,4 +706,11 @@ export class Phone extends EventEmitter<{ change: [] }> {
     fs.writeFileSync(tmp, JSON.stringify(this.log, null, 1))
     fs.renameSync(tmp, this.logFile)
   }
+}
+
+/** "2026-11-11 1342 from +1 613-555-0123.md": the transcript's file name in calls/. */
+export function transcriptName(direction: 'in' | 'out', number: string, started: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${started.getFullYear()}-${p(started.getMonth() + 1)}-${p(started.getDate())} ${p(started.getHours())}${p(started.getMinutes())}`
+  return `${stamp} ${direction === 'out' ? 'to' : 'from'} ${display(number).replace(/[^\w +-]/g, '')}.md`
 }
