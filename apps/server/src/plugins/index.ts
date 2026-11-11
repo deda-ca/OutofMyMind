@@ -25,6 +25,7 @@ import type { PluginEvent } from '../harness/mcp.ts'
 import { MESSAGING } from '../schedule/run.ts'
 import { notifier } from '../schedule/index.ts'
 import { Triggers, type TurnRequest } from '../services/triggers.ts'
+import { EventLog } from './eventlog.ts'
 import { toolUses } from '../sessions/history.ts'
 import type { SessionStore } from '../sessions/store.ts'
 import type { SkillLibrary } from '../skills/library.ts'
@@ -43,6 +44,7 @@ export interface PlatformDeps {
 const MAX_EVENT_CHARS = 24_000
 
 let triggers: Triggers | null = null
+let eventLog: EventLog | null = null
 
 function manifestOf(plugin: string): PluginManifest | undefined {
   return harness.manifests().find((m) => m.manifest.name === plugin)?.manifest
@@ -64,12 +66,25 @@ export function startPlatform(deps: PlatformDeps): void {
     log: (plugin, line) => deps.log(`plugins: ${plugin}: ${line}`),
   })
   const t = triggers
+  const events = new EventLog(path.join(deps.dir ?? path.join(config.dataDir, 'plugin-events'), 'log'))
+  eventLog = events
   harness.setOwnerHeard(() => {
     const at = notifier.presence().lastHeard
     return at ? new Date(at).getTime() : null
   })
   harness.setLink({
-    event: (plugin, event) => receive(plugin, event, t, deps.log),
+    event: (plugin, event) => receive(plugin, event, t, deps.log, events),
+    // A subscriber that (re)connects gets what it missed while it wasn't running.
+    connected: (plugin) => {
+      const m = manifestOf(plugin)
+      if (!m?.subscribes.length) return
+      const missed = events.missed(plugin, m.subscribes)
+      for (const e of missed) harness.notifyPlugin(plugin, e.type, { from: e.from, ...e.payload })
+      if (missed.length) {
+        events.sent(plugin, missed.at(-1)!.seq)
+        deps.log(`plugins: sent ${plugin} ${missed.length} event${missed.length === 1 ? '' : 's'} it missed`)
+      }
+    },
     request: async (plugin, method, params) => {
       const m = manifestOf(plugin)
       if (!m) throw new Error('Not a plugin with a manifest.')
@@ -97,12 +112,14 @@ export function startPlatform(deps: PlatformDeps): void {
 
 export async function stopPlatform(): Promise<void> {
   harness.setLink(null)
+  eventLog?.flush()
+  eventLog = null
   await triggers?.stop()
   triggers = null
 }
 
 /** An event from a plugin: its trigger, its subscribers, its tab. */
-export function receive(plugin: string, event: PluginEvent, t: Triggers, log: (m: string) => void): void {
+export function receive(plugin: string, event: PluginEvent, t: Triggers, log: (m: string) => void, events?: EventLog): void {
   const m = manifestOf(plugin)
   const declared = m?.events[event.type]
   if (!m || !declared) {
@@ -115,9 +132,16 @@ export function receive(plugin: string, event: PluginEvent, t: Triggers, log: (m
     const result = t.accept(plugin, titleOf(m), { agent: tr.agent ?? '', prompt: tr.prompt, batchMs: tr.batchMs, maxPerHour: tr.maxPerHour }, event.type, payload)
     if (result.status >= 400) log(`plugins: ${plugin} "${event.type}": ${result.message}`)
   }
-  // Other plugins that asked for this kind of event (the contacts plugin, for email's addresses).
-  for (const other of harness.manifests()) {
-    if (other.manifest.name !== plugin && other.manifest.subscribes.includes(event.type)) harness.notifyPlugin(other.manifest.name, event.type, { from: plugin, ...payload })
+  // Other plugins that asked for this kind of event (the contacts plugin, for email's addresses):
+  // kept, so one that isn't running gets it when it connects.
+  const subscribers = harness.manifests().filter((o) => o.manifest.name !== plugin && o.manifest.subscribes.includes(event.type))
+  if (subscribers.length) {
+    const logged = events?.append(plugin, event.type, payload)
+    for (const s of subscribers) {
+      if (!s.connected) continue
+      harness.notifyPlugin(s.manifest.name, event.type, { from: plugin, ...payload })
+      if (logged) events?.sent(s.manifest.name, logged.seq)
+    }
   }
   notifier.broadcast({ type: 'plugin', name: plugin })
 }

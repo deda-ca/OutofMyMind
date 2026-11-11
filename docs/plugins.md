@@ -92,6 +92,7 @@ Services already have this (`apps/server/src/services/triggers.ts`, `turn.ts`): 
 | `plugin.json`: read and checked | `apps/server/src/harness/manifest.ts`; `mcp.json` `{ "plugin": "<folder>" }` in `harness/config.ts` (started in its folder with only the settings it names, `JARVIS_DATA`, `JARVIS_WORKSPACE`) |
 | Events and requests from plugins; events to plugins; the confirmation gate; tab-only tools; tab calls | `apps/server/src/harness/mcp.ts` (the hub) |
 | What the server does with them: triggers (services' engine, `services/triggers.ts`), subscribers, tab refresh, notify, note | `apps/server/src/plugins/index.ts` |
+| The event log: events other plugins subscribe to are kept (the newest 20,000, `DATA_DIR/plugin-events/log/`) with each subscriber's place, so a plugin that wasn't running (started later, restarted, crashed) is sent what it missed when it connects, in order and once | `apps/server/src/plugins/eventlog.ts` |
 | `/api/plugins`, tab calls, `/plugin-ui/…` (the tab's files, with a CSP: no other sites, no direct API calls), the shared bridge and stylesheet | `apps/server/src/plugins/routes.ts`, `plugins/kit/` |
 | The plugin side: `emit`, `notify`, `note`, `refreshTab`, `onServerEvent`, `pluginDataDir` | `plugins/kit/plugin.ts` |
 | Tabs in the client: a sandboxed iframe per plugin, relaying only that plugin's tools | `apps/client/src/plugins.ts`, `components/PluginTab.vue` |

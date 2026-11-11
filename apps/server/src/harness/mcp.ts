@@ -60,6 +60,8 @@ export interface PluginLink {
   event(plugin: string, event: PluginEvent): void
   /** A request from a plugin (jarvis/notify, jarvis/note, jarvis/tab-push): its result, or throws. */
   request(plugin: string, method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>
+  /** A self-contained plugin (re)connected: it can be sent what it missed. */
+  connected?(plugin: string): void
 }
 
 const EventNotification = z.object({
@@ -292,6 +294,7 @@ export class McpHub {
         c.error = undefined
         this.rebuildRoutes()
         this.log(`harness: plugin "${name}" ready (${tools.map((t) => t.name).join(', ') || 'no tools'})`)
+        if (c.config.manifest) this.link?.connected?.(name)
       } catch (err) {
         c.error = (err as Error).message
         this.log(`harness: plugin "${name}" unavailable: ${c.error}`)
