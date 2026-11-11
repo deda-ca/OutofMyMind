@@ -16,6 +16,8 @@ import { signOut, signedIn } from './auth'
 import AgentsPanel from './components/AgentsPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import PhonePanel from './components/PhonePanel.vue'
+import PluginTab from './components/PluginTab.vue'
+import { plugins } from './plugins'
 import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
 import DebugPanel from './components/DebugPanel.vue'
@@ -53,7 +55,7 @@ import { answer as answerCall, decline as declineCall, hangUp as hangUpCall, joi
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'services' | 'phone' | 'debug' | 'monitor'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'services' | 'phone' | 'debug' | 'monitor' | `plugin:${string}`
 
 const tab = ref<Tab>('live')
 
@@ -789,6 +791,11 @@ onBeforeUnmount(() => {
               Services<span v-if="servicesNeedingOwner()" class="badge theme-warning badge-subtle ms-2" title="Waiting for you: approvals or secrets">{{ servicesNeedingOwner() }}</span>
             </button>
           </li>
+          <li v-for="p in plugins.list.filter((x) => x.tab)" :key="p.name" class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === `plugin:${p.name}` }" :title="p.description" @click="tab = `plugin:${p.name}`">
+              {{ p.tab!.title }}<span v-if="!p.connected" class="badge theme-warning badge-subtle ms-2" title="The plugin isn't running">off</span>
+            </button>
+          </li>
           <li v-if="phone.enabled" class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'phone' }" @click="tab = 'phone'">
               Phone<span v-if="phone.call" class="badge theme-info badge-subtle ms-2">on a call</span>
@@ -1089,6 +1096,14 @@ onBeforeUnmount(() => {
         <ServicesPanel />
       </div>
     </div>
+
+    <template v-for="p in plugins.list.filter((x) => x.tab)" :key="p.name">
+      <div v-if="tab === `plugin:${p.name}`" class="row justify-content-center mt-4">
+        <div class="col-12">
+          <PluginTab :name="p.name" :url="p.tab!.url" @ask="(text) => ((draft = text), (tab = 'live'))" />
+        </div>
+      </div>
+    </template>
 
     <div v-if="tab === 'phone'" class="row justify-content-center mt-5">
       <div class="col-12">

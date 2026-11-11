@@ -4,7 +4,7 @@
 //
 //   {
 //     "mcpServers": {
-//       "notes":    { "command": "node", "args": ["../../mcp-plugins/notes/server.ts"], "env": { "NOTES_DIR": "${DATA_DIR}/notes" } },
+//       "notes":    { "command": "node", "args": ["../../plugins/notes/server.ts"], "env": { "NOTES_DIR": "${DATA_DIR}/notes" } },
 //       "calendar": { "url": "http://127.0.0.1:3001/mcp", "headers": { "Authorization": "Bearer ${CALENDAR_TOKEN}" }, "enabled": false }
 //     }
 //   }
@@ -20,6 +20,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { config } from '../config.ts'
 import { isCrud, type Crud } from './crud.ts'
+import { loadManifest, type PluginManifest } from './manifest.ts'
 
 export type PluginTransport =
   | { kind: 'stdio'; command: string; args: string[]; env: Record<string, string>; cwd: string }
@@ -38,6 +39,8 @@ export interface PluginConfig {
   exclude?: string[]
   /** Longest tool result handed to the LLM (mcp.json "maxResultChars"; default 8,000). */
   maxResultChars?: number
+  /** A self-contained plugin's manifest (plugin.json): its events, tab, and tools needing the owner's yes. */
+  manifest?: PluginManifest
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -68,6 +71,13 @@ export function loadPluginConfig(file: string): PluginConfig[] {
         throw new Error(`${file}: plugin "${name}" maxResultChars must be a whole number from 1000 to 100000`)
       extra.maxResultChars = entry.maxResultChars
     }
+    if (typeof entry.plugin === 'string') {
+      // A self-contained plugin (docs/plugins.md): everything but "on" comes from its plugin.json.
+      const manifest = loadManifest(path.resolve(dir, expand(entry.plugin)))
+      if (manifest.name !== name) throw new Error(`${file}: "${name}" points at the plugin "${manifest.name}" (the names must match)`)
+      plugins.push(pluginFromManifest(manifest, mapValues(stringRecord(entry.env, `${name}.env`), expand)))
+      continue
+    }
     if (typeof entry.command === 'string') {
       plugins.push({
         name,
@@ -90,6 +100,31 @@ export function loadPluginConfig(file: string): PluginConfig[] {
     }
   }
   return plugins
+}
+
+/** How a self-contained plugin is started: in its folder, with only the settings it names, its data and workspace folders. */
+export function pluginFromManifest(m: PluginManifest, extraEnv: Record<string, string> = {}): PluginConfig {
+  const env: Record<string, string> = {}
+  for (const key of m.env) if (process.env[key] !== undefined) env[key] = process.env[key]!
+  if (m.data) {
+    env.JARVIS_DATA = path.join(config.dataDir, 'plugins', m.name)
+    fs.mkdirSync(env.JARVIS_DATA, { recursive: true })
+  }
+  if (m.workspace) env.JARVIS_WORKSPACE = path.join(config.workspaceDir, m.workspace)
+  // The release binary runs built-in plugins itself (`jarvis plugin <name>`).
+  const binary = process.env.JARVIS_BIN
+  const command = binary ? binary : m.command
+  const args = binary ? ['plugin', m.name] : m.args
+  const crud = Object.fromEntries(Object.entries(m.tools).flatMap(([tool, t]) => (t.crud ? [[tool, t.crud]] : [])))
+  return {
+    name: m.name,
+    timeoutMs: m.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    ...(m.instructions ? { instructions: expand(m.instructions) } : {}),
+    ...(Object.keys(crud).length ? { crud } : {}),
+    ...(m.maxResultChars ? { maxResultChars: m.maxResultChars } : {}),
+    manifest: m,
+    transport: { kind: 'stdio', command, args, env: { ...env, ...extraEnv }, cwd: m.dir },
+  }
 }
 
 function crudOverrides(value: unknown, what: string): Record<string, Crud[]> | undefined {

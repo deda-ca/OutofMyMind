@@ -10,7 +10,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { BUILD, KIT, MCP_JSON, SITE } from './.generated/embedded.ts'
+import { BUILD, KIT, MCP_JSON, PLATFORM_KIT, PLUGIN_FILES, SITE } from './.generated/embedded.ts'
 import { PLUGINS } from './plugins.ts'
 import { pruneOtherBuilds, unpack } from './unpack.ts'
 
@@ -35,6 +35,9 @@ if (command === 'plugin') {
 } else if (command === undefined || command === 'serve') {
   process.env.SITE_DIR ||= unpack('site', SITE)
   process.env.JARVIS_KIT_DIR = unpack('kit', KIT)
+  // Self-contained plugins' manifests and tabs (mcp.json points at them), and the tabs' shared kit.
+  process.env.JARVIS_PLUGINS_DIR = unpack('plugins', PLUGIN_FILES)
+  process.env.JARVIS_PLATFORM_KIT = unpack('platform-kit', PLATFORM_KIT)
   pruneOtherBuilds()
   // Nothing sits in front of this server, so it speaks HTTPS itself unless told not to.
   if (!process.env.TLS?.trim()) process.env.TLS = 'self-signed'

@@ -8,7 +8,7 @@ Two parts, both through the owner's own Telegram bot:
 
 | | What | Where |
 | --- | --- | --- |
-| **Sending** | Jarvis sends the owner a message or a file: when they ask ("send me that by Telegram"), from a schedule ("remind me by Telegram"), or from a service. | The `telegram` MCP plugin: `telegram__send_message`, `telegram__send_file` ([mcp-plugins/telegram](../mcp-plugins/telegram/server.ts)) |
+| **Sending** | Jarvis sends the owner a message or a file: when they ask ("send me that by Telegram"), from a schedule ("remind me by Telegram"), or from a service. | The `telegram` MCP plugin: `telegram__send_message`, `telegram__send_file` ([plugins/telegram](../plugins/telegram/server.ts)) |
 | **Chatting** | The owner writes to the bot, sends a voice note, or sends photos and files with a line saying what to do with them, from anywhere; Jarvis answers there, as text and as a voice note, in the same conversation as at home. | The server's Telegram channel ([apps/server/src/telegram](../apps/server/src/telegram/index.ts)) |
 
 They're split because a bot's messages can be read by one program only (Telegram's `getUpdates`; a second reader gets "409 Conflict"), while anything can send.

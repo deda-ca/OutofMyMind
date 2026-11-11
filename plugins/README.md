@@ -7,6 +7,7 @@ Same rules as the rest of Jarvis: local and private, TypeScript run directly by 
 | Plugin | Tools | Configuration |
 | --- | --- | --- |
 | [weather](weather/server.ts) | `get_weather`: now (temperature, feels-like, conditions, humidity, wind) and 1–7 days (min/max, conditions, chance of precipitation) for a city, with province/state and country to pick the right one ("Kingston, Ontario" vs Jamaica) | `WEATHER_HOME` (e.g. `Ottawa, Ontario, Canada`: used when no place is named) and `WEATHER_UNITS` (`celsius`, default, or `fahrenheit`); set them in `apps/server/.env.local`. Uses [Open-Meteo](https://open-meteo.com), free and keyless. ⚠️ Needs the internet: the place name and coordinates are sent to open-meteo.com. |
+| [email](email/plugin.json) | A self-contained plugin ([docs/plugins.md](../docs/plugins.md)): the owner's inbox watched (IMAP IDLE), kept locally (search, tags, addresses), its own Email tab, triage of new mail, sending on the owner's yes ([docs/email.md](../docs/email.md)) | `EMAIL_IMAP_HOST`, `EMAIL_SMTP_HOST`, `EMAIL_USER`, `EMAIL_PASSWORD` in `apps/server/.env.local`. ⚠️ Talks to the owner's mail server. |
 | [telegram](telegram/server.ts) | `send_message`, `send_file`: a message or a workspace file to the owner on Telegram, through their own bot; only ever to the owner's chat ([docs/telegram.md](../docs/telegram.md)) | `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OWNER_CHAT_ID` in `apps/server/.env.local`. ⚠️ Needs the internet: messages go through Telegram. |
 | [notes](notes/server.ts) | `list_notes`, `read_note`, `search_notes`, `write_note`, `append_to_note` | `NOTES_DIR`: the folder of markdown notes (default in `mcp.json`: `notes/` inside the workspace folder, `apps/server/data/workspace/notes`). Paths can't leave it (no `..`, absolute paths or symlinks out); `.md` files only, 256 KB each. |
 | [scripts](scripts/server.ts) | `run_script` (write and run a JavaScript/TypeScript program, or run a saved one by name), `list_scripts` | `WORKSPACE_DIR` (scripts read it; `scripts/` inside it holds saved scripts, `tmp/` the last 20 one-offs, `out/` the only place they can write), `SCRIPTS_TIMEOUT_SECONDS` (30), `SCRIPTS_MEMORY_MB` (256). Sandboxed by [bubblewrap](https://github.com/containers/bubblewrap) (no network; only `/usr`, Node and the workspace visible) and Node's permission model (no child processes, workers or addons); needs `bwrap` installed. Built-in modules only, no npm packages. |
@@ -41,7 +42,7 @@ npm run typecheck
 2. List it in `apps/server/mcp.json` and restart the server:
 
    ```json
-   "calendar": { "command": "node", "args": ["../../mcp-plugins/calendar/server.ts"], "env": { "CALENDAR_TOKEN": "${CALENDAR_TOKEN}" } }
+   "calendar": { "command": "node", "args": ["../../plugins/calendar/server.ts"], "env": { "CALENDAR_TOKEN": "${CALENDAR_TOKEN}" } }
    ```
 
 3. Add its folder to `include` in `tsconfig.json`, and tests in `test/`.

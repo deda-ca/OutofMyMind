@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       strictPort: true,
       // The API lives in apps/server. Forwarding keeps the browser on one origin.
-      proxy: { '/api': { target: serverUrl, ws: true } },
+      proxy: { '/api': { target: serverUrl, ws: true }, '/plugin-ui': { target: serverUrl } },
     },
   }
 })

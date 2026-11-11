@@ -1,5 +1,5 @@
 {
-  "name": "jarvis-mcp-plugins",
+  "name": "jarvis-plugins",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -16,13 +16,18 @@
     "@modelcontextprotocol/server-filesystem": "2.2.0",
     "@mozilla/readability": "^0.6.0",
     "@playwright/mcp": "0.0.83",
+    "imapflow": "2.11.0",
     "linkedom": "^0.18.15",
+    "mailparser": "3.14.3",
+    "nodemailer": "10.5.0",
     "playwright-core": "1.64.0-alpha-1790635538000",
     "undici": "^8.12.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/mailparser": "3.9.0",
     "@types/node": "^26.6.6",
+    "@types/nodemailer": "8.0.2",
     "typescript": "^7.0.2"
   }
 }

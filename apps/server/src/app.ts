@@ -20,6 +20,8 @@ import { startSchedules, stopSchedules } from './schedule/index.ts'
 import { startServices, stopServices } from './services/index.ts'
 import { startPhone, stopPhone } from './phone/index.ts'
 import { startTelegram, stopTelegram } from './telegram/index.ts'
+import { startPlatform, stopPlatform } from './plugins/index.ts'
+import { pluginRoutes } from './plugins/routes.ts'
 import { phoneRoutes } from './phone/routes.ts'
 import { serviceRoutes } from './services/routes.ts'
 import { scheduleRoutes } from './schedule/routes.ts'
@@ -59,6 +61,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.addHook('onClose', async () => db.close())
   // Timers, alarms, reminders (off in tests unless asked for).
   if (options.schedules) {
+    // Self-contained plugins' events and requests (docs/plugins.md): from the start, so nothing a plugin sends while starting is lost.
+    startPlatform({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) })
+    app.addHook('onClose', async () => stopPlatform())
     // At listen time: after the plugins have started (main.ts), so a schedule due at start-up has its tools.
     app.addHook('onReady', async () => void startSchedules({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
     app.addHook('onClose', async () => stopSchedules())
@@ -132,6 +137,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   void app.register(speakerRoutes, { speakers, dataDir: config.dataDir })
   void app.register(toolRoutes)
   void app.register(sessionRoutes, { sessions, agents })
+  void app.register(pluginRoutes)
   void app.register(agentRoutes, { agents })
   void app.register(skillRoutes, { skills })
   void app.register(ttsRoutes)

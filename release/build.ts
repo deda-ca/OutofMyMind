@@ -35,6 +35,8 @@ const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: tru
 const files = (dir: string, keep: (f: string) => boolean = () => true) => walk(dir).filter(keep).map((f) => [path.relative(dir, f), f] as [string, string])
 const site = files(at('apps', 'client', 'dist'))
 const kit = files(at('apps', 'server', 'src', 'services', 'kit'), (f) => f.endsWith('.ts'))
+// Plugin tabs' shared bridge and look (apps/server/src/plugins/kit), served from disk.
+const platformKit = files(at('apps', 'server', 'src', 'plugins', 'kit'))
 const ortDir = at('apps', 'server', 'node_modules', 'onnxruntime-node', 'bin', 'napi-v6', 'linux', process.arch)
 const ort = ['onnxruntime_binding.node', 'libonnxruntime.so.1'].map((f) => [f, path.join(ortDir, f)] as [string, string])
 for (const [, f] of ort) if (!fs.existsSync(f)) throw new Error(`${f} is missing: run npm run setup`)
@@ -42,6 +44,20 @@ for (const [, f] of ort) if (!fs.existsSync(f)) throw new Error(`${f} is missing
 // 3. mcp.json, with each plugin started by the binary instead of node.
 const BY_SCRIPT = new Map(Object.entries(PLUGINS).map(([plugin, p]) => [at(p.script), plugin]))
 const mcp = JSON.parse(fs.readFileSync(at('apps', 'server', 'mcp.json'), 'utf8')) as { mcpServers: Record<string, { command?: string; args?: string[] }> }
+// Self-contained plugins (plugin.json): their manifest and tab files are unpacked at run time.
+const pluginFiles: [string, string][] = []
+for (const [server, entry] of Object.entries(mcp.mcpServers) as [string, { plugin?: string }][]) {
+  if (!entry.plugin) continue
+  const dir = path.resolve(at('apps', 'server'), entry.plugin)
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'plugin.json'), 'utf8')) as { name: string; tab?: { page: string } }
+  if (!PLUGINS[manifest.name]) throw new Error(`mcp.json: "${server}" is the plugin ${manifest.name}, which isn't built in: add it to release/plugins.ts`)
+  pluginFiles.push([`${manifest.name}/plugin.json`, path.join(dir, 'plugin.json')])
+  if (manifest.tab) {
+    const tabDir = path.join(dir, path.dirname(manifest.tab.page))
+    for (const [rel, f] of files(tabDir)) pluginFiles.push([path.join(manifest.name, path.dirname(manifest.tab.page), rel), f])
+  }
+  entry.plugin = `\${JARVIS_PLUGINS_DIR}/${manifest.name}`
+}
 for (const [server, entry] of Object.entries(mcp.mcpServers)) {
   if (entry.command !== 'node') continue
   const [script = '', ...args] = entry.args ?? []
@@ -53,7 +69,7 @@ const mcpJson = `${JSON.stringify(mcp, null, 2)}\n`
 
 // 4. The module that embeds them (import … with { type: 'file' }: a path readable at run time).
 const hash = crypto.createHash('sha256')
-for (const [rel, f] of [...site, ...kit, ...ort]) hash.update(rel).update(fs.readFileSync(f))
+for (const [rel, f] of [...site, ...kit, ...platformKit, ...pluginFiles, ...ort]) hash.update(rel).update(fs.readFileSync(f))
 const build = { version, commit, date: new Date().toISOString().slice(0, 10), id: `${version}-${hash.digest('hex').slice(0, 12)}` }
 let n = 0
 const imports: string[] = []
@@ -68,6 +84,8 @@ const list = (entries: [string, string][]) => {
 const body = [
   `export const SITE: [string, string][] = ${list(site)}`,
   `export const KIT: [string, string][] = ${list(kit)}`,
+  `export const PLATFORM_KIT: [string, string][] = ${list(platformKit)}`,
+  `export const PLUGIN_FILES: [string, string][] = ${list(pluginFiles)}`,
   `export const ORT: [string, string][] = ${list(ort)}`,
   `export const BUILD = ${JSON.stringify(build)}`,
   `export const MCP_JSON = ${JSON.stringify(mcpJson)}`,
@@ -87,7 +105,7 @@ function patch(file: RegExp, change: (source: string) => string): BunPlugin['set
     })
 }
 const replace = (from: string | RegExp, to: string) => (s: string) => s.replace(from, to)
-const fsVersion = JSON.parse(fs.readFileSync(at('mcp-plugins', 'node_modules', '@modelcontextprotocol', 'server-filesystem', 'package.json'), 'utf8')).version
+const fsVersion = JSON.parse(fs.readFileSync(at('plugins', 'node_modules', '@modelcontextprotocol', 'server-filesystem', 'package.json'), 'utf8')).version
 const fixes: [RegExp, (s: string) => string][] = [
   // Bun drops the (unused) web-worker class but keeps the line naming it, which then throws.
   [/ogg-opus-decoder\/index\.js$/, () => `import OggOpusDecoder from "./src/OggOpusDecoder.js";\nimport { assignNames } from "@wasm-audio-decoders/common";\nassignNames(OggOpusDecoder, "OggOpusDecoder");\nexport { OggOpusDecoder };\n`],

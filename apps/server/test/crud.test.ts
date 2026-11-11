@@ -30,7 +30,7 @@ test('CRUD from names, annotations and mcp.json overrides', () => {
 
 test('the real plugins are tagged sensibly, and a switched-off kind blocks every tool that does it', async () => {
   const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-notes-'))
-  const pluginsDir = path.resolve(import.meta.dirname, '../../../mcp-plugins')
+  const pluginsDir = path.resolve(import.meta.dirname, '../../../plugins')
   const togglesFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-t-')), 'tools.json')
   const toggles = new ToolToggles(togglesFile)
   const hub = new McpHub(

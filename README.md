@@ -15,7 +15,7 @@ Its AI is **Marvin**: knowledgeable, dependable, slightly sarcastic, and perhaps
 | [apps/server](apps/server/README.md) | The API: live transcription over a WebSocket, talking to the local audio.cpp server |
 | [apps/client](apps/client/README.md) | Web client: microphone, on-device voice detection, transcript, settings and monitor |
 | [apps/android](apps/android/README.md) | Android app (Kotlin): Jarvis from the phone, audio only. Start listening, screen off, until Stop listening |
-| [mcp-plugins](mcp-plugins/README.md) | Plug-in tools for Jarvis (MCP servers): notes so far. The harness that runs them is in `apps/server/src/harness` |
+| [plugins](plugins/README.md) | Plug-in tools for Jarvis (MCP servers): files, notes, weather, web, browser, scripts, Telegram, email. The harness that runs them is in `apps/server/src/harness` |
 
 ## Running
 
@@ -70,4 +70,6 @@ How it's put together: [release/build.ts](release/build.ts) (the build, and smal
 | Phone: Marvin answers and screens, rings your cell, three-way calls, messages; rules (always, blocked, quiet hours) | ✅ Built ([design](docs/phone.md)) |
 | Phone: hold-waiting and phone menus for you; the Android app as a handset | 📝 [Design](docs/phone.md) |
 | Telegram: chat with Jarvis from anywhere (text, voice notes, photos and files), replies as text and voice notes; Jarvis messages you there | ✅ Built ([docs](docs/telegram.md)) |
+| Plugins: self-contained, with events, triggers, their own tab, and the owner's yes enforced for sending | ✅ Built ([design](docs/plugins.md)) |
+| Email (IMAP/SMTP): watched, kept locally with tags and addresses, an Email tab, triage, sending on your yes | ✅ Built ([docs](docs/email.md)) |
 | Tools loaded on demand: heavy plugins (the browser first) listed in one line, their full schemas loaded only when needed | 📝 [Design](docs/tool-loading.md) |

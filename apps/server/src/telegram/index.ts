@@ -10,14 +10,14 @@
 // as their "yes" for calls and texts). Everyone else is ignored, unanswered.
 //
 // Sending on its own (reminders, files) is the telegram plugin
-// (mcp-plugins/telegram); this reads the bot's messages, which only one
+// (plugins/telegram); this reads the bot's messages, which only one
 // program can do at a time.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { OggOpusDecoder } from 'ogg-opus-decoder'
 import { Readable } from 'node:stream'
-import { MAX_DOWNLOAD, type TelegramMessage, Telegram, TelegramError } from '../../../../mcp-plugins/telegram/telegram.ts'
+import { MAX_DOWNLOAD, type TelegramMessage, Telegram, TelegramError } from '../../../../plugins/telegram/telegram.ts'
 import { type AgentLibrary, toolAllowed } from '../agents/library.ts'
 import { systemPrompt } from '../assistant/assistant.ts'
 import { type ChatMessage, chatTarget, streamChat } from '../assistant/llm.ts'

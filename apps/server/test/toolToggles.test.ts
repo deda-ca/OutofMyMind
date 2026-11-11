@@ -30,7 +30,7 @@ test('tool switches: on unless switched off, saved, and a plugin switch covers i
 
 test('the hub neither offers nor runs a switched-off tool, but still lists it', async () => {
   const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-notes-'))
-  const pluginsDir = path.resolve(import.meta.dirname, '../../../mcp-plugins')
+  const pluginsDir = path.resolve(import.meta.dirname, '../../../plugins')
   const off = new Set(['append_to_note'])
   const hub = new McpHub(
     [{ name: 'notes', timeoutMs: 10_000, transport: { kind: 'stdio', command: process.execPath, args: ['notes/server.ts'], env: { NOTES_DIR: notesDir }, cwd: pluginsDir } }],

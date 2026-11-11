@@ -45,6 +45,8 @@ export type NotifierEvent =
   | { type: 'schedules' }
   | { type: 'services' }
   | { type: 'phone' }
+  /** A plugin's tab should refresh (it sent an event, or asked). */
+  | { type: 'plugin'; name: string }
 
 interface Screen {
   id: number

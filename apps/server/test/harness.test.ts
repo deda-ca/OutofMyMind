@@ -117,7 +117,7 @@ test('plugin config: mcpServers format, disabled entries skipped, ${VAR} expande
 
 test('the hub runs the real notes plugin over stdio', async () => {
   const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-notes-'))
-  const pluginsDir = path.resolve(import.meta.dirname, '../../../mcp-plugins')
+  const pluginsDir = path.resolve(import.meta.dirname, '../../../plugins')
   const logs: string[] = []
   const hub = new McpHub(
     [{ name: 'notes', timeoutMs: 10_000, transport: { kind: 'stdio', command: process.execPath, args: ['notes/server.ts'], env: { NOTES_DIR: notesDir }, cwd: pluginsDir } }],
@@ -193,7 +193,7 @@ test('a cut-off tool call is not run, goes back as {} (so llama-server can parse
 test("a plugin's excluded tools are never offered or run; its result limit applies", async () => {
   const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jarvis-notes-'))
   fs.writeFileSync(path.join(notesDir, 'long.md'), 'x'.repeat(5000))
-  const pluginsDir = path.resolve(import.meta.dirname, '../../../mcp-plugins')
+  const pluginsDir = path.resolve(import.meta.dirname, '../../../plugins')
   const hub = new McpHub(
     [{ name: 'notes', timeoutMs: 10_000, exclude: ['append_to_note'], maxResultChars: 1000, transport: { kind: 'stdio', command: process.execPath, args: ['notes/server.ts'], env: { NOTES_DIR: notesDir }, cwd: pluginsDir } }],
     () => {},

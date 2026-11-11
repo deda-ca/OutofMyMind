@@ -1,5 +1,5 @@
 // One run of a service, sandboxed (docs/services.md), the same two layers as
-// the scripts plugin (mcp-plugins/scripts/runner.ts) with a service's profile:
+// the scripts plugin (plugins/scripts/runner.ts) with a service's profile:
 //   - bubblewrap: a private filesystem view with only /usr, Node, the kit, the
 //     service's approved copy (read-only, at /service), its state folder (at
 //     /state) and the gate's sockets (at /run/jarvis); no network at all, no

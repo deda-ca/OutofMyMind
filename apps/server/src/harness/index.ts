@@ -2,7 +2,7 @@
 //
 // Started once at server start-up (main.ts) from the plugin file (MCP_CONFIG,
 // default mcp.json). With no plugins configured it's inactive and replies are
-// plain chat, exactly as before. Plugins live in /mcp-plugins; any other MCP
+// plain chat, exactly as before. Plugins live in /plugins; any other MCP
 // server (stdio or streamable HTTP) can be added to the file too.
 
 import path from 'node:path'
@@ -10,7 +10,7 @@ import type { AgentEvent, ChatTarget } from '../assistant/llm.ts'
 import { config } from '../config.ts'
 import { loadPluginConfig } from './config.ts'
 import { runLoop, type LoopMessage, type LoopResult, type ToolHost } from './loop.ts'
-import { McpHub, type FunctionTool, type PluginInfo, type PluginStatus, type ToolOutcome } from './mcp.ts'
+import { McpHub, type FunctionTool, type PluginInfo, type PluginLink, type PluginStatus, type ToolOutcome } from './mcp.ts'
 import { CRUD, type Crud } from './crud.ts'
 import { ToolToggles } from './toggles.ts'
 
@@ -24,6 +24,35 @@ export interface PluginView extends Omit<PluginInfo, 'tools'> {
 class Harness {
   private hub?: McpHub
   private toggles?: ToolToggles
+  private link: PluginLink | null = null
+  private ownerHeard: () => number | null = () => null
+
+  /** Where self-contained plugins' events and requests go (plugins/index.ts). */
+  setLink(link: PluginLink | null): void {
+    this.link = link
+    if (this.hub) this.hub.link = link
+  }
+
+  /** When the owner last spoke or typed to Jarvis: the confirmation gate's "yes". */
+  setOwnerHeard(fn: () => number | null): void {
+    this.ownerHeard = fn
+    if (this.hub) this.hub.ownerHeard = fn
+  }
+
+  /** A plugin's tool, called by the owner from its tab. */
+  callAsOwner(plugin: string, tool: string, args: Record<string, unknown>): Promise<ToolOutcome> {
+    return this.hub?.callAsOwner(plugin, tool, args) ?? Promise.resolve({ text: 'No plugins are running.', isError: true })
+  }
+
+  /** Tells a plugin something (a server event, or an event it subscribed to). */
+  notifyPlugin(plugin: string, type: string, payload: unknown): void {
+    this.hub?.notifyPlugin(plugin, type, payload)
+  }
+
+  /** The self-contained plugins (with plugin.json) and whether each is running. */
+  manifests() {
+    return this.hub?.manifests() ?? []
+  }
 
   /** `togglesFile`: where the Tools tab's on/off switches are kept. */
   async start(configFile: string, log: (message: string, err?: unknown) => void, togglesFile = path.join(config.dataDir, 'tools.json')): Promise<void> {
@@ -49,6 +78,8 @@ class Harness {
         return false
       }
     })
+    this.hub.link = this.link
+    this.hub.ownerHeard = this.ownerHeard
     await this.hub.start()
   }
 
@@ -209,4 +240,4 @@ export interface BuiltinTool {
 export type ToolAllow = (functionName: string) => boolean
 
 export const harness = new Harness()
-export type { LoopMessage, LoopResult, PluginStatus }
+export type { LoopMessage, LoopResult, PluginLink, PluginStatus }

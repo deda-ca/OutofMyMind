@@ -3,7 +3,7 @@
     "files": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
+        "../../plugins/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",
         "${WORKSPACE_DIR}"
       ],
       "instructions": "Your workspace folder is ${WORKSPACE_DIR}; always use full paths inside it. Layout: todo.md is the owner's to-do list; lists/<name>.md holds simple lists (one '- item' per line); logs/ holds logs (weight, sleep, …); notes/ holds free-form notes. Lists and logs may have skills that say exactly how to keep them (format, stamps, sections, what to ask): you're shown a skill's rules when a request or a file needs them, and you follow them exactly. skills/ holds those skills: change them only with jarvis__update_skill or jarvis__create_skill, when the owner asks. sessions/ holds your saved conversations with the owner: you may read them to recall an earlier conversation, but never write, edit, move or delete anything in sessions/. calls/ holds the transcripts of phone calls (written by Jarvis after each call; jarvis__call_log lists them): read them to answer what was said on a call, but never change them. SYSTEM.md and agents/ hold your own instructions (the system prompt and the agents): change them only when the owner explicitly asks you to. scripts/ holds the programs you run with scripts__run_script (saved ones as <name>.ts, one-offs in tmp/); what they produce goes to scripts/out/. schedules.json holds timers, alarms and reminders: use the jarvis__*_schedule tools for them, never edit it. Create a file or folder if it doesn't exist yet. When unsure where something is, list or search the folder first."
@@ -11,7 +11,7 @@
     "notes": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/notes/server.ts"
+        "../../plugins/notes/server.ts"
       ],
       "env": {
         "NOTES_DIR": "${WORKSPACE_DIR}/notes"
@@ -20,7 +20,7 @@
     "weather": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/weather/server.ts"
+        "../../plugins/weather/server.ts"
       ],
       "env": {
         "WEATHER_HOME": "${WEATHER_HOME}",
@@ -30,7 +30,7 @@
     "scripts": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/scripts/server.ts"
+        "../../plugins/scripts/server.ts"
       ],
       "env": {
         "WORKSPACE_DIR": "${WORKSPACE_DIR}",
@@ -51,7 +51,7 @@
     "web": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/web/server.ts"
+        "../../plugins/web/server.ts"
       ],
       "env": {
         "BRAVE_API_KEY": "${BRAVE_API_KEY}",
@@ -72,7 +72,7 @@
     "browser": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/browser/start.ts"
+        "../../plugins/browser/start.ts"
       ],
       "env": {
         "BROWSER_DIR": "${DATA_DIR}/browser",
@@ -136,7 +136,7 @@
     "telegram": {
       "command": "node",
       "args": [
-        "../../mcp-plugins/telegram/server.ts"
+        "../../plugins/telegram/server.ts"
       ],
       "env": {
         "TELEGRAM_BOT_TOKEN": "${TELEGRAM_BOT_TOKEN}",
@@ -144,6 +144,9 @@
         "WORKSPACE_DIR": "${WORKSPACE_DIR}"
       },
       "instructions": "telegram__* tools reach the owner on their phone, through their own Telegram bot, and only them. Use them when the owner asks to be told or sent something by Telegram, or for a reminder or something urgent when nobody is at a Jarvis screen (jarvis__presence says). When the owner's message itself came from Telegram, just reply: your reply is sent there for you."
+    },
+    "email": {
+      "plugin": "../../plugins/email"
     }
   }
 }

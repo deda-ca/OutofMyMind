@@ -1,0 +1,17 @@
+{
+  "name": "echo",
+  "description": "A test plugin: sends events and needs the owner's yes to 'send'.",
+  "command": "node",
+  "args": ["server.ts"],
+  "env": ["ECHO_SETTING"],
+  "data": true,
+  "tools": {
+    "send": { "crud": ["create"], "confirm": "owner" },
+    "tab_only": { "crud": ["read"], "tab": true }
+  },
+  "events": {
+    "echo.said": { "description": "Something was said.", "untrusted": true, "trigger": { "tools": "none", "prompt": "Say what was said.", "batch": "1 s" } },
+    "echo.quiet": { "description": "No trigger: subscribers and the tab only.", "untrusted": false }
+  },
+  "tab": { "title": "Echo", "page": "ui/index.html" }
+}

@@ -1,6 +1,6 @@
 # Services: Jarvis writes its own background programs (design)
 
-Status: design written 2026-11-10, with the owner's answers the same day. **Phase 1 is built** (scheduled services, the core, the Services tab, the services skill with an email example); the email pilot still has to be tried with a real inbox. Later phases are outlined.
+Status: design written 2026-11-10, with the owner's answers the same day. **Phase 1 is built** (scheduled services, the core, the Services tab, the services skill with an email example); the email pilot was replaced on 2026-11-11 by the email plugin ([email.md](email.md)): email isn't a service any more. Later phases are outlined.
 
 ## The idea
 
@@ -151,7 +151,7 @@ The kit also replaces Node's `net.connect` / `tls.connect` (and so `http`, `http
 
 ### 1. Sandbox for services
 
-The same approach as the scripts sandbox ([mcp-plugins/scripts/runner.ts](../mcp-plugins/scripts/runner.ts)), bubblewrap plus Node's permission model, with a profile of its own (`apps/server/src/services/sandbox.ts`). Differences for a service:
+The same approach as the scripts sandbox ([plugins/scripts/runner.ts](../plugins/scripts/runner.ts)), bubblewrap plus Node's permission model, with a profile of its own (`apps/server/src/services/sandbox.ts`). Differences for a service:
 
 | | Script | Service |
 | --- | --- | --- |
