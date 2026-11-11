@@ -67,10 +67,21 @@ EMAIL_HISTORY_DAYS=30              # how far back on first start
 
 Done 2026-11-11: `services/email-fetch` (Email Fetch, every 30 minutes; failing on every run since 2026-11-10, after signing in fine) and its `email-handler` agent were removed, with its state in `DATA_DIR/services/email-fetch/`, its approval in `services.json` and the vault's `imap-login`, whose login moved to `EMAIL_USER` / `EMAIL_PASSWORD` in `.env.local` first. The services skill's email example is now a feed watcher, with a rule that email is the plugin's job.
 
+## Several inboxes: on hold
+
+Designed 2026-11-11 (one IMAP connection with IDLE per inbox, `EMAIL_ACCOUNTS` with a block of settings each, an account on every message, `email/<inbox>/…`, replies from the inbox that received the email, how loudly each inbox reaches the owner, Gmail as one more inbox with OAuth), then **put aside**: the owner forwards all their mail into the one inbox Jarvis watches.
+
+So, for now, **which of the owner's addresses an email was for** is in the email itself: the original recipient, not the inbox it sits in. Use, in this order:
+
+1. `Delivered-To` / `X-Original-To` (added by the forwarding server: right even when the owner was Bcc'd or on a mailing list; there may be several `Delivered-To`, the first one added is the original),
+2. otherwise the owner's addresses among `To` and `Cc`.
+
+To build when it matters: record that address on each message (a column, and in the `email.received` event), let search and the tab filter by it, and reply **from** it (the SMTP server must allow sending as that address, or the reply goes from the forwarding inbox with Reply-To set). Until then the tab and `read_email` show To and Cc, and the triage event carries them.
+
 ## Phases
 
 1. The plugin platform's core ([plugins.md](plugins.md), step 1).
 2. Reading: IMAP, IDLE, the local copy, `email.received`, the triage trigger, the read tools.
 3. The Email tab and tags; addresses.
 4. Sending: drafts, the confirmation gate, SMTP, Sent.
-5. Later: contacts (a plugin, from `addresses`), the calendar (invites in email tie in).
+5. Contacts: built as its own plugin ([contacts.md](contacts.md)), learning from `email.address-seen`. Later: the calendar (invites in email tie in), and several inboxes (Gmail among them, later still).
