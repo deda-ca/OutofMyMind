@@ -2,7 +2,7 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { openReader } from '../reader'
+import { plugins, readAloud } from '../plugins'
 import { closeFile, openFile, resolvePath, viewer } from '../viewer'
 
 // A workspace file, read-only: Markdown formatted (headings, lists, tables,
@@ -125,12 +125,12 @@ onBeforeUnmount(() => {
         <span v-if="loading" class="spinner-border spinner-sm" aria-label="Loading"></span>
         <span class="ms-auto d-flex gap-1">
           <button
-            v-if="!standalone && (kind === 'markdown' || kind === 'text') && source"
+            v-if="!standalone && (kind === 'markdown' || kind === 'text') && source && plugins.list.some((p) => p.name === 'reader')"
             type="button"
             class="btn-text btn-sm"
             title="Read it aloud"
             aria-label="Read it aloud"
-            @click="openReader(source, name)"
+            @click="readAloud(source, name)"
           >🔊</button>
           <button type="button" class="btn-text btn-sm" title="Reload" aria-label="Reload" @click="load">⟳</button>
           <button v-if="!standalone" type="button" class="btn-text btn-sm" title="Open in a new tab" aria-label="Open in a new tab" @click="openInTab">↗</button>

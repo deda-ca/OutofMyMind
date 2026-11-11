@@ -17,7 +17,7 @@ import AgentsPanel from './components/AgentsPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import PhonePanel from './components/PhonePanel.vue'
 import PluginTab from './components/PluginTab.vue'
-import { plugins } from './plugins'
+import { plugins, tabRequest, tellTabs } from './plugins'
 import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
 import DebugPanel from './components/DebugPanel.vue'
@@ -33,7 +33,6 @@ import NotificationStack from './components/NotificationStack.vue'
 import DocumentViewer from './components/DocumentViewer.vue'
 import FileChips from './components/FileChips.vue'
 import MarkdownText from './components/MarkdownText.vue'
-import ReaderPanel from './components/ReaderPanel.vue'
 import ToolCallLine from './components/ToolCallLine.vue'
 import SpeakerBadge from './components/SpeakerBadge.vue'
 import ToolsPanel from './components/ToolsPanel.vue'
@@ -45,8 +44,7 @@ import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './se
 import { settings } from './settings'
 import type { ToolCallInfo } from './toolCalls'
 import { addFiles, type FileRef } from './uploads'
-import { closeFile, openFile, refreshFile, viewer } from './viewer'
-import { openReader, pause as pauseReader, reader, resume as resumeReader } from './reader'
+import { openFile, refreshFile, viewer } from './viewer'
 import { acknowledge, connectNotifications, disconnectNotifications, notices, unlockSound } from './notifications'
 import { stampsFor } from './stamps'
 import { answer as answerCall, decline as declineCall, hangUp as hangUpCall, joinAudio, phone } from './phone'
@@ -583,30 +581,28 @@ async function addDroppedFiles(files: File[]): Promise<void> {
   }
 }
 
-// The side panel shows one thing: opening a document closes the reader, and the other way round.
-watch(
-  () => viewer.path,
-  (path) => {
-    if (path && reader.open) reader.open = false
-  },
-)
-watch(
-  () => reader.open,
-  (open) => {
-    if (open && viewer.path) closeFile()
-  },
-)
-// Jarvis talking pauses the reader; it carries on when Jarvis is done.
-let readerPausedForJarvis = false
+// Plugin tabs hear when Jarvis talks (Read aloud pauses for it, and carries on after).
 watch(playback, (state) => {
-  if (state === 'playing' && reader.state === 'playing') {
-    pauseReader()
-    readerPausedForJarvis = true
-  } else if (state === 'idle' && readerPausedForJarvis) {
-    readerPausedForJarvis = false
-    if (reader.state === 'paused') resumeReader()
-  }
+  if (state === 'playing') tellTabs('assistant-speaking')
+  else if (state === 'idle') tellTabs('assistant-quiet')
 })
+// A plugin tab, once opened, stays alive while another tab is shown (Read aloud keeps reading).
+watch(
+  tab,
+  (t) => {
+    if (t.startsWith('plugin:')) plugins.opened[t.slice('plugin:'.length)] = true
+  },
+  { immediate: true },
+)
+// Another part of the page asked for a tab (the document viewer's Read aloud).
+watch(
+  () => tabRequest.n,
+  () => {
+    if (tabRequest.tab) tab.value = tabRequest.tab as Tab
+  },
+)
+/** The Read aloud tab (the reader plugin), if it's there: the 🔊 button opens it. */
+const readerTab = computed(() => plugins.list.some((p) => p.name === 'reader' && p.tab))
 
 /** "/?view=todo.md": a tab with just that document (the viewer's ↗ button). */
 const standaloneView = new URLSearchParams(location.search).get('view')
@@ -1008,7 +1004,8 @@ onBeforeUnmount(() => {
               class="btn-outline theme-secondary attach-button"
               title="Read aloud: paste text and hear it, with the words highlighted"
               aria-label="Read aloud"
-              @click="openReader()"
+              :disabled="!readerTab"
+              @click="tab = 'plugin:reader'"
             >
               🔊
             </button>
@@ -1046,10 +1043,9 @@ onBeforeUnmount(() => {
         </form>
       </div>
 
-      <!-- The side panel: the document viewer or the reader, beside the conversation (over it on narrow screens). -->
-      <aside v-if="viewer.path || reader.open" class="live-viewer">
-        <ReaderPanel v-if="reader.open" />
-        <DocumentViewer v-else />
+      <!-- The side panel: the document viewer, beside the conversation (over it on narrow screens). -->
+      <aside v-if="viewer.path" class="live-viewer">
+        <DocumentViewer />
       </aside>
     </div>
 
@@ -1097,8 +1093,8 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <template v-for="p in plugins.list.filter((x) => x.tab)" :key="p.name">
-      <div v-if="tab === `plugin:${p.name}`" class="row justify-content-center mt-4">
+    <template v-for="p in plugins.list.filter((x) => x.tab && plugins.opened[x.name])" :key="p.name">
+      <div v-show="tab === `plugin:${p.name}`" class="row justify-content-center mt-4">
         <div class="col-12">
           <PluginTab :name="p.name" :url="p.tab!.url" @ask="(text) => ((draft = text), (tab = 'live'))" />
         </div>

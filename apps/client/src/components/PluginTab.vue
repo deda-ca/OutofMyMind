@@ -33,6 +33,10 @@ watch(
   () => plugins.changed[props.name],
   () => post({ jarvis: 'refresh' }),
 )
+watch(
+  () => plugins.host.n,
+  () => post({ jarvis: 'host', event: plugins.host.event }),
+)
 </script>
 
 <template>

@@ -1,0 +1,17 @@
+{
+  "name": "reader",
+  "description": "Read aloud: a page read to the owner in a chosen voice, with the words highlighted.",
+  "command": "node",
+  "args": ["server.ts"],
+  "env": ["AUDIOCPP_URL", "TTS_MODEL", "TTS_VOICE"],
+  "data": true,
+  "tools": {
+    "read_aloud": { "crud": ["create"] },
+    "tab_voices": { "crud": ["read"], "tab": true },
+    "tab_prefs": { "crud": ["update"], "tab": true },
+    "tab_speak": { "crud": ["read"], "tab": true },
+    "tab_take": { "crud": ["read"], "tab": true }
+  },
+  "events": {},
+  "tab": { "title": "Read aloud", "page": "ui/index.html" }
+}

@@ -32,7 +32,7 @@ const TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 /** What a tab page may load: its own files and the kit; no other site, no direct API calls (connect-src). */
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self'; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
 
 export async function pluginRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/plugins', async () => ({

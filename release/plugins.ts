@@ -10,6 +10,9 @@ export const PLUGINS: Record<string, { script: string; run: () => Promise<unknow
   browser: { script: 'plugins/browser/start.ts', run: () => import('../plugins/browser/start.ts') },
   telegram: { script: 'plugins/telegram/server.ts', run: () => import('../plugins/telegram/server.ts') },
   email: { script: 'plugins/email/server.ts', run: () => import('../plugins/email/server.ts') },
+  contacts: { script: 'plugins/contacts/server.ts', run: () => import('../plugins/contacts/server.ts') },
+  calendar: { script: 'plugins/calendar/server.ts', run: () => import('../plugins/calendar/server.ts') },
+  reader: { script: 'plugins/reader/server.ts', run: () => import('../plugins/reader/server.ts') },
   files: {
     script: 'plugins/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js',
     // Starts itself only as the process entry point (build.ts turns that off): start it here.

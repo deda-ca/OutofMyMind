@@ -16,7 +16,27 @@ export const plugins = reactive({
   list: [] as PluginTabInfo[],
   /** Bumped when a plugin's tab should refresh. */
   changed: {} as Record<string, number>,
+  /** Something every open tab is told (Jarvis started or stopped talking), with a counter so the same news twice still arrives. */
+  host: { event: '', n: 0 },
+  /** Tabs opened at least once: kept alive (hidden) when another tab is shown, so a tab that's playing carries on. */
+  opened: {} as Record<string, boolean>,
 })
+
+/** A tab another part of the page wants shown (App.vue switches to it). */
+export const tabRequest = reactive({ tab: '', n: 0 })
+
+/** Hands a document to the Read aloud tab (the reader plugin) and shows it. */
+export async function readAloud(text: string, title: string): Promise<string | null> {
+  const r = await callPluginTool('reader', 'read_aloud', { text, title })
+  if (r.isError) return r.text
+  Object.assign(tabRequest, { tab: 'plugin:reader', n: tabRequest.n + 1 })
+  return null
+}
+
+/** Tells every open plugin tab something about the Jarvis page. */
+export function tellTabs(event: string): void {
+  plugins.host = { event, n: plugins.host.n + 1 }
+}
 
 export async function loadPlugins(): Promise<void> {
   try {

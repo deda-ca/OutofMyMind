@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Read aloud</title>
+    <link rel="stylesheet" href="/plugin-ui/kit/style.css" />
+    <link rel="stylesheet" href="reader.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <strong id="title">Read aloud</strong>
+      <span class="grow"></span>
+      <select id="voice" aria-label="Voice" title="The voice it's read in"></select>
+      <select id="rate" aria-label="Speed" title="Speed"></select>
+      <button id="clear" type="button" title="Clear the page" aria-label="Clear the page" hidden>🗑</button>
+    </header>
+    <div class="controls">
+      <button id="prev" type="button" title="Previous sentence" aria-label="Previous sentence">⏮</button>
+      <button id="play" type="button" class="primary play">▶ Play</button>
+      <button id="stop" type="button" title="Stop" aria-label="Stop">⏹</button>
+      <button id="next" type="button" title="Next sentence" aria-label="Next sentence">⏭</button>
+      <span id="position" class="muted push"></span>
+    </div>
+    <div id="error" class="error" hidden></div>
+    <div id="only-jarvis" class="muted note" hidden>Only Jarvis's voice is available: add another voice in audio.cpp to tell them apart.</div>
+    <main class="page">
+      <article
+        id="text"
+        class="read-text empty"
+        contenteditable="true"
+        spellcheck="true"
+        role="textbox"
+        aria-multiline="true"
+        aria-label="The text to read aloud"
+        data-placeholder="Paste or type here (Markdown is fine). Then press Play; click a word, or select some text, to read from there. Or ask Jarvis to read you something."
+      ></article>
+    </main>
+    <script src="/plugin-ui/kit/bridge.js"></script>
+    <script src="vendor/marked.umd.js"></script>
+    <script src="vendor/purify.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

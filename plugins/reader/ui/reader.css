@@ -1,0 +1,22 @@
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+.bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.grow { flex: 1; }
+#voice { max-width: 12rem; }
+.controls { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.controls .push { margin-left: auto; font-size: 13px; }
+.play { min-width: 6.5rem; }
+#error { padding: 6px 14px; }
+.note { padding: 6px 14px; font-size: 13px; }
+.page { flex: 1; overflow: auto; overscroll-behavior: contain; padding: 16px 20px; min-height: 0; }
+.read-text { line-height: 1.75; font-size: 1.05rem; max-width: 48rem; min-height: 100%; outline: none; cursor: text; }
+.read-text.empty::before { content: attr(data-placeholder); color: var(--fg-3); pointer-events: none; }
+.read-text .rw { border-radius: 0.2rem; }
+/* The sentence: lightly marked where reading will start, clearly while reading. */
+.read-text .rs { background: color-mix(in srgb, #ffc107 14%, transparent); }
+.read-text .rs-active { background: color-mix(in srgb, #ffc107 32%, transparent); }
+/* The word being read, and the start point when stopped. */
+.read-text .rw-now { background: color-mix(in srgb, #ffc107 75%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, #ffc107 75%, transparent); }
+.read-text .rw-start { box-shadow: inset 2px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.read-text pre { opacity: 0.6; padding: 0.75rem 1rem; border-radius: var(--radius); background: var(--soft); }
+.read-text img { max-width: 100%; }

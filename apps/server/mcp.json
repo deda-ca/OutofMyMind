@@ -153,6 +153,9 @@
     },
     "calendar": {
       "plugin": "../../plugins/calendar"
+    },
+    "reader": {
+      "plugin": "../../plugins/reader"
     }
   }
 }

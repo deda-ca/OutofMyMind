@@ -15,7 +15,7 @@ Its AI is **Marvin**: knowledgeable, dependable, slightly sarcastic, and perhaps
 | [apps/server](apps/server/README.md) | The API: live transcription over a WebSocket, talking to the local audio.cpp server |
 | [apps/client](apps/client/README.md) | Web client: microphone, on-device voice detection, transcript, settings and monitor |
 | [apps/android](apps/android/README.md) | Android app (Kotlin): Jarvis from the phone, audio only. Start listening, screen off, until Stop listening |
-| [plugins](plugins/README.md) | Plug-in tools for Jarvis (MCP servers): files, notes, weather, web, browser, scripts, Telegram, email, contacts, calendar. The harness that runs them is in `apps/server/src/harness` |
+| [plugins](plugins/README.md) | Plug-in tools for Jarvis (MCP servers): files, notes, weather, web, browser, scripts, Telegram, email, contacts, calendar, read aloud. The harness that runs them is in `apps/server/src/harness` |
 
 ## Running
 
@@ -72,4 +72,7 @@ How it's put together: [release/build.ts](release/build.ts) (the build, and smal
 | Telegram: chat with Jarvis from anywhere (text, voice notes, photos and files), replies as text and voice notes; Jarvis messages you there | ✅ Built ([docs](docs/telegram.md)) |
 | Plugins: self-contained, with events, triggers, their own tab, and the owner's yes enforced for sending | ✅ Built ([design](docs/plugins.md)) |
 | Email (IMAP/SMTP): watched, kept locally with tags and addresses, an Email tab, triage, sending on your yes | ✅ Built ([docs](docs/email.md)) |
+| Contacts: people with emails and numbers, suggestions learned from email (you decide), vCard import/export, a Contacts tab | ✅ Built ([docs](docs/contacts.md)) |
+| Calendar (CalDAV): agenda, free time, adding and moving events, reminders before them, a Calendar tab | ✅ Built ([docs](docs/calendar.md)) |
+| Read aloud: its own tab (a plugin): paste, a document or text Jarvis hands over, read in a chosen voice with the words highlighted | ✅ Built ([docs](docs/reader.md)) |
 | Tools loaded on demand: heavy plugins (the browser first) listed in one line, their full schemas loaded only when needed | 📝 [Design](docs/tool-loading.md) |

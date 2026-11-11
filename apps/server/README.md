@@ -281,12 +281,7 @@ How full the local model's context is, and with what (`src/assistant/context.ts`
 
 # Read aloud
 
-Paste text (or press 🔊 on a document) and hear it, with the sentence and the word being read highlighted (client: `ReaderPanel.vue`, `reader.ts`; server: `src/assistant/ttsRoutes.ts`). It opens in the side panel where documents show.
-
-- **Voices** come from audio.cpp (`GET /api/tts/voices` → its `/v1/audio/voices`, re-read every minute), so the reader can use a voice other than Jarvis's (`TTS_VOICE`); add one in audio.cpp and it appears in the picker. `POST /api/tts { text, voice }` → WAV, a sentence at a time (at most 1,000 characters); closing or skipping cancels it.
-- **Sentences:** the client renders the text (Markdown or plain), wraps every word, and groups words into sentences (not at "Mr." or "4.5"; long ones split at a comma after ~220 characters; code blocks aren't read). audio.cpp makes speech at ~8× real time, so audio is fetched 2 sentences ahead (gapless) and kept (going back is instant).
-- **Highlighting:** the sentence is exact (its audio is playing); the word is estimated: the clip's length spread over its words by length, a little more at commas and full stops.
-- **Start anywhere:** click a word, or select text, and reading starts there (mid-sentence: only the rest of that sentence is synthesised). Play/pause, stop, previous/next sentence, speed 0.75–1.75× (pitch kept). Jarvis talking pauses it; it carries on after. The browser remembers the text, voice, speed and sentence.
+Now a self-contained plugin with its own tab ([docs/reader.md](../../docs/reader.md), `plugins/reader/`), no longer built into the client. The server's `/api/tts` routes (`src/assistant/ttsRoutes.ts`) stay, for replaying Jarvis's replies.
 
 # Timers, alarms, reminders and tasks
 
