@@ -44,6 +44,7 @@ export type NotifierEvent =
   | { type: 'ended'; id: string; status: Notification['status'] }
   | { type: 'schedules' }
   | { type: 'services' }
+  | { type: 'phone' }
 
 interface Screen {
   id: number

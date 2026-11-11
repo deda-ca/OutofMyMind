@@ -66,3 +66,5 @@ How it's put together: [release/build.ts](release/build.ts) (the build, and smal
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Services: background programs Jarvis writes itself (email first), sandboxed, owner-approved, waking Jarvis with events | 📝 [Design](docs/services.md) |
 | Android app: audio only, through a Bluetooth headset, in the background | 📝 [Spec](docs/android-client.md) |
+| Phone (VoIP.ms): calls through Jarvis from the web client, recorded and transcribed; texts | ✅ Built ([design](docs/phone.md)) |
+| Phone: Marvin answers and screens, three-way calls to your cell, hold-waiting; the Android app as a handset | 📝 [Design](docs/phone.md) |

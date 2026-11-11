@@ -53,6 +53,30 @@ export const config = {
     .split(',')
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean),
+  /** The phone line (docs/phone.md): on when the VoIP.ms SIP settings are there, unless PHONE=off. */
+  phone: {
+    enabled: !/^(0|off|false|no)$/i.test(env('PHONE', 'on')) && Boolean(process.env.VOIPMS_SIP_SERVER?.trim() && process.env.VOIPMS_SIP_USER?.trim() && process.env.VOIPMS_SIP_PASSWORD),
+    server: env('VOIPMS_SIP_SERVER', ''),
+    user: env('VOIPMS_SIP_USER', ''),
+    password: process.env.VOIPMS_SIP_PASSWORD ?? '',
+    /** Jarvis's number (10 digits). */
+    did: env('VOIPMS_DID', ''),
+    /** Caller ID on calls placed for the owner (empty: the DID). */
+    callerId: env('VOIPMS_CALLER_ID', ''),
+    /** The owner's cell (where Marvin rings them; calls to it show the DID). */
+    ownerCell: env('OWNER_CELL', ''),
+    /** Longest call, and outgoing minutes a day (all calls together). */
+    maxCallMinutes: Math.max(1, Number(env('PHONE_MAX_CALL_MINUTES', '120')) || 120),
+    dailyMinutes: Math.max(0, Number(env('PHONE_DAILY_MINUTES', '180')) || 0),
+    /** The REST API, for texts: the login email and the API password. Texts are on when both are set. */
+    apiUser: env('VOIPMS_API_USER', ''),
+    apiPassword: process.env.VOIPMS_API_PASSWORD ?? '',
+    /** Texts Jarvis may send a day, and how often it checks for new ones. */
+    dailyTexts: Math.max(0, Number(env('PHONE_DAILY_TEXTS', '50')) || 0),
+    textPollSeconds: Math.max(10, Number(env('PHONE_TEXT_POLL_SECONDS', '30')) || 30),
+    /** How long an incoming call rings before it's turned away. */
+    ringSeconds: Math.max(5, Number(env('PHONE_RING_SECONDS', '30')) || 30),
+  },
   /** The built web client (apps/client/dist), served at /. Unset: not served (in development Vite serves it). The release binary sets it. */
   siteDir: process.env.SITE_DIR?.trim() ? path.resolve(process.env.SITE_DIR.trim()) : null,
   /**

@@ -49,6 +49,7 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
+| `VOIPMS_*`, `OWNER_CELL`, `PHONE_*` | (unset) | The phone line: calls and texts through VoIP.ms ([docs/phone.md](../../docs/phone.md), settings there). Off unless the SIP settings are set. |
 | `SITE_DIR` | (unset) | Serve the built web client (`apps/client/dist`) from this folder at `/` (`src/site.ts`). The release binary sets it; in development Vite serves the client. |
 | `TLS`, `TLS_CERT`, `TLS_KEY` | `off` (release: `self-signed`) | Serve HTTPS itself (`src/tls.ts`): `self-signed` makes a certificate once in `DATA_DIR/tls` with openssl; `TLS_CERT` + `TLS_KEY` (PEM files) use your own. In development Vite's HTTPS server sits in front, so it's off. |
 | `JARVIS_NODE` | (the running Node) | The Node that runs scripts and services in their sandbox. Under Node that's itself; the release binary (Bun) uses this, or the first `node` on `PATH`. |

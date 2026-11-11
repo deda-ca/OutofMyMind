@@ -25,6 +25,7 @@ import { detectControl, detectListenMode, detectNewSession, type Control } from 
 import { contextMonitor } from './context.ts'
 import { liveScheduleTools, notifier } from '../schedule/index.ts'
 import { liveServiceTools } from '../services/index.ts'
+import { livePhoneTools } from '../phone/index.ts'
 import { Room, type RoomLine } from './room.ts'
 import { LlmError, chatTarget, streamChat, type AgentEvent, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
 import { ProgressSpeaker } from './progress.ts'
@@ -574,6 +575,7 @@ ${updated.body}`, isError: false }
       ...skillTools,
       ...liveScheduleTools(),
       ...liveServiceTools(),
+      ...livePhoneTools(),
       {
         label: 'Jarvis: show file',
         crud: ['read'],

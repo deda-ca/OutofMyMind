@@ -18,6 +18,8 @@ import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
 import { startSchedules, stopSchedules } from './schedule/index.ts'
 import { startServices, stopServices } from './services/index.ts'
+import { startPhone, stopPhone } from './phone/index.ts'
+import { phoneRoutes } from './phone/routes.ts'
 import { serviceRoutes } from './services/routes.ts'
 import { scheduleRoutes } from './schedule/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
@@ -62,6 +64,9 @@ export function buildApp(options: AppOptions): FastifyInstance {
     // Background services Jarvis writes (docs/services.md), with the schedules: started after the plugins.
     app.addHook('onReady', async () => void startServices({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
     app.addHook('onClose', async () => stopServices())
+    // The phone line (docs/phone.md), when VoIP.ms is set up.
+    app.addHook('onReady', async () => void startPhone({ sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
+    app.addHook('onClose', async () => stopPhone())
   }
 
   // Audio arrives as raw bytes.
@@ -129,6 +134,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   void app.register(ttsRoutes)
   void app.register(scheduleRoutes)
   void app.register(serviceRoutes)
+  void app.register(phoneRoutes)
   void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
   if (options.siteDir) siteRoutes(app, options.siteDir)
 

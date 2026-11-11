@@ -15,6 +15,7 @@ import { SpeechPlayer, type PlayerState } from './audio/speechPlayer'
 import { signOut, signedIn } from './auth'
 import AgentsPanel from './components/AgentsPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
+import PhonePanel from './components/PhonePanel.vue'
 import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
 import DebugPanel from './components/DebugPanel.vue'
@@ -46,12 +47,13 @@ import { closeFile, openFile, refreshFile, viewer } from './viewer'
 import { openReader, pause as pauseReader, reader, resume as resumeReader } from './reader'
 import { acknowledge, connectNotifications, disconnectNotifications, notices, unlockSound } from './notifications'
 import { stampsFor } from './stamps'
+import { answer as answerCall, decline as declineCall, hangUp as hangUpCall, joinAudio, phone } from './phone'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
 
 type Status = 'idle' | 'starting' | 'listening' | 'finishing'
-type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'services' | 'debug' | 'monitor'
+type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'services' | 'phone' | 'debug' | 'monitor'
 
 const tab = ref<Tab>('live')
 
@@ -420,6 +422,32 @@ watch(monitorEnabled, (on) => {
 // The Debug tab's switch: the server starts or stops sending LLM traffic on this connection.
 watch(debugEnabled, (on) => transcriber?.setDebug(on))
 
+// A phone call (docs/phone.md): this device carries the audio if it placed or answered the call, or if it's
+// listening when Jarvis places one. Meanwhile Jarvis's own mic is muted: the call isn't for Jarvis.
+watch(
+  () => [phone.call?.id, phone.call?.state, phone.call?.deviceJoined, phone.audioOn] as const,
+  ([id, state, joined, audioOn]) => {
+    const live = Boolean(id && state !== 'ended' && !(phone.call?.direction === 'in' && state === 'ringing'))
+    if (live && !joined && !audioOn && (phone.wantAudio || status.value === 'listening')) void joinAudio()
+  },
+)
+let mutedForCall = false
+watch(
+  () => phone.audioOn,
+  (on) => {
+    if (status.value !== 'listening' || !transcriber) return
+    if (on && !muted.value) {
+      mutedForCall = true
+      muted.value = true
+      transcriber.setMuted(true)
+    } else if (!on && mutedForCall) {
+      mutedForCall = false
+      muted.value = false
+      transcriber.setMuted(false)
+    }
+  },
+)
+
 function toggleMute(): void {
   if (status.value !== 'listening' || !transcriber) return
   muted.value = !muted.value
@@ -689,6 +717,15 @@ onBeforeUnmount(() => {
             ⏱ {{ t.title }} {{ t.clock }}
           </button>
           <button v-if="ringingCount" type="button" class="badge theme-danger" title="Stop what's ringing" @click="acknowledge(null, 'dismiss')">⏰ Stop</button>
+          <template v-if="phone.call && phone.call.direction === 'in' && phone.call.state === 'ringing'">
+            <span class="badge theme-info">📞 {{ phone.call.name || phone.call.display }} is calling</span>
+            <button type="button" class="badge theme-success" @click="answerCall">Answer</button>
+            <button type="button" class="badge theme-danger badge-subtle" @click="declineCall">Decline</button>
+          </template>
+          <template v-else-if="phone.call && phone.call.state !== 'ended'">
+            <button type="button" class="badge theme-info" title="The Phone tab" @click="tab = 'phone'">📞 {{ phone.call.name || phone.call.display }} · {{ phone.call.state === 'active' ? 'on the call' : 'calling…' }}</button>
+            <button type="button" class="badge theme-danger" @click="hangUpCall">Hang up</button>
+          </template>
           <span class="ms-auto"><ContextMeter /></span>
           <button
             type="button"
@@ -744,6 +781,11 @@ onBeforeUnmount(() => {
           <li class="nav-item">
             <button type="button" class="nav-link" :class="{ active: tab === 'services' }" @click="tab = 'services'">
               Services<span v-if="servicesNeedingOwner()" class="badge theme-warning badge-subtle ms-2" title="Waiting for you: approvals or secrets">{{ servicesNeedingOwner() }}</span>
+            </button>
+          </li>
+          <li v-if="phone.enabled" class="nav-item">
+            <button type="button" class="nav-link" :class="{ active: tab === 'phone' }" @click="tab = 'phone'">
+              Phone<span v-if="phone.call" class="badge theme-info badge-subtle ms-2">on a call</span>
             </button>
           </li>
           <li class="nav-item">
@@ -1039,6 +1081,12 @@ onBeforeUnmount(() => {
     <div v-if="tab === 'services'" class="row justify-content-center mt-5">
       <div class="col-12">
         <ServicesPanel />
+      </div>
+    </div>
+
+    <div v-if="tab === 'phone'" class="row justify-content-center mt-5">
+      <div class="col-12">
+        <PhonePanel />
       </div>
     </div>
 
