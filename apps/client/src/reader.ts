@@ -1,7 +1,7 @@
-// Read aloud: pasted text (or a document) spoken in a chosen voice, sentence by
-// sentence (server: POST /api/tts), with the sentence and the word being read
-// highlighted. The panel (ReaderPanel.vue) splits the text into sentences and
-// words; this plays them.
+// Read aloud: text pasted or typed into an editable page (or a document opened
+// there) spoken in a chosen voice, sentence by sentence (server: POST /api/tts),
+// with the sentence and the word being read highlighted. The panel
+// (ReaderPanel.vue) splits the text into sentences and words; this plays them.
 //
 // Audio is fetched a couple of sentences ahead (audio.cpp makes speech about 8×
 // faster than it plays) and kept, so going back is instant. The word being read
@@ -27,11 +27,8 @@ const STORAGE_KEY = 'jarvis.reader'
 const AHEAD = 2
 
 interface Saved {
-  text?: string
-  title?: string
   voice?: string
   rate?: number
-  s?: number
 }
 
 function saved(): Saved {
@@ -46,10 +43,12 @@ const start = saved()
 
 export const reader = reactive({
   open: false,
-  /** The text being read (Markdown or plain). */
-  text: start.text ?? '',
+  /** The Markdown the page starts from (a document, or empty to paste into); edits happen on the page. */
+  source: '',
+  /** Bumped each time the page is (re)loaded from `source`. */
+  version: 0,
   /** Where it came from (a document's name), if not pasted. */
-  title: start.title ?? '',
+  title: '',
   voice: start.voice ?? '',
   rate: start.rate ?? 1,
   voices: [] as string[],
@@ -57,7 +56,7 @@ export const reader = reactive({
   jarvisVoice: '',
   state: 'idle' as 'idle' | 'loading' | 'playing' | 'paused',
   /** The sentence and word being read (or where reading will start). */
-  s: start.s ?? 0,
+  s: 0,
   w: 0,
   total: 0,
   error: '',
@@ -65,7 +64,7 @@ export const reader = reactive({
 
 export function remember(): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ text: reader.text, title: reader.title, voice: reader.voice, rate: reader.rate, s: reader.s } satisfies Saved))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ voice: reader.voice, rate: reader.rate } satisfies Saved))
   } catch {
     // private window: not remembered
   }
@@ -84,16 +83,14 @@ export async function loadVoices(): Promise<void> {
   }
 }
 
-/** Opens the reader with this text (from a document, or empty to paste). */
-export function openReader(text?: string, title = ''): void {
-  if (text !== undefined) {
-    stop()
-    reader.text = text
-    reader.title = title
-    reader.s = 0
-    reader.w = 0
-    remember()
-  }
+/** Opens the reader on this text (a document's Markdown), or on an empty page to paste or type into. */
+export function openReader(text = '', title = ''): void {
+  stop()
+  reader.source = text
+  reader.title = title
+  reader.s = 0
+  reader.w = 0
+  reader.version++
   reader.open = true
 }
 

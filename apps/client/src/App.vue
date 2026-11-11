@@ -45,6 +45,7 @@ import { addFiles, type FileRef } from './uploads'
 import { closeFile, openFile, refreshFile, viewer } from './viewer'
 import { openReader, pause as pauseReader, reader, resume as resumeReader } from './reader'
 import { acknowledge, connectNotifications, disconnectNotifications, notices, unlockSound } from './notifications'
+import { stampsFor } from './stamps'
 
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
@@ -70,6 +71,8 @@ interface Phrase {
   typed?: boolean
   /** Files the owner dropped in (this line is them, not something heard). */
   files?: FileRef[]
+  /** When it started (ms), for the timestamps between groups of messages. */
+  at: number
 }
 
 const status = ref<Status>('idle')
@@ -173,6 +176,17 @@ const buttonLabel = computed(() => {
   }
 })
 
+/** Today (changes at midnight): the timestamps say just the time for today's messages. */
+const today = computed(() => new Date(now.value).toDateString())
+/** The timestamp before each group of messages: saved ones keyed `saved-<i>`, live ones by phrase id. */
+const stamps = computed(() => {
+  void today.value
+  return stampsFor([
+    ...sessions.entries.map((e, i) => ({ key: `saved-${i}`, at: Date.parse(e.at) })),
+    ...recordings.value.flatMap((phrases) => phrases.filter((p) => p.text || p.files || p.jarvis).map((p) => ({ key: p.id, at: p.at }))),
+  ])
+})
+
 const hasText = computed(() => sessions.entries.length > 0 || recordings.value.some((phrases) => phrases.some((p) => p.text)))
 /** One line per phrase (with who said it, and Jarvis's replies) once there are speakers or replies; flowing text otherwise. */
 const hasSpeakers = computed(() =>
@@ -184,7 +198,7 @@ function phraseFor(phrases: Phrase[], id: number): Phrase {
   let phrase = phrases.find((p) => p.id === id)
   if (!phrase) {
     // Phrases can finish out of order; keep them in speaking order.
-    phrases.push({ id, order: id, text: '', final: false })
+    phrases.push({ id, order: id, text: '', final: false, at: Date.now() })
     phrases.sort((a, b) => a.order - b.order)
     phrase = phrases.find((p) => p.id === id)!
   }
@@ -196,7 +210,8 @@ function splitPhrase(phrases: Phrase[], id: number, into: number[]): void {
   const index = phrases.findIndex((p) => p.id === id)
   const order = index === -1 ? id : phrases[index]!.order
   const next = phrases.find((p) => p.order > order)?.order ?? order + 1
-  const pieces = into.map((pieceId, k) => ({ id: pieceId, order: order + ((next - order) * k) / into.length, text: '', final: false }))
+  const started = phrases[index]?.at ?? Date.now()
+  const pieces = into.map((pieceId, k) => ({ id: pieceId, order: order + ((next - order) * k) / into.length, text: '', final: false, at: started }))
   if (index === -1) phrases.push(...pieces)
   else phrases.splice(index, 1, ...pieces)
   phrases.sort((a, b) => a.order - b.order)
@@ -274,7 +289,7 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
   const id = -message.replyId
   if (message.type === 'assistant.start') {
     const to = phrases.find((p) => p.id === message.toPhraseId)
-    phrases.push({ id, order: (to?.order ?? message.toPhraseId) + 0.001, text: '', final: false, jarvis: 'reply' })
+    phrases.push({ id, order: (to?.order ?? message.toPhraseId) + 0.001, text: '', final: false, jarvis: 'reply', at: Date.now() })
     phrases.sort((a, b) => a.order - b.order)
     return
   }
@@ -525,7 +540,7 @@ async function addDroppedFiles(files: File[]): Promise<void> {
     if (!recordings.value.length) recordings.value.push([])
     const current = recordings.value.at(-1)!
     const order = Math.max(0, ...current.map((p) => p.order)) + 0.5
-    current.push({ id: -1_000_000 - nextFilesId++, order, text: '', final: true, files: result.files })
+    current.push({ id: -1_000_000 - nextFilesId++, order, text: '', final: true, files: result.files, at: Date.now() })
     followTranscript.value = true
     // The session list (a new session may have been made by this); harmless if the live connection already said so.
     void sessionsChanged(result.activeId)
@@ -813,7 +828,9 @@ onBeforeUnmount(() => {
           <div ref="transcriptEl" class="card-body text-lg transcript" aria-live="polite" @scroll.passive="onTranscriptScroll">
             <!-- The session's saved messages (from its file), then what's live below. -->
             <div v-if="sessions.entries.length" class="vstack gap-2 mb-4">
-              <div v-for="(entry, i) in sessions.entries" :key="i" class="d-flex gap-3 align-items-baseline">
+              <template v-for="(entry, i) in sessions.entries" :key="i">
+              <div v-if="stamps.get(`saved-${i}`)" class="chat-stamp">{{ stamps.get(`saved-${i}`) }}</div>
+              <div class="d-flex gap-3 align-items-baseline">
                 <span class="text-nowrap"><span class="badge" :class="entryBadge(entry).theme">{{ entryBadge(entry).label }}</span></span>
                 <span class="vstack gap-1">
                   <ToolCallLine
@@ -840,11 +857,14 @@ onBeforeUnmount(() => {
                   <span v-else-if="entry.text" class="saved-text" :class="entry.kind === 'owner' ? '' : 'fg-3'">{{ entry.text }}</span>
                 </span>
               </div>
+              </template>
             </div>
             <template v-for="(phrases, index) in recordings" :key="index">
               <!-- Once your voice is trained, one line per phrase with who said it; before that, flowing text. -->
               <div v-if="phrases.length && hasSpeakers" class="vstack gap-2 mb-4">
-                <div v-for="phrase in phrases" :key="phrase.id" class="d-flex gap-3 align-items-baseline">
+                <template v-for="phrase in phrases" :key="phrase.id">
+                <div v-if="stamps.get(phrase.id)" class="chat-stamp">{{ stamps.get(phrase.id) }}</div>
+                <div class="d-flex gap-3 align-items-baseline">
                   <template v-if="phrase.jarvis">
                     <span class="text-nowrap"><span class="badge theme-info">Jarvis</span></span>
                     <span class="vstack gap-1">
@@ -892,9 +912,11 @@ onBeforeUnmount(() => {
                     </span>
                   </template>
                 </div>
+                </template>
               </div>
               <p v-else-if="phrases.length">
                 <template v-for="phrase in phrases" :key="phrase.id">
+                  <span v-if="stamps.get(phrase.id)" class="chat-stamp">{{ stamps.get(phrase.id) }}</span>
                   <span
                     class="phrase"
                     :class="{ 'fg-3': !phrase.final, 'phrase-editable': phrase.final && phrase.text }"
@@ -1060,6 +1082,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* The timestamp before a group of messages, centred, as in a texting app. */
+.chat-stamp {
+  display: block;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color, rgba(127, 127, 127, 0.8));
+  margin: 0.5rem 0 0.25rem;
+}
 /* The ✎ on your phrases shows on hover (always on touch screens, which can't hover). */
 .edit-phrase {
   padding-block: 0;
