@@ -1,6 +1,6 @@
 # Phone: calls and texts through Jarvis (design)
 
-Status: design written 2026-11-11 from the owner's answers the same day. **Phase 0 done** (registration accepted through `toronto2.voip.ms`; the router changes ports but the provider's keep-alives get through; the API refused the IP until it's allowed). **Phase 1 built** and tested end to end against VoIP.ms's echo test (4443): two-way audio, recording, transcript; not yet tried on a call to a real phone or from the Android app. **Phase 3 (texts) built**, tested against a fake API only (waiting for the API's IP allow-list). **Phase 2 (Marvin answers) built**: Marvin's voice tested on a real call (the echo test: text-to-speech out, the echo heard and transcribed); screening, the three-way call and messages tested with stand-in calls, not yet with a real incoming call (the number's routing still points at the owner's other phones). Phase 4 is next.
+Status: design written 2026-11-11 from the owner's answers the same day. **Phase 0 done** (registration accepted through `toronto2.voip.ms`; the router changes ports but the provider's keep-alives get through; the API refused the IP until it's allowed). **Phase 1 built** and tested end to end against VoIP.ms's echo test (4443): two-way audio, recording, transcript; then used by the owner for a real call placed by Jarvis (connected, talked both ways). Not yet from the Android app. **Phase 3 (texts) built**, tested against a fake API only (waiting for the API's IP allow-list). **Live transcription built.** **Phase 2 (Marvin answers) built**: Marvin's voice tested on a real call (the echo test: text-to-speech out, the echo heard and transcribed); screening, the three-way call and messages tested with stand-in calls, not yet with a real incoming call (the number's routing still points at the owner's other phones). Paused here: see "Next: where we left off" below.
 
 ## The idea
 
@@ -216,6 +216,23 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 - **Pick up**: while Marvin has a call, every screen shows it (who, what Marvin is doing, what they said) with **Pick up**: Marvin steps back, the cell (if ringing) is hung up, and this device takes the call. Screens never join a call Marvin has on their own (the caller would hear the room).
 - **The call log** records how each call was handled (put through, a message, blocked, hung up on Marvin, picked up) with what the caller said; `jarvis__call_log` gives Jarvis the same, marked as from outside.
 - Defaults chosen for the open questions (owner's answers welcome): the owner's own cell calling in is treated like anyone (add it to "always" to skip the question; ringing the cell it's calling from gets "busy", so it ends as a message); no quiet hours or "always" list until set; a caller who asks not to be recorded isn't.
+
+## Next: where we left off (2026-11-11)
+
+Work on the phone paused here. Built so far: phases 1 (calls through Jarvis), 2 (Marvin answers and screens), 3 (texts) and live transcription. To pick it up again:
+
+**First, test what's built** (needs the owner, in the VoIP.ms portal):
+
+- **A real incoming call**: point the DID's routing (`VOIPMS_DID`) at Jarvis's sub-account (`VOIPMS_SIP_USER`), restart the server, and call from a phone other than the owner's cell (Marvin rings that cell, so calling from it ends as a message). One call tests screening, ringing the cell, the three-way call and the live transcript.
+- **Texts**: add the server's public IP to the API's allowed IPs (VoIP.ms → API), then send one text and check a reply arrives within a minute.
+- Still to check from phase 1: how caller ID arrives on another phone (the owner's cell as `VOIPMS_CALLER_ID`, verified at VoIP.ms), and the Montreal 7 POP chosen in the portal vs the `toronto2` server in `.env.local`.
+
+**Then build, in this order:**
+
+1. **Incoming texts start a turn for Jarvis.** Today a text is a notification and a session note. Next: an untrusted turn through the same trigger path as [services](services.md) (the text between `<untrusted>` tags, a limited agent, information never instructions), so Jarvis can tell the owner, summarise, or draft a reply for them to confirm with `jarvis__send_text`. Small.
+2. **Phase 4, step 1: phone menus and waiting on hold.** "Call my bank and get me a person": Marvin goes through the menu (keypad tones already work) toward a goal the owner set, never one from the other side; waits on hold; rings the owner's cell when a person answers and joins them (as in phase 2). The hard part: telling a person from hold music or a recording. Calls Marvin handles on its own come after.
+3. **The Android app as a handset**: the owner takes and places calls through the app and their Bluetooth headset (call audio both ways over the app's connection, like the web client's `/api/phone/audio`). Kotlin work in the Android client ([spec](android-client.md)).
+4. **Version 2: the phone as an MCP plugin** (next section), once the features above have settled.
 
 ## Version 2: the phone as an MCP plugin (planned redesign)
 
