@@ -77,6 +77,10 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
           case 'mute':
             session.mute()
             break
+          case 'talk':
+            if (message.state !== 'start' && message.state !== 'end') return fail('"talk" needs state "start" or "end"')
+            session.talk(message.state)
+            break
           case 'debug':
             session.setDebug(message.enabled === true)
             break

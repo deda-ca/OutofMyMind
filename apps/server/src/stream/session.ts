@@ -85,6 +85,8 @@ interface Phrase {
   speechMsAtLastPartial: number
   /** The early speaker guess has been started (it's made once per phrase). */
   earlyGuessStarted: boolean
+  /** Spoken while push to talk was held: for Jarvis, no wake word needed. */
+  addressed?: boolean
 }
 
 export class StreamSession {
@@ -257,6 +259,26 @@ export class StreamSession {
     this.reportState(true)
   }
 
+  /** Push to talk is held. */
+  private talking = false
+
+  /**
+   * Push to talk (a button held on the phone): what's said while it's held is
+   * for Jarvis, without the wake word (the voice must still be the owner's).
+   * Letting go ends the phrase at once.
+   */
+  talk(state: 'start' | 'end'): void {
+    if (!this.started) return
+    if (state === 'start') {
+      this.talking = true
+      if (this.current) this.current.addressed = true
+      return
+    }
+    this.talking = false
+    if (this.current) this.current.addressed = true
+    this.mute()
+  }
+
   /** Finish the phrase in progress and wait for its final text. */
   async stop(): Promise<void> {
     clearInterval(this.partialTimer)
@@ -326,6 +348,7 @@ export class StreamSession {
           final: false,
           speechMsAtLastPartial: 0,
           earlyGuessStarted: false,
+          ...(this.talking ? { addressed: true } : {}),
         }
       } else if (event.type === 'discard') {
         if (this.current) this.emit({ type: 'phrase.dropped', id: this.current.id })
@@ -467,7 +490,7 @@ export class StreamSession {
     const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold, status === 'ok')
     if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
     const archiveId = await this.archive(phrase, audio, text, status, vector, tag, speechMs)
-    if (status === 'ok') this.assistant?.handle({ id: phrase.id, archiveId, text, speaker: tag })
+    if (status === 'ok') this.assistant?.handle({ id: phrase.id, archiveId, text, speaker: tag, ...(phrase.addressed ? { addressed: true } : {}) })
     else this.assistant?.notForMe()
   }
 

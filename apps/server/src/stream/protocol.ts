@@ -7,6 +7,7 @@
 //   text   {"type":"stop"}                                                          finish and close
 //   text   {"type":"playback","state":"playing"|"paused"|"stopped"|"idle"}          the client's speech player (Jarvis talking)
 //   text   {"type":"text","text":"…"}                                               typed (or edited) text for Jarvis, from the owner
+//   text   {"type":"talk","state":"start"|"end"}                                    push to talk: speech while held is for Jarvis (no wake word); "end" finishes the phrase
 //   binary [float32 LE speech probability][s16le mono PCM samples]                  one VAD frame
 //
 // Server → client
@@ -73,6 +74,8 @@ export type ClientMessage =
   | { type: 'mute' }
   | { type: 'playback'; state: 'playing' | 'paused' | 'stopped' | 'idle' }
   | { type: 'text'; text: string }
+  /** Push to talk (a held button): phrases while held are addressed to Jarvis without the wake word; "end" finishes the phrase now. */
+  | { type: 'talk'; state: 'start' | 'end' }
   /** The Debug tab: send (or stop sending) a copy of every LLM request and response. */
   | { type: 'debug'; enabled: boolean }
 

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The notification icon: the sound-wave mark, one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M4,10h2v4h-2z M8,7h2v10h-2z M11,4h2v16h-2z M14,7h2v10h-2z M18,10h2v4h-2z" />
+</vector>

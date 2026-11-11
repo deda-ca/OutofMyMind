@@ -69,6 +69,8 @@ export interface AssistantPhrase {
   archiveId: number | null
   text: string
   speaker: SpeakerTag | undefined
+  /** Said while push to talk was held: meant for Jarvis, no wake word needed (the voice still has to be the owner's). */
+  addressed?: boolean
 }
 
 export interface AssistantOptions {
@@ -252,7 +254,8 @@ export class Assistant {
     // is ignored.
     // "Jarvis, new session": the owner only, when talking to Jarvis.
     // Commands count only when addressed to Jarvis: with its name, or in a conversation (unless "wake word only").
-    const addressed = hasWakeWord(text) || (this.state === 'conversation' && !this.wakeWordOnly)
+    const pushed = phrase.addressed === true
+    const addressed = pushed || hasWakeWord(text) || (this.state === 'conversation' && !this.wakeWordOnly)
     if (authorised && detectNewSession(text) && addressed) {
       this.state = 'conversation'
       this.newSession(phrase)
@@ -271,7 +274,7 @@ export class Assistant {
 
     const control = detectControl(text)
     const clearlySomeoneElse = this.o.ownerTrained() && phrase.speaker?.isOwner === false && phrase.speaker.confidence === 'high'
-    const listening = this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused' || hasWakeWord(text)
+    const listening = this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused' || hasWakeWord(text) || pushed
     if (control && listening && !clearlySomeoneElse && this.lastAnswerId > 0) {
       this.control(control)
       this.o.saveReply(phrase.archiveId, 'control', control, 0, null)
@@ -294,14 +297,14 @@ export class Assistant {
         return true
       }
       // "Wake word only": the owner may be talking to someone else; only "Jarvis, …" is for Jarvis.
-      if (this.wakeWordOnly && !hasWakeWord(text)) return false
+      if (this.wakeWordOnly && !hasWakeWord(text) && !pushed) return false
       this.extendFollowUp()
       this.request(phrase, text)
       return true
     }
 
     // Idle.
-    if (!authorised || !hasWakeWord(text) || isDismissal(text, false)) return false
+    if (!authorised || !(pushed || hasWakeWord(text)) || isDismissal(text, false)) return false
     this.state = 'conversation'
     this.extendFollowUp()
     if (isWakeOnly(text)) this.say(phrase, 'wake', 'Yes?')
@@ -361,7 +364,7 @@ export class Assistant {
     this.lastAnswerId = replyId
     this.o.emit({ type: 'assistant.start', replyId, toPhraseId: phrase.id })
     this.record({ kind: 'owner', at: new Date().toISOString(), text, ...(phrase.archiveId ? { phraseId: phrase.archiveId } : {}) })
-    const sentences = new SentenceSplitter()
+    const sentences = new SentenceSplitter({ quickStart: true })
     let seq = 0
     let partial = ''
     const abort = new AbortController()
@@ -408,7 +411,7 @@ export class Assistant {
     try {
       const answer = await this.ask(target, this.messagesFor(agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence, agent.voice)
-      const clean = answer.text.trim()
+      const clean = answer.text.replace(/^\s*<think>[\s\S]*?<\/think>/, '').trim()
       const tools = toolUses(answer.steps)
       this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean, ...(tools.length ? { tools } : {}) })
       if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })

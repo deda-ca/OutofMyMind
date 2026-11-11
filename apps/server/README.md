@@ -90,6 +90,7 @@ The client stays thin. It runs a voice detector (Silero VAD) on the device and s
 | Binary: `[float32 LE speech probability 0–1][s16le mono PCM]` | One VAD frame (512 samples = 32 ms). |
 | `{"type":"settings","settings":{…}}` | Any time; applies immediately. |
 | `{"type":"stop"}` | Finish: the server ends the open phrase, sends its final text, `stopped`, then closes. |
+| `{"type":"talk","state":"start"\|"end"}` | Push to talk (the Android app's held button): what's said while it's held is for Jarvis without the wake word (the voice must still be the owner's); `end` finishes the phrase at once. |
 | `{"type":"playback","state":"playing"\|"paused"\|"stopped"\|"idle"}` | What the client's speech player is doing (Jarvis talking). The follow-up countdown waits while it's playing or paused, and short phrases are kept while Jarvis is talking. |
 | `{"type":"text","text":"…"}` | Typed, pasted or corrected text from the owner's screen (conversation mode, up to 8000 characters). Echoed back as a final `phrase` with `"typed":true` and an owner speaker tag, archived without audio, and always handled as addressed to Jarvis: no wake word or voiceprint needed. |
 

@@ -46,3 +46,22 @@ test('a whole reply as spoken: sentences, markdown cleaned, long ones cut for te
   assert.equal(pieces.join(' '), long)
   assert.match(pieces[0]!, /,$/)
 })
+
+test('quick start: a reply first says its first clause, if it has one long enough', () => {
+  const s = new SentenceSplitter({ quickStart: true })
+  assert.deepEqual(s.push('Sure, the weather today'), [])
+  assert.deepEqual(s.push(' is sunny, with a high of 20. It may'), ['Sure, the weather today is sunny,', 'with a high of 20.'])
+  assert.deepEqual(s.push(' rain later, so take a coat. '), ['It may rain later, so take a coat.'])
+})
+
+test('quick start: short clauses, numbers and times are not split off', () => {
+  const s = new SentenceSplitter({ quickStart: true })
+  assert.deepEqual(s.push('Yes, sir, I can hear you. '), ['Yes, sir, I can hear you.'])
+  const n = new SentenceSplitter({ quickStart: true })
+  assert.deepEqual([...n.push('It costs 1,000 dollars at 10:30 today. '), ...n.flush()], ['It costs 1,000 dollars at 10:30 today.'])
+})
+
+test('an empty thinking block is not said aloud', () => {
+  assert.equal(forSpeech('<think>'), '')
+  assert.equal(forSpeech('</think>'), '')
+})

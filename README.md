@@ -6,6 +6,7 @@ A private, fully local voice assistant. Talk naturally; speech is transcribed li
 | --- | --- |
 | [apps/server](apps/server/README.md) | The API: live transcription over a WebSocket, talking to the local audio.cpp server |
 | [apps/client](apps/client/README.md) | Web client: microphone, on-device voice detection, transcript, settings and monitor |
+| [apps/android](apps/android/README.md) | Android app (Kotlin): Jarvis from the phone, audio only. Start listening, screen off, until Stop listening |
 | [mcp-plugins](mcp-plugins/README.md) | Plug-in tools for Jarvis (MCP servers): notes so far. The harness that runs them is in `apps/server/src/harness` |
 
 ## Running
@@ -47,4 +48,4 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 | More plugins: calendar, files, … | Planned |
 | Jarvis: tools (name people, grants, keep), echo handling for speakers, overlapping speech | 📝 [Design](docs/speaker-recognition.md) |
 | Services: background programs Jarvis writes itself (email first), sandboxed, owner-approved, waking Jarvis with events | 📝 [Design](docs/services.md) |
-| Android app | Planned |
+| Android app: audio only, through a Bluetooth headset, in the background | 📝 [Spec](docs/android-client.md) |

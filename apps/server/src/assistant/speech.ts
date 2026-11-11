@@ -41,6 +41,8 @@ export async function ttsVoices(): Promise<string[]> {
 /** Makes LLM text sound right when read aloud (no markdown symbols, no URLs spelled out). */
 export function forSpeech(text: string): string {
   return text
+    // An empty thinking block the model sometimes writes even with thinking off; never said aloud.
+    .replace(/<\/?think>/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`([^`]*)`/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
@@ -87,11 +89,31 @@ export function spokenSentences(text: string): string[] {
 export class SentenceSplitter {
   private buffer = ''
   private static readonly MIN_LENGTH = 12
+  /** Words a first clause needs before it's said on its own ("Sure, the weather today," not "Yes, sir,"). */
+  private static readonly FIRST_CLAUSE_WORDS = 4
+  private started = false
+
+  /**
+   * quickStart: the reply's first piece ends at its first clause (a comma,
+   * colon, semicolon or dash) when that comes before the sentence's end, so
+   * text-to-speech has less to say before Jarvis makes a sound (synthesis takes
+   * about a third of the audio's length, and a long first sentence held the
+   * start back by over a second). The rest is synthesised while it plays.
+   */
+  private readonly options: { quickStart?: boolean }
+
+  constructor(options: { quickStart?: boolean } = {}) {
+    this.options = options
+  }
 
   /** Adds streamed text; returns any sentences now complete. */
   push(delta: string): string[] {
     this.buffer += delta
     const out: string[] = []
+    if (this.options.quickStart && !this.started) {
+      const clause = this.firstClause()
+      if (clause) out.push(clause)
+    }
     for (;;) {
       // Sentence end: . ! ? … (optionally followed by quotes/brackets) then whitespace, or a line break.
       const match = /([.!?…]+["')\]]*\s+|\n+)/.exec(this.buffer)
@@ -110,7 +132,24 @@ export class SentenceSplitter {
       if (sentence) out.push(sentence)
       this.buffer = this.buffer.slice(end)
     }
+    if (out.length) this.started = true
     return out
+  }
+
+  /** The first clause, if it's complete, long enough, and ends before the first sentence does. */
+  private firstClause(): string | undefined {
+    const sentenceEnd = /([.!?…]+["')\]]*\s+|\n+)/.exec(this.buffer)
+    const limit = sentenceEnd ? sentenceEnd.index : this.buffer.length
+    // Followed by a space, so "1,000" and "10:30" aren't clause breaks.
+    const breaks = /[,;:—–]\s+/g
+    for (let m = breaks.exec(this.buffer); m && m.index < limit; m = breaks.exec(this.buffer)) {
+      const clause = this.buffer.slice(0, m.index + 1).trim()
+      if (clause.split(/\s+/).length < SentenceSplitter.FIRST_CLAUSE_WORDS) continue
+      this.buffer = this.buffer.slice(m.index + m[0].length)
+      this.started = true
+      return clause
+    }
+    return undefined
   }
 
   /** Whatever is left at the end of the reply. */
