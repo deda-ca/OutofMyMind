@@ -8,6 +8,7 @@ export const PLUGINS: Record<string, { script: string; run: () => Promise<unknow
   scripts: { script: 'mcp-plugins/scripts/server.ts', run: () => import('../mcp-plugins/scripts/server.ts') },
   web: { script: 'mcp-plugins/web/server.ts', run: () => import('../mcp-plugins/web/server.ts') },
   browser: { script: 'mcp-plugins/browser/start.ts', run: () => import('../mcp-plugins/browser/start.ts') },
+  telegram: { script: 'mcp-plugins/telegram/server.ts', run: () => import('../mcp-plugins/telegram/server.ts') },
   files: {
     script: 'mcp-plugins/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js',
     // Starts itself only as the process entry point (build.ts turns that off): start it here.

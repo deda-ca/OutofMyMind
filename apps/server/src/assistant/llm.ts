@@ -4,6 +4,7 @@
 import { config } from '../config.ts'
 import { contextMonitor } from './context.ts'
 import { llmTap, teeBody, traceHeaders } from './llmTap.ts'
+import { attachImages } from './vision.ts'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant'
@@ -112,7 +113,10 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
 
   let response: Response
   try {
-    response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(json), signal })
+    // Images the owner added go as images (vision.ts); the trace above keeps the readable text.
+    const messages = (json as { messages?: unknown }).messages
+    const sent = config.llmVision && Array.isArray(messages) ? { ...json, messages: attachImages(messages as { role: string; content?: unknown }[]) } : json
+    response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(sent), signal })
   } catch (err) {
     traceResponse(0, {}, '', null, signal?.aborted ? 'aborted' : (err as Error).message)
     if (signal?.aborted) throw err

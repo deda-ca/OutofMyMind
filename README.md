@@ -69,3 +69,5 @@ How it's put together: [release/build.ts](release/build.ts) (the build, and smal
 | Phone (VoIP.ms): calls through Jarvis from the web client, recorded and transcribed; texts | ✅ Built ([design](docs/phone.md)) |
 | Phone: Marvin answers and screens, rings your cell, three-way calls, messages; rules (always, blocked, quiet hours) | ✅ Built ([design](docs/phone.md)) |
 | Phone: hold-waiting and phone menus for you; the Android app as a handset | 📝 [Design](docs/phone.md) |
+| Telegram: chat with Jarvis from anywhere (text, voice notes, photos and files), replies as text and voice notes; Jarvis messages you there | ✅ Built ([docs](docs/telegram.md)) |
+| Tools loaded on demand: heavy plugins (the browser first) listed in one line, their full schemas loaded only when needed | 📝 [Design](docs/tool-loading.md) |

@@ -3,6 +3,7 @@
 
 import path from 'node:path'
 import { config } from '../config.ts'
+import { IMAGE_FILE, imageMark } from '../assistant/vision.ts'
 import { formatSize } from '../files/workspaceFiles.ts'
 import type { LoopMessage, ToolCall } from '../harness/loop.ts'
 import type { SessionEntry, ToolUse } from './format.ts'
@@ -94,13 +95,15 @@ const READABLE = /\.(md|markdown|txt|csv|tsv|json|ya?ml|xml|html?|log|ini|toml)$
  * need them), and what it can and can't do with each.
  */
 export function filesMessage(files: { path: string; name: string; type: string; size: number }[], note = ''): string {
-  const lines = files.map((f) => `- ${path.join(config.workspaceDir, f.path)} (${f.type || 'unknown type'}, ${formatSize(f.size)}${READABLE.test(f.name) ? ', text you can read' : ''})`)
-  const media = files.some((f) => !READABLE.test(f.name))
+  // With a model that sees (LLM_VISION=on), images are marked to be attached when the request is sent (assistant/vision.ts).
+  const seen = (f: { name: string; path: string }) => config.llmVision && IMAGE_FILE.test(f.name || f.path)
+  const lines = files.map((f) => `- ${path.join(config.workspaceDir, f.path)} (${f.type || 'unknown type'}, ${formatSize(f.size)}${READABLE.test(f.name) ? ', text you can read' : ''})${seen(f) ? ` ${imageMark(f.path)}` : ''}`)
+  const media = files.some((f) => !READABLE.test(f.name) && !seen(f))
   return [
     `(The owner added ${files.length === 1 ? 'a file' : `${files.length} files`} to the conversation, saved in your workspace:`,
     ...lines,
     `To save or file ${files.length === 1 ? 'it' : 'them'} somewhere, use your file tools: create the folder if needed, then move_file (or copy_file) to the place the owner names, inside the workspace.` +
-      (media ? " You can't see inside images, audio, video or PDFs yet: don't describe or guess their contents; say so if asked." : '') +
+      (media ? ` You can't see inside ${config.llmVision ? 'audio, video or PDFs' : 'images, audio, video or PDFs'} yet: don't describe or guess their contents; say so if asked.` : '') +
       (note ? `\nThe owner's note with ${files.length === 1 ? 'it' : 'them'}: ${note}` : '') +
       ')',
   ].join('\n')

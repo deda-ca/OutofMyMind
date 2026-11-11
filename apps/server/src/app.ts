@@ -19,6 +19,7 @@ import { toolRoutes } from './harness/routes.ts'
 import { startSchedules, stopSchedules } from './schedule/index.ts'
 import { startServices, stopServices } from './services/index.ts'
 import { startPhone, stopPhone } from './phone/index.ts'
+import { startTelegram, stopTelegram } from './telegram/index.ts'
 import { phoneRoutes } from './phone/routes.ts'
 import { serviceRoutes } from './services/routes.ts'
 import { scheduleRoutes } from './schedule/routes.ts'
@@ -67,6 +68,8 @@ export function buildApp(options: AppOptions): FastifyInstance {
     // The phone line (docs/phone.md), when VoIP.ms is set up.
     app.addHook('onReady', async () => void startPhone({ sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
     app.addHook('onClose', async () => stopPhone())
+    app.addHook('onReady', async () => void startTelegram({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) }))
+    app.addHook('onClose', async () => stopTelegram())
   }
 
   // Audio arrives as raw bytes.

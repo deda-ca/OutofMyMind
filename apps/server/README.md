@@ -49,6 +49,8 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
+| `LLM_VISION` | `off` | `on` when the LLM can see images (a vision model: llama.cpp with its `--mmproj` image projector). Photos the owner adds (on a screen, or from Telegram) are then sent to it as images: the latest 3 in the conversation, up to 8 MB each ([vision.ts](src/assistant/vision.ts)). Off: it's told it can't see them. |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_CHAT_ID`, `TELEGRAM`, `TELEGRAM_VOICE_REPLIES` | (unset) | Telegram: the owner chats with Jarvis from Telegram (text, voice notes, photos and files; replies as text and voice notes), and the telegram plugin sends them messages and files ([docs/telegram.md](../../docs/telegram.md)). `TELEGRAM=off`: no chatting, sending only. |
 | `VOIPMS_*`, `OWNER_CELL`, `PHONE_*` | (unset) | The phone line: calls and texts through VoIP.ms ([docs/phone.md](../../docs/phone.md), settings there). Off unless the SIP settings are set. |
 | `SITE_DIR` | (unset) | Serve the built web client (`apps/client/dist`) from this folder at `/` (`src/site.ts`). The release binary sets it; in development Vite serves the client. |
 | `TLS`, `TLS_CERT`, `TLS_KEY` | `off` (release: `self-signed`) | Serve HTTPS itself (`src/tls.ts`): `self-signed` makes a certificate once in `DATA_DIR/tls` with openssl; `TLS_CERT` + `TLS_KEY` (PEM files) use your own. In development Vite's HTTPS server sits in front, so it's off. |

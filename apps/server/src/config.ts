@@ -44,6 +44,8 @@ export const config = {
   accessKey: process.env.ACCESS_KEY,
   /** Optional: the owner's name, for the assistant's prompt. */
   ownerName: env('OWNER_NAME', ''),
+  /** The LLM can see images (a vision model: llama.cpp with --mmproj): photos the owner adds are sent as images (assistant/vision.ts). */
+  llmVision: /^(1|on|true|yes)$/i.test(env('LLM_VISION', 'off')),
   /** Background services Jarvis writes (docs/services.md). On unless SERVICES=off. */
   services: !/^(0|off|false|no)$/i.test(env('SERVICES', 'on')),
   /** LLM turns all services together may start in a day. */
@@ -78,6 +80,14 @@ export const config = {
     ringSeconds: Math.max(5, Number(env('PHONE_RING_SECONDS', '30')) || 30),
     /** What the assistant calls itself when it answers the phone. */
     assistantName: env('PHONE_ASSISTANT_NAME', 'Marvin'),
+  },
+  /** Telegram (docs/telegram.md): the owner chats with Jarvis from Telegram; on when both are set, unless TELEGRAM=off. */
+  telegram: {
+    enabled: !/^(0|off|false|no)$/i.test(env('TELEGRAM', 'on')) && Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim() && process.env.TELEGRAM_OWNER_CHAT_ID?.trim()),
+    token: process.env.TELEGRAM_BOT_TOKEN?.trim() ?? '',
+    ownerChatId: env('TELEGRAM_OWNER_CHAT_ID', ''),
+    /** Replies as a voice note too: always (default), only when the owner sent a voice note ("voice"), or never ("off"). */
+    voiceReplies: ((v) => (v === 'off' || v === 'voice' ? v : 'always'))(env('TELEGRAM_VOICE_REPLIES', 'always').toLowerCase()) as 'always' | 'voice' | 'off',
   },
   /** The built web client (apps/client/dist), served at /. Unset: not served (in development Vite serves it). The release binary sets it. */
   siteDir: process.env.SITE_DIR?.trim() ? path.resolve(process.env.SITE_DIR.trim()) : null,
