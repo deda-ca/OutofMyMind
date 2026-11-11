@@ -49,8 +49,21 @@ export function findBwrap(explicit?: string): string | null {
   return null
 }
 
+/**
+ * The Node that runs scripts: never Bun, since Node's permission model is half
+ * the sandbox. Under Node, this one; in the release binary (Bun), JARVIS_NODE
+ * or the first node on PATH.
+ */
+export function findNode(): string | null {
+  if (!process.versions.bun) return fs.realpathSync(process.execPath)
+  const onPath = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean).map((dir) => path.join(dir, 'node'))
+  for (const candidate of [process.env.JARVIS_NODE, ...onPath]) if (candidate && fs.existsSync(candidate)) return fs.realpathSync(candidate)
+  return null
+}
+
 /** Checks the sandbox can start here (user namespaces may be disabled); null if fine, else why not. */
 export function checkSandbox(bwrap: string | null): string | null {
+  if (!findNode()) return 'Node.js 24 is not installed (scripts run on Node): install it, or set JARVIS_NODE'
   if (!bwrap) return 'bubblewrap (bwrap) is not installed: sudo apt install bubblewrap'
   const r = spawnSync(bwrap, ['--ro-bind', '/', '/', '--unshare-all', '--die-with-parent', 'true'], { encoding: 'utf8', timeout: 5000 })
   return r.status === 0 ? null : `bubblewrap can't start a sandbox here: ${(r.stderr || r.error?.message || `exit ${r.status}`).trim()}`
@@ -62,7 +75,8 @@ export function runFile(file: string, args: string[], opts: SandboxOptions): Pro
   const readDir = fs.realpathSync(opts.readDir)
   fs.mkdirSync(opts.writeDir, { recursive: true })
   const writeDir = fs.realpathSync(opts.writeDir)
-  const node = fs.realpathSync(process.execPath)
+  const node = findNode()
+  if (!node) return Promise.reject(new Error('Node.js is not installed (set JARVIS_NODE)'))
   // Node's own folder (e.g. ~/.nvm/versions/node/v24…), unless it's already under /usr.
   const nodeHome = path.dirname(path.dirname(node))
   const before = snapshot(writeDir)

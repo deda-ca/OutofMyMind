@@ -10,6 +10,7 @@
     "dev:server": "npm --prefix apps/server run dev",
     "dev:client": "npm --prefix apps/client run dev",
     "setup": "npm install && npm --prefix apps/server install && npm --prefix apps/client install && npm --prefix mcp-plugins install",
+    "build": "bun release/build.ts",
     "typecheck": "npm --prefix apps/server run typecheck && npm --prefix apps/client run typecheck && npm --prefix mcp-plugins run typecheck"
   },
   "devDependencies": {

@@ -53,6 +53,16 @@ export const config = {
     .split(',')
     .map((h) => h.trim().toLowerCase())
     .filter(Boolean),
+  /** The built web client (apps/client/dist), served at /. Unset: not served (in development Vite serves it). The release binary sets it. */
+  siteDir: process.env.SITE_DIR?.trim() ? path.resolve(process.env.SITE_DIR.trim()) : null,
+  /**
+   * HTTPS (src/tls.ts): "off", or "self-signed" (a certificate made once in DATA_DIR/tls).
+   * TLS_CERT and TLS_KEY (PEM files) override both. Off under Node, where Vite's
+   * HTTPS dev server sits in front; the release binary defaults to self-signed.
+   */
+  tls: env('TLS', 'off'),
+  tlsCert: process.env.TLS_CERT?.trim() ? path.resolve(process.env.TLS_CERT.trim()) : null,
+  tlsKey: process.env.TLS_KEY?.trim() ? path.resolve(process.env.TLS_KEY.trim()) : null,
   /** Voiceprint model (npm run fetch-models). Speaker recognition is off if the file is missing. */
   voiceprintModel: path.resolve(env('VOICEPRINT_MODEL', 'models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx')),
 } as const

@@ -12,8 +12,8 @@
 // run then.
 //
 // Not kept (DATA_DIR/.gitignore, written once; edit it to change): the
-// database, the audio archive, the browser profile and the access key: big,
-// binary, changing all the time, or secret.
+// database, the audio archive, the browser profile, the access key and the
+// HTTPS key: big, binary, changing all the time, or secret.
 //
 // On by default; DATA_HISTORY=off turns it off.
 
@@ -30,13 +30,14 @@ export const GITIGNORE = `# Jarvis data history: what is NOT kept in it (big, bi
 /access-key
 /secrets.json
 /services/
+/tls/
 /workspace/scripts/tmp/
 *.tmp
 *.swp
 `
 
 /** Always ignored, even in a .gitignore the owner edited: secrets, and big or churning runtime folders. */
-const REQUIRED_IGNORES = ['/access-key', '/secrets.json', '/services/']
+const REQUIRED_IGNORES = ['/access-key', '/secrets.json', '/services/', '/tls/']
 
 export interface HistoryOptions {
   /** The data folder: the repository's root. */
@@ -51,7 +52,7 @@ export interface HistoryOptions {
 }
 
 /** Folders and files under DATA_DIR not watched (ignored, or churning without anything to keep). */
-const UNWATCHED = /^(\.git|audio|browser|services|jarvis\.db.*|access-key|secrets\.json)(\/|$)|(^|\/)scripts\/tmp(\/|$)|\.(tmp|swp)$/
+const UNWATCHED = /^(\.git|audio|browser|services|tls|jarvis\.db.*|access-key|secrets\.json)(\/|$)|(^|\/)scripts\/tmp(\/|$)|\.(tmp|swp)$/
 
 export class DataHistory {
   private readonly o: Required<HistoryOptions>

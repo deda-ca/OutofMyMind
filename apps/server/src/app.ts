@@ -21,6 +21,7 @@ import { startServices, stopServices } from './services/index.ts'
 import { serviceRoutes } from './services/routes.ts'
 import { scheduleRoutes } from './schedule/routes.ts'
 import { sessionRoutes } from './sessions/routes.ts'
+import { siteRoutes } from './site.ts'
 import { SessionStore } from './sessions/store.ts'
 import { SkillLibrary } from './skills/library.ts'
 import { skillRoutes } from './skills/routes.ts'
@@ -32,8 +33,20 @@ import { streamRoute } from './stream/route.ts'
 /** 30 s of 16 kHz s16le mono is ~1 MB; anything far beyond that is a mistake. */
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
-export function buildApp(options: { voiceprintModel: VoiceprintModel | null; accessKey: string; schedules?: boolean }): FastifyInstance {
-  const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } })
+export interface AppOptions {
+  voiceprintModel: VoiceprintModel | null
+  accessKey: string
+  schedules?: boolean
+  /** Serve HTTPS (src/tls.ts). */
+  https?: { key: Buffer; cert: Buffer }
+  /** Serve the built web client from this folder at / (src/site.ts). */
+  siteDir?: string | null
+}
+
+export function buildApp(options: AppOptions): FastifyInstance {
+  const logger = { level: process.env.LOG_LEVEL ?? 'info' }
+  // (Fastify types an HTTPS instance differently; the routes don't care.)
+  const app = (options.https ? Fastify({ logger, https: options.https }) : Fastify({ logger })) as FastifyInstance
   const db = openDatabase(config.dataDir)
   const archive = new Archive(db, config.dataDir)
   const speakers = new Speakers(db, config.dataDir, options.voiceprintModel)
@@ -61,9 +74,12 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   // Browsers always send Origin on POST and WebSocket; only our own web client may call us.
   // Non-browser clients (native apps, curl) send none. The server only listens
   // on localhost by default, so only local processes can reach it at all.
+  // When this server serves the web client itself (SITE_DIR), the client calls from this server's own origin.
+  const scheme = options.https ? 'https' : 'http'
+  const ownOrigin = (origin: string, host: string | undefined) => Boolean(options.siteDir && host && origin === `${scheme}://${host}`)
   app.addHook('onRequest', async (req, reply) => {
     const origin = req.headers.origin
-    if (origin && !config.allowedOrigins.includes(origin)) {
+    if (origin && !config.allowedOrigins.includes(origin) && !ownOrigin(origin, req.headers.host)) {
       return reply.code(403).send({ error: `Origin not allowed: ${origin}` })
     }
   })
@@ -114,6 +130,7 @@ export function buildApp(options: { voiceprintModel: VoiceprintModel | null; acc
   void app.register(scheduleRoutes)
   void app.register(serviceRoutes)
   void app.register(fileRoutes, { workspaceDir: config.workspaceDir, sessions })
+  if (options.siteDir) siteRoutes(app, options.siteDir)
 
   return app
 }

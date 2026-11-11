@@ -14,7 +14,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const KIT_DIR = fileURLToPath(new URL('./kit/', import.meta.url))
+/** The kit (./kit), or the copy the release binary unpacks (JARVIS_KIT_DIR): bwrap needs a real folder. */
+export const KIT_DIR = process.env.JARVIS_KIT_DIR || fileURLToPath(new URL('./kit/', import.meta.url))
 
 export interface RunOptions {
   /** The approved copy (with its node_modules): /service. */
@@ -47,8 +48,21 @@ export function findBwrap(explicit?: string): string | null {
   return null
 }
 
+/**
+ * The Node that runs services: never Bun, since Node's permission model is half
+ * the sandbox. Under Node, the one running the server; in the release binary
+ * (Bun), JARVIS_NODE or the first node on PATH.
+ */
+export function findNode(): string | null {
+  if (!process.versions.bun) return fs.realpathSync(process.execPath)
+  const onPath = (process.env.PATH ?? '').split(path.delimiter).filter(Boolean).map((dir) => path.join(dir, 'node'))
+  for (const candidate of [process.env.JARVIS_NODE, ...onPath]) if (candidate && fs.existsSync(candidate)) return fs.realpathSync(candidate)
+  return null
+}
+
 /** Null if sandboxes can start here, else why not. */
 export function checkSandbox(bwrap = findBwrap()): string | null {
+  if (!findNode()) return 'Node.js 24 is not installed (services run on Node): install it, or set JARVIS_NODE'
   if (!bwrap) return 'bubblewrap (bwrap) is not installed: sudo apt install bubblewrap'
   const r = spawnSync(bwrap, ['--ro-bind', '/', '/', '--unshare-all', '--die-with-parent', 'true'], { encoding: 'utf8', timeout: 5000 })
   return r.status === 0 ? null : `bubblewrap can't start a sandbox here: ${(r.stderr || r.error?.message || `exit ${r.status}`).trim()}`
@@ -57,7 +71,8 @@ export function checkSandbox(bwrap = findBwrap()): string | null {
 export function runService(o: RunOptions): Promise<RunResult> {
   const bwrap = findBwrap(o.bwrap)
   if (!bwrap) return Promise.reject(new Error('bubblewrap (bwrap) is not installed'))
-  const node = fs.realpathSync(process.execPath)
+  const node = findNode()
+  if (!node) return Promise.reject(new Error('Node.js is not installed (set JARVIS_NODE)'))
   const nodeHome = path.dirname(path.dirname(node))
   fs.mkdirSync(o.stateDir, { recursive: true })
   const main = path.posix.join('/service', o.main)

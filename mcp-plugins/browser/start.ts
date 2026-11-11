@@ -22,11 +22,12 @@ import { browserDir, endpoint, ensureChrome } from './chrome.ts'
 const output = path.join(browserDir, 'output')
 fs.mkdirSync(output, { recursive: true })
 
-const cli = fileURLToPath(new URL('../node_modules/@playwright/mcp/cli.js', import.meta.url))
+// In the release binary (JARVIS_BIN), Playwright MCP is built in: `jarvis plugin playwright`.
+const cli = process.env.JARVIS_BIN ? ['plugin', 'playwright'] : [fileURLToPath(new URL('../node_modules/@playwright/mcp/cli.js', import.meta.url))]
 const playwright = spawn(
-  process.execPath,
+  process.env.JARVIS_BIN ?? process.execPath,
   [
-    cli,
+    ...cli,
     '--cdp-endpoint',
     endpoint,
     '--output-dir',

@@ -7,10 +7,12 @@ import { config } from './config.ts'
 import { harness } from './harness/index.ts'
 import { DataHistory } from './history/history.ts'
 import { VoiceprintModel } from './speaker/voiceprint.ts'
+import { loadTls } from './tls.ts'
 
 const voiceprintModel = await VoiceprintModel.load(config.voiceprintModel, (message) => console.warn(message))
 const access = loadAccessKey(config.dataDir, config.accessKey)
-const app = buildApp({ voiceprintModel, accessKey: access.key, schedules: true })
+const tls = loadTls(config)
+const app = buildApp({ voiceprintModel, accessKey: access.key, schedules: true, https: tls ?? undefined, siteDir: config.siteDir })
 app.addHook('onClose', () => harness.close())
 // The file tools' folder must exist before their plugin starts (it refuses to run without it).
 fs.mkdirSync(config.workspaceDir, { recursive: true })
@@ -34,6 +36,8 @@ try {
   await app.listen({ host: config.host, port: config.port })
   app.log.info(`audio.cpp at ${config.audiocppUrl}; allowed origins: ${config.allowedOrigins.join(', ')}`)
   app.log.info(voiceprintModel ? `speaker recognition on (${voiceprintModel.name})` : 'speaker recognition off')
+  if (tls) app.log.info(`HTTPS (${tls.source}); certificate SHA-256 ${tls.fingerprint}`)
+  if (config.siteDir) console.log(`\n  Jarvis: ${tls ? 'https' : 'http'}://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}/${config.host === '0.0.0.0' ? ' (and this machine\'s other addresses)' : ''}`)
   if (config.accessKey) app.log.info('access key: from ACCESS_KEY')
   else console.log(`\n  Jarvis access key: ${access.key}${access.generated ? '  (new; saved in ' + config.dataDir + '/access-key)' : ''}\n  Enter it once on each device. Set ACCESS_KEY in .env.local to choose your own.\n`)
 } catch (err) {

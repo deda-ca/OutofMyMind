@@ -131,6 +131,6 @@ test("an existing .gitignore gets the lines that must be there (secrets, service
   fs.writeFileSync(path.join(dataDir, 'services', 'email', 'log.txt'), 'log')
   await history.start()
   const ignore = fs.readFileSync(path.join(dataDir, '.gitignore'), 'utf8')
-  assert.match(ignore, /^# mine\n\/jarvis.db\n\/access-key\n# Added by Jarvis.*\n\/secrets.json\n\/services\/\n$/)
+  assert.match(ignore, /^# mine\n\/jarvis.db\n\/access-key\n# Added by Jarvis.*\n\/secrets.json\n\/services\/\n\/tls\/\n$/)
   assert.ok(!tracked(dataDir).some((f) => f.startsWith('secrets') || f.startsWith('services/')))
 })

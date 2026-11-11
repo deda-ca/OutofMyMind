@@ -35,7 +35,8 @@
       "env": {
         "WORKSPACE_DIR": "${WORKSPACE_DIR}",
         "SCRIPTS_TIMEOUT_SECONDS": "${SCRIPTS_TIMEOUT_SECONDS}",
-        "SCRIPTS_MEMORY_MB": "${SCRIPTS_MEMORY_MB}"
+        "SCRIPTS_MEMORY_MB": "${SCRIPTS_MEMORY_MB}",
+        "JARVIS_NODE": "${JARVIS_NODE}"
       },
       "timeoutMs": 45000,
       "crud": {

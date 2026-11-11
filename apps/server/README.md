@@ -49,6 +49,9 @@ Configuration comes from `.env`, overridden by the git-ignored `.env.local`:
 | `OWNER_NAME` | (empty) | Your name, so Jarvis knows who it works for. Put it in `.env.local`. |
 | `VOICEPRINT_MODEL` | `models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx` | Speaker recognition model (`npm run fetch-models`). If missing, the server runs with speaker recognition off. |
 | `LOG_LEVEL` | `info` | |
+| `SITE_DIR` | (unset) | Serve the built web client (`apps/client/dist`) from this folder at `/` (`src/site.ts`). The release binary sets it; in development Vite serves the client. |
+| `TLS`, `TLS_CERT`, `TLS_KEY` | `off` (release: `self-signed`) | Serve HTTPS itself (`src/tls.ts`): `self-signed` makes a certificate once in `DATA_DIR/tls` with openssl; `TLS_CERT` + `TLS_KEY` (PEM files) use your own. In development Vite's HTTPS server sits in front, so it's off. |
+| `JARVIS_NODE` | (the running Node) | The Node that runs scripts and services in their sandbox. Under Node that's itself; the release binary (Bun) uses this, or the first `node` on `PATH`. |
 
 # API
 
@@ -316,7 +319,7 @@ Single user, one stream per connection, no authentication, localhost only. Befor
 
 - **Pass-key:** every `/api` route, the live WebSocket and the recordings need either the session cookie (browsers, after `POST /api/login`) or `Authorization: Bearer <key>` (native clients). The cookie value is derived from the key, so changing `ACCESS_KEY` signs every device out. Keys are compared in constant time; 5 wrong keys from one address block it for 30 s, doubling each time (up to an hour). Code: `src/auth.ts`, tests: `test/auth.test.ts`.
 
-- A request carrying an `Origin` header not in `ALLOWED_ORIGINS` gets 403, so other websites open in a browser can't use the API.
+- A request carrying an `Origin` header not in `ALLOWED_ORIGINS` gets 403, so other websites open in a browser can't use the API. When the server serves the web client itself (`SITE_DIR`), its own origin (the scheme plus the request's `Host`) is allowed too; a DNS-rebinding page could match that, but it has no pass-key.
 - Requests without `Origin` (native apps, curl) pass the origin check, but still need the pass-key.
 
 # Layout
