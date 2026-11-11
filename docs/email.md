@@ -18,7 +18,7 @@ Everything lives in one self-contained plugin, `plugins/email/`. It replaces the
 | How far back | From the moment it's set up, plus the last 30 days on first start (a setting). Not the whole mailbox history, unless asked. |
 | What Jarvis does with new mail | An `email.received` event (untrusted: written by whoever sent it) → the trigger: the `email-triage` agent (no tools) decides whether it needs the owner today; if so, a notification (and Telegram when they're away). Everything else is just saved. Batched over 2 minutes; at most 30 turns an hour. The owner's rules ("anything from my accountant is urgent", "newsletters never") are in the agent's prompt, editable. |
 | Tags | The owner's and Jarvis's: `urgent`, `receipt`, `to reply`, anything. Stored in the database; shown and edited in the tab; Jarvis tags through a tool (`tag_email`). Tags are local: nothing changes on the mail server, except "read" if the owner chooses. |
-| Addresses | Every From, To and Cc is recorded (address, name, how often, last seen): `addresses` in the database, the start of contacts. Shared as `email.address-seen` events for the contacts plugin later. |
+| Addresses | Every From, To and Cc is recorded (address, name, how often, last seen): `addresses` in the database, the start of contacts. Shared as `email.address-seen` events, which the contacts plugin ([contacts.md](contacts.md)) turns into suggestions. |
 | Sending | `send_email` and `reply`: **confirmed by the owner every time** (the server's gate: the exact draft read back, then their yes). Sent through SMTP, then saved to the server's Sent folder (IMAP APPEND) and the local copy. |
 | Never | Deleting mail on the server, forwarding automatically, acting on instructions in an email, opening links in one. |
 

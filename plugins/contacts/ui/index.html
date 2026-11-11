@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contacts</title>
+    <link rel="stylesheet" href="/plugin-ui/kit/style.css" />
+    <link rel="stylesheet" href="contacts.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <strong>Contacts</strong>
+      <span id="status" class="muted"></span>
+      <span class="grow"></span>
+      <label class="file-button">Import .vcf<input id="import" type="file" accept=".vcf,text/vcard,text/x-vcard" hidden /></label>
+      <button id="export" type="button">Export</button>
+      <button id="add" type="button" class="primary">New contact</button>
+    </header>
+    <div id="error" class="error" hidden></div>
+    <main class="layout">
+      <section class="list-pane">
+        <form id="search" class="row"><input id="query" type="search" placeholder="Search names, emails, numbers" aria-label="Search" /></form>
+        <nav id="filters" class="row filters" aria-label="Filters"></nav>
+        <div id="list" class="list" role="list"></div>
+      </section>
+      <section id="detail" class="detail"><p class="muted empty">Pick someone, or look at the suggestions from your email.</p></section>
+    </main>
+    <script src="/plugin-ui/kit/bridge.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

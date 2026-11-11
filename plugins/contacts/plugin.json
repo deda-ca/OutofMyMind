@@ -1,0 +1,33 @@
+{
+  "name": "contacts",
+  "description": "The owner's contacts: people with their emails and phone numbers; learns addresses from email (the owner confirms).",
+  "command": "node",
+  "args": ["server.ts"],
+  "env": [],
+  "data": true,
+  "workspace": "contacts",
+  "instructions": "Look people up with find_contact before emailing, texting or calling them by name, and use who_is to say who an address or number is. Add or update contacts when the owner asks or tells you who someone is; never add strangers on your own (addresses from email wait as suggestions in the Contacts tab for the owner).",
+  "tools": {
+    "find_contact": { "crud": ["read"] },
+    "who_is": { "crud": ["read"] },
+    "add_contact": { "crud": ["create"] },
+    "update_contact": { "crud": ["update"] },
+    "tab_status": { "crud": ["read"], "tab": true },
+    "tab_list": { "crud": ["read"], "tab": true },
+    "tab_get": { "crud": ["read"], "tab": true },
+    "tab_save": { "crud": ["create", "update"], "tab": true },
+    "tab_delete": { "crud": ["delete"], "tab": true },
+    "tab_suggestions": { "crud": ["read"], "tab": true },
+    "tab_accept": { "crud": ["create"], "tab": true },
+    "tab_ignore": { "crud": ["update"], "tab": true },
+    "tab_import": { "crud": ["create"], "tab": true },
+    "tab_export": { "crud": ["create"], "tab": true }
+  },
+  "events": {
+    "contact.added": { "description": "A contact was added.", "untrusted": false },
+    "contact.updated": { "description": "A contact was changed.", "untrusted": false },
+    "contact.deleted": { "description": "A contact was deleted.", "untrusted": false }
+  },
+  "subscribes": ["email.address-seen"],
+  "tab": { "title": "Contacts", "page": "ui/index.html" }
+}

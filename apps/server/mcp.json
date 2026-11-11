@@ -147,6 +147,9 @@
     },
     "email": {
       "plugin": "../../plugins/email"
+    },
+    "contacts": {
+      "plugin": "../../plugins/contacts"
     }
   }
 }
