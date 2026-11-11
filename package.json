@@ -1,5 +1,6 @@
 {
-  "name": "jarvis",
+  "name": "outofmymind",
+  "description": "OutOfMyMind with Marvin. Don't Panic. A private, fully local voice assistant. Marvin, its AI, is knowledgeable, dependable, slightly sarcastic, and perhaps a little depressed about having to answer everyone's questions.",
   "private": true,
   "type": "module",
   "engines": {

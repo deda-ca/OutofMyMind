@@ -1,6 +1,14 @@
-# Jarvis
+# OutOfMyMind with Marvin
+
+**Don't Panic.**
+
+![OutOfMyMind with Marvin: Don't Panic](docs/Marvin%E2%80%99s%20Cosmic%20Don%E2%80%99t%20Panic%20Poster.png)
 
 A private, fully local voice assistant. Talk naturally; speech is transcribed live on your own hardware.
+
+Its AI is **Marvin**: knowledgeable, dependable, slightly sarcastic, and perhaps a little depressed about having to answer everyone's questions.
+
+**The wake word** is "Jarvis" for now. It will become "Marvin" in this project's release. It's your assistant, though: call it whatever you like.
 
 | App | What it is |
 | --- | --- |
