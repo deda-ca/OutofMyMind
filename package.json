@@ -6,6 +6,7 @@
   "engines": {
     "node": ">=24"
   },
+  "author": "Charbel Choueiri",
   "scripts": {
     "dev": "concurrently --names server,client --prefix-colors cyan,magenta --kill-others-on-fail \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "npm --prefix apps/server run dev",
