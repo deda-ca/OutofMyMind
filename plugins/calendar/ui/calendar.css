@@ -1,0 +1,26 @@
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+.bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.grow { flex: 1; }
+#error { padding: 6px 14px; }
+.layout { flex: 1; display: grid; grid-template-columns: 1fr minmax(280px, 420px); min-height: 0; }
+.days { overflow-y: auto; padding: 8px 14px; border-right: 1px solid var(--line); min-height: 0; }
+.day { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.day h3 { margin: 0 0 4px; font-size: 14px; color: var(--fg-2); }
+.day.today h3 { color: var(--accent); }
+.day .none { color: var(--fg-3); font-size: 13px; }
+.event { display: grid; grid-template-columns: 7.5rem 1fr; gap: 8px; padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+.event:hover { background: var(--soft); }
+.event.active { background: var(--accent-soft); }
+.event .when { color: var(--fg-2); font-variant-numeric: tabular-nums; font-size: 13px; }
+.event .what { font-weight: 600; }
+.event .where { color: var(--fg-3); font-size: 12px; font-weight: 400; }
+.event.past { opacity: 0.6; }
+.detail { overflow-y: auto; padding: 14px 18px; min-height: 0; }
+.editor { display: grid; gap: 10px; }
+.editor label { display: grid; gap: 2px; font-size: 13px; color: var(--fg-2); }
+.editor .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.editor textarea { min-height: 5rem; resize: vertical; }
+.check { display: flex !important; gap: 6px; align-items: center; }
+.empty { margin-top: 30px; text-align: center; }
+@media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .days { border-right: 0; } }

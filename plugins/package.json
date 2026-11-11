@@ -16,6 +16,7 @@
     "@modelcontextprotocol/server-filesystem": "2.2.0",
     "@mozilla/readability": "^0.6.0",
     "@playwright/mcp": "0.0.83",
+    "ical.js": "2.2.1",
     "imapflow": "2.11.0",
     "linkedom": "^0.18.15",
     "mailparser": "3.14.3",

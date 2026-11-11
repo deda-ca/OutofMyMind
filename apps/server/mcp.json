@@ -150,6 +150,9 @@
     },
     "contacts": {
       "plugin": "../../plugins/contacts"
+    },
+    "calendar": {
+      "plugin": "../../plugins/calendar"
     }
   }
 }

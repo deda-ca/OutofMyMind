@@ -15,7 +15,7 @@ Its AI is **Marvin**: knowledgeable, dependable, slightly sarcastic, and perhaps
 | [apps/server](apps/server/README.md) | The API: live transcription over a WebSocket, talking to the local audio.cpp server |
 | [apps/client](apps/client/README.md) | Web client: microphone, on-device voice detection, transcript, settings and monitor |
 | [apps/android](apps/android/README.md) | Android app (Kotlin): Jarvis from the phone, audio only. Start listening, screen off, until Stop listening |
-| [plugins](plugins/README.md) | Plug-in tools for Jarvis (MCP servers): files, notes, weather, web, browser, scripts, Telegram, email, contacts. The harness that runs them is in `apps/server/src/harness` |
+| [plugins](plugins/README.md) | Plug-in tools for Jarvis (MCP servers): files, notes, weather, web, browser, scripts, Telegram, email, contacts, calendar. The harness that runs them is in `apps/server/src/harness` |
 
 ## Running
 
