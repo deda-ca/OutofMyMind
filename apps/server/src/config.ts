@@ -76,6 +76,8 @@ export const config = {
     textPollSeconds: Math.max(10, Number(env('PHONE_TEXT_POLL_SECONDS', '30')) || 30),
     /** How long an incoming call rings before it's turned away. */
     ringSeconds: Math.max(5, Number(env('PHONE_RING_SECONDS', '30')) || 30),
+    /** What the assistant calls itself when it answers the phone. */
+    assistantName: env('PHONE_ASSISTANT_NAME', 'Marvin'),
   },
   /** The built web client (apps/client/dist), served at /. Unset: not served (in development Vite serves it). The release binary sets it. */
   siteDir: process.env.SITE_DIR?.trim() ? path.resolve(process.env.SITE_DIR.trim()) : null,

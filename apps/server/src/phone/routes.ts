@@ -7,12 +7,13 @@
 //   POST /api/phone/texts              {number, message}: send a text (the owner pressed Send)
 //   GET  /api/phone/audio              WebSocket: the owner's device on the call. Binary both ways: s16le mono 16 kHz.
 //   GET  /api/phone/calls/:id/:n.ogg   a call's recording (one per leg)
+//   GET  /api/phone/rules, PUT {rules}  who Marvin puts through (rules.ts)
 
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { config } from '../config.ts'
-import { phoneLine, phoneTexts } from './index.ts'
+import { phoneLine, phoneRules, phoneTexts } from './index.ts'
 import { NumberError } from './numbers.ts'
 import { type Phone, PhoneError } from './phone.ts'
 import { TextError } from './texts.ts'
@@ -35,8 +36,10 @@ export async function phoneRoutes(app: FastifyInstance): Promise<void> {
     const p = phoneLine()
     if (!p) return reply.send({ enabled: false })
     const t = phoneTexts()
-    return { enabled: true, ...p.status(), texts: t ? { enabled: true, error: t.error, list: t.recent(50) } : { enabled: false, error: '', list: [] } }
+    return { enabled: true, ...p.status(), rules: phoneRules()?.get() ?? null, ownerCell: Boolean(config.phone.ownerCell), assistant: config.phone.assistantName, texts: t ? { enabled: true, error: t.error, list: t.recent(50) } : { enabled: false, error: '', list: [] } }
   })
+  app.get('/api/phone/rules', async (_req, reply) => guard(reply, () => ({ rules: phoneRules()!.get() })))
+  app.put<{ Body: { rules?: unknown } }>('/api/phone/rules', async (req, reply) => guard(reply, () => ({ rules: phoneRules()!.set(req.body?.rules) })))
   app.post<{ Body: { number?: unknown; message?: unknown } }>('/api/phone/texts', async (req, reply) =>
     guard(reply, async () => {
       const t = phoneTexts()

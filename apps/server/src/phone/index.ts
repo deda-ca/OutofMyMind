@@ -7,11 +7,18 @@ import { notifier } from '../schedule/index.ts'
 import type { SessionStore } from '../sessions/store.ts'
 import { display } from './numbers.ts'
 import { Phone } from './phone.ts'
+import { RulesStore } from './rules.ts'
 import { Texts } from './texts.ts'
 import { phoneTools } from './tools.ts'
 
 let phone: Phone | null = null
 let texts: Texts | null = null
+let rules: RulesStore | null = null
+
+/** The owner's rules for incoming calls, once started. */
+export function phoneRules(): RulesStore | null {
+  return rules
+}
 
 /** Texts, once started (null without the VoIP.ms API settings). */
 export function phoneTexts(): Texts | null {
@@ -25,8 +32,12 @@ export function phoneLine(): Phone | null {
 
 export async function startPhone(deps: { sessions: SessionStore; log: (message: string, err?: unknown) => void }): Promise<void> {
   if (phone || !config.phone.enabled) return
+  rules = new RulesStore(config.dataDir)
   const p = new Phone({
     settings: config.phone,
+    rules,
+    assistantName: config.phone.assistantName,
+    voice: { voice: config.ttsVoice },
     dataDir: config.dataDir,
     workspaceDir: config.workspaceDir,
     ownerName: config.ownerName,

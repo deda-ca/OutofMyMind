@@ -37,6 +37,7 @@ export class Bridge {
   private started = 0
   /** Every leg ever joined, for the recording (kept after they leave). */
   private readonly history: Track[] = []
+  private recording = true
 
   private readonly maxFrames: number
 
@@ -76,6 +77,16 @@ export class Bridge {
     this.timer = null
   }
 
+  /** Stops recording (the caller asked): what was recorded so far is dropped too. */
+  stopRecording(): void {
+    this.recording = false
+    for (const t of this.history) t.frames = []
+  }
+
+  get isRecording(): boolean {
+    return this.recording
+  }
+
   /** Seconds since the bridge started. */
   get seconds(): number {
     return (this.frame * FRAME_MS) / 1000
@@ -89,11 +100,12 @@ export class Bridge {
       const frame = got && got.length === FRAME_SAMPLES ? got : SILENCE
       return t.muted ? SILENCE : frame
     })
-    for (const [i, t] of this.tracks.entries()) {
-      // Recorded aligned with the bridge's clock: a leg that joined late starts later.
-      while (t.startFrame + t.frames.length < this.frame) t.frames.push(SILENCE)
-      t.frames.push(inputs[i]!)
-    }
+    if (this.recording)
+      for (const [i, t] of this.tracks.entries()) {
+        // Recorded aligned with the bridge's clock: a leg that joined late starts later.
+        while (t.startFrame + t.frames.length < this.frame) t.frames.push(SILENCE)
+        t.frames.push(inputs[i]!)
+      }
     for (const [i, t] of this.tracks.entries()) {
       const out = new Int16Array(FRAME_SAMPLES)
       for (let s = 0; s < FRAME_SAMPLES; s++) {
@@ -108,6 +120,7 @@ export class Bridge {
 
   /** Each leg's recording: 16 kHz from the bridge's start, and where in the call it begins. */
   recordings(): { name: string; offsetMs: number; pcm: Int16Array }[] {
+    if (!this.recording) return []
     return this.history.map((t) => {
       const pcm = new Int16Array(t.frames.length * FRAME_SAMPLES)
       t.frames.forEach((f, i) => pcm.set(f, i * FRAME_SAMPLES))

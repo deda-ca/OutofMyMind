@@ -1,6 +1,6 @@
 # Phone: calls and texts through Jarvis (design)
 
-Status: design written 2026-11-11 from the owner's answers the same day. **Phase 0 done** (registration accepted through `toronto2.voip.ms`; the router changes ports but the provider's keep-alives get through; the API refused the IP until it's allowed). **Phase 1 built** and tested end to end against VoIP.ms's echo test (4443): two-way audio, recording, transcript; not yet tried on a call to a real phone or from the Android app. **Phase 3 (texts) built**, tested against a fake API only (waiting for the API's IP allow-list). Phases 2 and 4 are next.
+Status: design written 2026-11-11 from the owner's answers the same day. **Phase 0 done** (registration accepted through `toronto2.voip.ms`; the router changes ports but the provider's keep-alives get through; the API refused the IP until it's allowed). **Phase 1 built** and tested end to end against VoIP.ms's echo test (4443): two-way audio, recording, transcript; not yet tried on a call to a real phone or from the Android app. **Phase 3 (texts) built**, tested against a fake API only (waiting for the API's IP allow-list). **Phase 2 (Marvin answers) built**: Marvin's voice tested on a real call (the echo test: text-to-speech out, the echo heard and transcribed); screening, the three-way call and messages tested with stand-in calls, not yet with a real incoming call (the number's routing still points at the owner's other phones). Phase 4 is next.
 
 ## The idea
 
@@ -120,7 +120,7 @@ Text-to-speech into the bridge, transcription out of it, the LLM deciding what t
 
 ### 9. Settings
 
-On when `VOIPMS_SIP_SERVER`, `VOIPMS_SIP_USER` and `VOIPMS_SIP_PASSWORD` are set (`PHONE=off` turns it off); texts when `VOIPMS_API_USER` and `VOIPMS_API_PASSWORD` are too. Limits: `PHONE_MAX_CALL_MINUTES` (120), `PHONE_DAILY_MINUTES` of outgoing calls (180), `PHONE_DAILY_TEXTS` (50), `PHONE_RING_SECONDS` before an unanswered incoming call is turned away (30), `PHONE_TEXT_POLL_SECONDS` (30).
+On when `VOIPMS_SIP_SERVER`, `VOIPMS_SIP_USER` and `VOIPMS_SIP_PASSWORD` are set (`PHONE=off` turns it off); texts when `VOIPMS_API_USER` and `VOIPMS_API_PASSWORD` are too. `PHONE_ASSISTANT_NAME` is what the assistant calls itself on the phone (Marvin). Limits: `PHONE_MAX_CALL_MINUTES` (120), `PHONE_DAILY_MINUTES` of outgoing calls (180), `PHONE_DAILY_TEXTS` (50), `PHONE_RING_SECONDS` before an unanswered incoming call is turned away (30), `PHONE_TEXT_POLL_SECONDS` (30).
 
 A password with a `#` in it must be quoted (`VOIPMS_SIP_PASSWORD='…'`): unquoted, everything from the `#` on is a comment.
 
@@ -184,11 +184,14 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 | `apps/server/src/phone/phone.ts` | The call in progress, the owner's device as a leg, limits, the call log; recordings and the transcript after each call |
 | `apps/server/src/phone/numbers.ts`, `transcript.ts` | North American numbers (911, N11, premium refused); cutting a leg into utterances, the transcript |
 | `apps/server/src/phone/index.ts` | Starting and stopping it with the server; the tools for live replies |
-| `apps/server/src/phone/screening.ts`, `rules.ts` | Marvin answering; who gets put through (phase 2, not built) |
+| `apps/server/src/phone/voice.ts` | Marvin's voice as a leg: text-to-speech in (24 kHz WAV → 16 kHz), what the others say heard live (cut by loudness) and transcribed; half duplex |
+| `apps/server/src/phone/screening.ts` | Marvin answering: the script (greeting, who's calling, ringing the owner, the announcement, 1 / "connect" or 2, the message) |
+| `apps/server/src/phone/rules.ts` | Who gets put through: always, blocked, quiet hours, who answers; `DATA_DIR/phone/rules.json` |
 | `apps/server/src/phone/texts.ts` | VoIP.ms API: send, poll |
 | `apps/server/src/phone/tools.ts`, `routes.ts` | The `jarvis__*` tools; the HTTP API for the Phone tab |
 | `apps/client/src/phone.ts` | The phone's state; this device's call audio (an AudioWorklet: microphone up, the other side down, 16 kHz) |
 | `apps/client/src/components/PhonePanel.vue` | Calls, texts, the line's status (rules in phase 2) |
+| `apps/server/test/screening.test.ts` | Rules, WAV resampling, live listening, the screening script (scripted legs), and the whole phone with stand-in calls: screened and put through on 1, blocked, a message in quiet hours |
 | `apps/server/test/phone.test.ts` | SIP parsing, digest auth (RFC 2617's example), SDP, G.711 and resampling, numbers, the bridge's mix, utterances, the two-step confirmation, texts against a fake API |
 
 ## What phase 1 does now
@@ -198,7 +201,40 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 - **Calls in**: ring every open screen (Answer / Decline in the header and the Phone tab) for `PHONE_RING_SECONDS`, then are turned away; a missed call is a notification and a note. For calls to come to Jarvis, the number's routing at VoIP.ms must point at the sub-account (not changed yet).
 - **After each call**: one Ogg Opus file per leg in `DATA_DIR/audio/calls/<id>/`, the transcript in `WORKSPACE_DIR/calls/<date time> to|from <number>.md`, a note in the active session, the call log in `DATA_DIR/phone/calls.json`.
 - **Texts**: the Phone tab and `jarvis__send_text` (same two steps, the exact message read back) send; new texts are polled, shown as a notification and noted in the session as information from outside.
-- **Not yet**: the Android app as a handset, live transcription during the call, Marvin answering (phase 2), texts waking Jarvis with an untrusted turn.
+- **Not yet**: the Android app as a handset, live transcription during the call, texts waking Jarvis with an untrusted turn.
+
+## What phase 2 does now
+
+- **What happens to a call** (`rules.ts`, the Phone tab's "Incoming calls"): blocked numbers are turned away (603) without answering; otherwise Marvin answers at once (or, with "screens ring first", the screens ring for `PHONE_RING_SECONDS` and Marvin takes a message if nobody picks up). Numbers in "always" skip the question and go straight to the owner's cell. In quiet hours everyone else leaves a message. Without `OWNER_CELL`, Marvin only takes messages.
+- **Screening** (`screening.ts`) is a script, not the LLM: the caller can't talk Marvin into anything, only have their words passed on. "Hi, you've reached <owner>'s phone. I'm Marvin, an AI assistant. This call is recorded. Who's calling, and what's it about?" (asked twice if nothing is heard), then "One moment, I'll see if they're available", with "Still trying, thanks for waiting" every 15 s while the cell rings.
+- **The owner's cell** is rung from the DID for up to 30 s. Marvin, heard only by the owner: "Hi <first name>, it's Marvin. <contact name, or the number digit by digit> is calling. They said: <their words>. Press 1 or say connect to talk to them, or press 2 and I'll take a message." Said again once if there's no answer. **Only 1 or "connect"/"yes" puts them through**: a voicemail greeting never does, and is hung up on after the second try.
+- **The three-way call**: the cell joins the caller; Marvin stays on, silent, recording every leg. Either side hanging up ends it. A screen can still join.
+- **A message**: "Please leave your message after the tone" → a beep → until 4 s of silence (10 s if they never start; 2 minutes at most) → "Thanks, I'll pass that on. Goodbye." The message is transcribed after the call: a notification ("Message from …") and a note in the session, marked as from outside.
+- **"Don't record this"** (heard while screening): Marvin says it has stopped, the bridge drops what it had recorded and records nothing more; no transcript is kept. Such a caller can't leave a voice message (Marvin suggests a text) but can still be put through.
+- **Pick up**: while Marvin has a call, every screen shows it (who, what Marvin is doing, what they said) with **Pick up**: Marvin steps back, the cell (if ringing) is hung up, and this device takes the call. Screens never join a call Marvin has on their own (the caller would hear the room).
+- **The call log** records how each call was handled (put through, a message, blocked, hung up on Marvin, picked up) with what the caller said; `jarvis__call_log` gives Jarvis the same, marked as from outside.
+- Defaults chosen for the open questions (owner's answers welcome): the owner's own cell calling in is treated like anyone (add it to "always" to skip the question; ringing the cell it's calling from gets "busy", so it ends as a message); no quiet hours or "always" list until set; a caller who asks not to be recorded isn't.
+
+## Version 2: the phone as an MCP plugin (planned redesign)
+
+Today the phone lives inside the server, and its tools (`jarvis__call`, `jarvis__send_text`, …) are **built-in tools**: functions the harness runs in-process, offered to the LLM alongside the MCP plugins' tools. That was the quickest way to give them what they need: the SIP line, the audio bridge to the owner's device, and "has the owner spoken since?" for the confirmation.
+
+In version 2 the phone becomes **an MCP server plugin** (run as `jarvis plugin phone` in the release binary, like the others). Its tools are ordinary MCP tools, and everything it depends on is exposed to it through **APIs or events** instead of being reached directly:
+
+| What it needs | How it gets it |
+| --- | --- |
+| **Whether the owner is talking** (to Jarvis or on a call), and when they last spoke or typed | Presence events from the server (`owner.spoke`, `owner.typed`, `owner.listening`) |
+| **The owner's yes** for calls and texts | The confirmation code is checked against those events in the plugin: never a "confirmed" argument from the LLM. The events come from the server only (the plugin's own channel), so the model can't forge them. |
+| **Who handles a call**: screen it, ring the owner's screens or cell, or put the owner through to Jarvis (e.g. calling in from their cell) | The plugin's own rules plus events from the server: which screens are open, whether the owner is listening, voiceprint matches on the call |
+| **Talking to Jarvis on a call** (the owner calling in) | The plugin sends the call's utterances to the server as events (from inside or outside, marked) and receives Jarvis's replies to speak |
+| **The owner's device as a leg** | Call audio on its own channel (a WebSocket the plugin serves, or the server relaying `/api/phone/audio`), not MCP messages |
+| **Marvin's voice** | audio.cpp's address (text-to-speech, transcription) passed in the plugin's settings |
+| **Notifications, session notes, the call log, transcripts** | Server APIs the plugin calls (notify, record a note, write into the workspace), and events the server's screens subscribe to (`phone.changed`) |
+| **Incoming texts** | Events into the same trigger path as services (untrusted turns) |
+
+Why: the phone becomes one plugin among others (it can be turned off, restricted per agent, restarted, or replaced) instead of special code in the server; the same events let other parts (the Android app, services) know about calls; and each agent's tool allow-list applies to the phone tools, which it doesn't for built-in tools today.
+
+To work out: a plugin restart drops calls in progress (the server restart does today); the call audio path between the plugin and the device; and keeping the confirmation check as strict as it is now.
 
 ## Risks
 
@@ -215,6 +251,7 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 ## Open questions
 
 - Which VoIP.ms server is nearest and best for the owner (latency test in phase 0)?
-- Should the owner's own calls from their cell to Jarvis's number get straight to Marvin (voiceprint), or always go through screening?
-- Quiet hours and the first set of rules: who always gets through?
-- Keep a recording when the other side asks not to be recorded? (Proposed: Marvin says it will stop, and stops.)
+- Should the owner's own calls from their cell to Jarvis's number get straight to Marvin (voiceprint), or always go through screening? (For now: screened like anyone.)
+- Quiet hours and the first set of rules: who always gets through? (For now: none; set in the Phone tab.)
+- Keep a recording when the other side asks not to be recorded? (Built: Marvin says it will stop, and stops.)
+- Should Marvin's announcement use the LLM to summarise what the caller said, instead of quoting them? (For now: quoted, at most 40 words.)

@@ -423,12 +423,14 @@ watch(monitorEnabled, (on) => {
 watch(debugEnabled, (on) => transcriber?.setDebug(on))
 
 // A phone call (docs/phone.md): this device carries the audio if it placed or answered the call, or if it's
-// listening when Jarvis places one. Meanwhile Jarvis's own mic is muted: the call isn't for Jarvis.
+// listening when Jarvis places one (never a call Marvin answered: the caller would hear the room).
+// Meanwhile Jarvis's own mic is muted: the call isn't for Jarvis.
 watch(
-  () => [phone.call?.id, phone.call?.state, phone.call?.deviceJoined, phone.audioOn] as const,
-  ([id, state, joined, audioOn]) => {
-    const live = Boolean(id && state !== 'ended' && !(phone.call?.direction === 'in' && state === 'ringing'))
-    if (live && !joined && !audioOn && (phone.wantAudio || status.value === 'listening')) void joinAudio()
+  () => [phone.call?.id, phone.call?.state, phone.call?.deviceJoined, phone.audioOn, phone.call?.marvin] as const,
+  ([id, state, joined, audioOn, marvin]) => {
+    const live = Boolean(id && state !== 'ended' && !(phone.call?.direction === 'in' && state === 'ringing') && !marvin)
+    const jarvisPlaced = phone.call?.direction === 'out' && status.value === 'listening'
+    if (live && !joined && !audioOn && (phone.wantAudio || jarvisPlaced)) void joinAudio()
   },
 )
 let mutedForCall = false
@@ -721,6 +723,10 @@ onBeforeUnmount(() => {
             <span class="badge theme-info">📞 {{ phone.call.name || phone.call.display }} is calling</span>
             <button type="button" class="badge theme-success" @click="answerCall">Answer</button>
             <button type="button" class="badge theme-danger badge-subtle" @click="declineCall">Decline</button>
+          </template>
+          <template v-else-if="phone.call && phone.call.marvin">
+            <button type="button" class="badge theme-info" title="The Phone tab" @click="tab = 'phone'">📞 {{ phone.assistant }}: {{ phone.call.name || phone.call.display }} · {{ phone.call.marvin }}</button>
+            <button type="button" class="badge theme-success" title="Take the call here" @click="answerCall">Pick up</button>
           </template>
           <template v-else-if="phone.call && phone.call.state !== 'ended'">
             <button type="button" class="badge theme-info" title="The Phone tab" @click="tab = 'phone'">📞 {{ phone.call.name || phone.call.display }} · {{ phone.call.state === 'active' ? 'on the call' : 'calling…' }}</button>

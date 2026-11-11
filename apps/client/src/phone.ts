@@ -20,6 +20,10 @@ export interface CallView {
   answeredAt: string | null
   deviceJoined: boolean
   muted: boolean
+  /** Marvin has the call: what it's doing (null once the owner has it, or Marvin never answered). */
+  marvin: 'greeting' | 'asking' | 'ringing owner' | 'announcing' | 'connected' | 'taking a message' | 'done' | null
+  /** What the caller said when Marvin asked who they are (their words). */
+  said: string
 }
 
 export interface CallRecord {
@@ -35,6 +39,25 @@ export interface CallRecord {
   recordings: { who: string; file: string }[]
   transcript: string | null
   status: 'transcribing' | 'done' | 'failed'
+  outcome?: 'connected' | 'message' | 'hung up' | 'picked up' | 'blocked'
+  said?: string
+  message?: string
+  recordingOff?: boolean
+}
+
+export interface Contact {
+  number: string
+  name: string
+}
+
+/** Who Marvin puts through (server: phone/rules.ts). */
+export interface PhoneRules {
+  answer: 'marvin' | 'screens'
+  always: Contact[]
+  blocked: Contact[]
+  quietFrom: string
+  quietTo: string
+  recordingNotice: boolean
 }
 
 export interface Text {
@@ -53,6 +76,11 @@ export const phone = reactive({
   calls: [] as CallRecord[],
   /** Texts (VoIP.ms API): off without the API settings; error: why the API refused (e.g. the IP isn't allowed). */
   texts: { enabled: false, error: '', list: [] as Text[] },
+  rules: null as PhoneRules | null,
+  /** OWNER_CELL is set (Marvin can ring it). */
+  ownerCell: false,
+  /** What the assistant calls itself on the phone. */
+  assistant: 'Marvin',
   error: '',
   /** This device is on the call (sending and playing audio). */
   audioOn: false,
@@ -63,7 +91,7 @@ export const phone = reactive({
 export async function loadPhone(): Promise<void> {
   try {
     const response = await fetch('/api/phone')
-    const body = (await response.json().catch(() => ({}))) as { enabled?: boolean; line?: typeof phone.line; call?: CallView | null; calls?: CallRecord[]; texts?: typeof phone.texts; error?: string }
+    const body = (await response.json().catch(() => ({}))) as { enabled?: boolean; line?: typeof phone.line; call?: CallView | null; calls?: CallRecord[]; texts?: typeof phone.texts; rules?: PhoneRules | null; ownerCell?: boolean; assistant?: string; error?: string }
     if (!response.ok) {
       phone.error = body.error ?? `HTTP ${response.status}`
       return
@@ -73,6 +101,9 @@ export async function loadPhone(): Promise<void> {
     phone.call = body.call ?? null
     phone.calls = body.calls ?? []
     phone.texts = body.texts ?? { enabled: false, error: '', list: [] }
+    phone.rules = body.rules ?? null
+    phone.ownerCell = body.ownerCell === true
+    if (body.assistant) phone.assistant = body.assistant
     if (!phone.call) {
       phone.wantAudio = false
       leaveAudio()
@@ -112,8 +143,30 @@ export async function dial(number: string): Promise<void> {
 export async function answer(): Promise<void> {
   phone.wantAudio = true
   ring(false)
+  if (phone.call?.marvin) {
+    // Taking it from Marvin: it steps back first, then this device joins.
+    if (await post('answer')) await joinAudio()
+    return
+  }
   await joinAudio()
   await post('answer')
+}
+
+/** Saves the rules for incoming calls. */
+export async function saveRules(rules: PhoneRules): Promise<boolean> {
+  phone.error = ''
+  const response = await fetch('/api/phone/rules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rules }) }).catch((err: Error) => {
+    phone.error = err.message
+    return null
+  })
+  if (!response) return false
+  const body = (await response.json().catch(() => ({}))) as { rules?: PhoneRules; error?: string }
+  if (!response.ok) {
+    phone.error = body.error ?? `HTTP ${response.status}`
+    return false
+  }
+  if (body.rules) phone.rules = body.rules
+  return true
 }
 
 export const decline = () => post('decline')
