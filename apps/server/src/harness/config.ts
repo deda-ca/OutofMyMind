@@ -46,6 +46,8 @@ export interface PluginConfig {
    * (`summary`) and loads them with tools__load (docs/tool-loading.md). Default: always.
    */
   load?: 'always' | 'on demand'
+  /** Only these tools are on demand, the rest of the plugin always offered (mcp.json "deferTools"); names as the plugin has them ("write_file"). */
+  deferTools?: string[]
   summary?: string
 }
 
@@ -70,7 +72,8 @@ export function loadPluginConfig(file: string): PluginConfig[] {
     const timeoutMs = typeof entry.timeoutMs === 'number' && entry.timeoutMs > 0 ? entry.timeoutMs : DEFAULT_TIMEOUT_MS
     const instructions = typeof entry.instructions === 'string' && entry.instructions.trim() ? expand(entry.instructions.trim()) : undefined
     const crud = crudOverrides(entry.crud, `${file}: plugin "${name}" crud`)
-    const extra: Pick<PluginConfig, 'exclude' | 'maxResultChars' | 'load' | 'summary'> = {}
+    const extra: Pick<PluginConfig, 'exclude' | 'maxResultChars' | 'load' | 'deferTools' | 'summary'> = {}
+    if (entry.deferTools !== undefined) extra.deferTools = stringArray(entry.deferTools, `${name}.deferTools`)
     if (entry.load !== undefined) {
       if (entry.load !== 'always' && entry.load !== 'on demand') throw new Error(`${file}: plugin "${name}" load must be "always" or "on demand"`)
       extra.load = entry.load
@@ -79,7 +82,7 @@ export function loadPluginConfig(file: string): PluginConfig[] {
       if (typeof entry.summary !== 'string' || !entry.summary.trim()) throw new Error(`${file}: plugin "${name}" summary must be a short line of text`)
       extra.summary = entry.summary.trim().slice(0, 200)
     }
-    if (extra.load === 'on demand' && !extra.summary) throw new Error(`${file}: plugin "${name}" is "on demand" and needs a "summary" (one line: what its tools are for)`)
+    if ((extra.load === 'on demand' || extra.deferTools?.length) && !extra.summary) throw new Error(`${file}: plugin "${name}" has tools on demand and needs a "summary" (one line: what they are for)`)
     if (entry.exclude !== undefined) extra.exclude = stringArray(entry.exclude, `${name}.exclude`)
     if (entry.maxResultChars !== undefined) {
       if (typeof entry.maxResultChars !== 'number' || !Number.isInteger(entry.maxResultChars) || entry.maxResultChars < 1000 || entry.maxResultChars > 100_000)

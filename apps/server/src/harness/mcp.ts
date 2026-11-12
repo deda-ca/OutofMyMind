@@ -155,9 +155,24 @@ export class McpHub {
       })
   }
 
-  /** Plugins loaded on demand (mcp.json "load": "on demand"): their name and the line that describes them. */
+  /**
+   * What's on demand (mcp.json "load": "on demand", or "deferTools"): per plugin,
+   * whether all of it is (`whole`), or just these tools (`tools`), and its summary.
+   */
+  deferrals(): { name: string; summary: string; whole: boolean; tools: string[] }[] {
+    return this.connections
+      .filter((c) => c.config.load === 'on demand' || (c.config.deferTools?.length ?? 0) > 0)
+      .map((c) => ({
+        name: c.config.name,
+        summary: c.config.summary ?? c.config.name,
+        whole: c.config.load === 'on demand',
+        tools: c.config.load === 'on demand' ? [] : (c.config.deferTools ?? []),
+      }))
+  }
+
+  /** Plugins loaded on demand as a whole (mcp.json "load": "on demand"). */
   deferred(): { name: string; summary: string }[] {
-    return this.connections.filter((c) => c.config.load === 'on demand').map((c) => ({ name: c.config.name, summary: c.config.summary ?? c.config.name }))
+    return this.deferrals().filter((d) => d.whole).map(({ name, summary }) => ({ name, summary }))
   }
 
   /** The plugin a tool belongs to, by function name. */

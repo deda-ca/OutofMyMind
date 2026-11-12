@@ -165,14 +165,23 @@ export interface VoiceDeps {
   voice?: string
   /** The speech model, "connection/model" (default audio.tts). */
   model?: string
-  /** Called with each thing Marvin says, as it starts saying it (for the live transcript). */
-  onSay?: (text: string) => void
+  /** Called with what Marvin actually said (the whole thing, or the part before it was talked over), when it's done. */
+  onSay?: (text: string, atMs: number) => void
+  /** The call's clock (ms), for when each thing was said. */
+  clockMs?: () => number
 }
 
 export class CallEnded extends Error {
   constructor() {
     super('the call ended')
   }
+}
+
+/** The first part of a text, by share (0..1) of its words (a cut sentence's part before the cut). */
+export function cutText(text: string, share: number): string {
+  const words = text.trim().split(/\s+/)
+  const k = Math.max(0, Math.min(words.length, Math.floor(words.length * share)))
+  return words.slice(0, k).join(' ')
 }
 
 /** Marvin on a call: says things, and hears what the others say. */
@@ -199,6 +208,9 @@ export class VoiceLeg implements Leg {
   private heardWhileTalking: Int16Array[] = []
   /** Times Marvin stopped talking because the other side talked over it. */
   interrupted = 0
+  /** The sentence going out (its frames), and where it was cut off, if it was. */
+  private playing: { total: number } | null = null
+  private cut: { played: number; total: number } | null = null
 
   constructor(deps: VoiceDeps) {
     this.name = deps.name
@@ -261,6 +273,8 @@ export class VoiceLeg implements Leg {
   /** Stops Marvin mid-sentence: what was playing is dropped, and the talk over it goes to the ears. */
   private interrupt(): void {
     this.interrupted++
+    // How much of the sentence went out (its frames not yet read are dropped).
+    if (this.playing) this.cut = { played: this.playing.total - this.out.length, total: this.playing.total }
     this.out = []
     const done = this.speakingDone
     this.speakingDone = null
@@ -276,30 +290,45 @@ export class VoiceLeg implements Leg {
     done?.()
   }
 
-  /** Says `text` into the call; resolves when it has been played. */
-  async say(text: string): Promise<void> {
+  /**
+   * Says `text` into the call; resolves when it has been played, or when the
+   * other side talks over it (barge-in). Returns what was actually said: the
+   * whole text, or the part of it before Marvin was cut off (by share of time).
+   */
+  async say(text: string): Promise<string> {
     if (this.closed) throw new CallEnded()
     const wav = await (this.d.synthesize ?? ((t: string) => synthesize(t, undefined, this.d.voice, this.d.model)))(text)
     if (this.closed) throw new CallEnded()
-    this.d.onSay?.(text)
-    await this.play(wavToPcm16k(wav))
+    const pcm = wavToPcm16k(wav)
+    const total = Math.max(1, Math.ceil(pcm.length / FRAME_SAMPLES))
+    const at = this.d.clockMs?.() ?? 0
+    this.cut = null
+    await this.play(pcm)
+    const cut = this.cut as { played: number; total: number } | null
+    this.cut = null
+    const spoken = cut ? cutText(text, cut.played / Math.min(cut.total, total)) : text
+    if (spoken.trim()) this.d.onSay?.(spoken, at)
+    return spoken
   }
 
-  /** Plays 16 kHz samples into the call; resolves when they've gone out. */
+  /** Plays 16 kHz samples into the call; resolves when they've gone out (or Marvin is cut off). */
   play(pcm: Int16Array): Promise<void> {
     if (this.closed) return Promise.reject(new CallEnded())
     // What was being heard is cut off: Marvin is talking now.
     this.ears.reset()
+    const before = this.out.length
     for (let i = 0; i < pcm.length; i += FRAME_SAMPLES) {
       const frame = new Int16Array(FRAME_SAMPLES)
       frame.set(pcm.subarray(i, i + FRAME_SAMPLES))
       this.out.push(frame)
     }
     if (!this.out.length) return Promise.resolve()
+    this.playing = { total: this.out.length - before }
     return new Promise((resolve) => {
       const prev = this.speakingDone
       this.speakingDone = () => {
         prev?.()
+        this.playing = null
         resolve()
       }
     })

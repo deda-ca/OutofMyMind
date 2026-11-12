@@ -275,9 +275,11 @@ export async function errandCall(d: ErrandDeps): Promise<ErrandResult> {
     },
   }
 
+  /** Marvin says a line; what it managed to say (cut off by the other side talking over it) goes in the history, with the cut. */
   const say = async (text: string) => {
-    transcript.push({ role: 'assistant', content: text })
-    await d.marvin.say(text)
+    const spoken = await d.marvin.say(text)
+    if (spoken) transcript.push({ role: 'assistant', content: spoken })
+    if (spoken !== text) transcript.push({ role: 'user', content: `(${d.assistantName} was talking over them, so they cut ${d.assistantName} off. Only the part above was said; the rest wasn't. Listen to them now.)` })
   }
 
   try {

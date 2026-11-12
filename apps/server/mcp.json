@@ -1,6 +1,8 @@
 {
   "mcpServers": {
     "files": {
+      "deferTools": ["write_file", "append_file", "edit_file", "create_directory", "move_file", "copy_file"],
+      "summary": "changing the owner's files in the workspace: writing, appending, editing, creating folders, moving and copying",
       "command": "node",
       "args": [
         "../../plugins/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js",

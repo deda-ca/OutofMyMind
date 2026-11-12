@@ -1,6 +1,6 @@
 # Loading tools on demand (design, for version 2)
 
-Status: **the first step is built** (2026-11-12): the browser is on demand. Plugins can be marked `"load": "on demand"` in `mcp.json` with a `summary`; see "Built" below. Written 2026-11-11 so the design was settled before building.
+Status: **both first steps are built** (2026-11-12): the browser is on demand, and the files plugin's write tools are on demand. Plugins can be marked `"load": "on demand"` (the whole plugin) or `"deferTools": [...]` (some of its tools), both with a `summary`; see "Built" below. Written 2026-11-11 so the design was settled before building.
 
 ## The problem
 
@@ -49,12 +49,16 @@ Plugins declare it in `mcp.json` (e.g. `"load": "always" | "on demand"`, with a 
 - `tools__load({ plugin })` is offered while there's an unloaded on-demand plugin the agent may use. It loads that plugin's tools for the rest of the reply, and returns its instructions. A new reply starts with them unloaded again, so the prompt is the same from one reply to the next.
 - Measured on the real config: the browser is 24 of 72 tools, about 17,700 characters of schemas and 1,600 of instructions. Each request now drops those: about 30,400 characters of tools remain, from 48,100.
 - Checked with the local LLM on the real plugin list: "open example.com and tell me the heading" loads the browser first and then uses it; "check my notes" and "say hello" don't load it.
-- Tests: `test/onDemand.test.ts` (listing, loading, reply-to-reply reset, an agent without the plugin, an unknown name).
+- Tests: `test/onDemand.test.ts` (listing, loading, reply-to-reply reset, an agent without the plugin, an unknown name, tools on demand within a plugin, a waiting tool called early is refused).
+- **Files, step 2:** `deferTools` names six of the files plugin's tools (write_file, append_file, edit_file, create_directory, move_file, copy_file). Their names don't change, so agents' tool lists and the messaging checks keep working. The rest of files (reading, listing, searching) is always offered. Measured: about 4,300 characters off each request. Default tool definitions without the browser are now about 26,100 characters, down from 30,400 (and 48,100 before the browser change).
+- Checked with the local LLM on the real config, in a temporary workspace: "add milk to my shopping list" loaded the write tools and wrote the file; a follow-up "add eggs" appended to it. In one earlier run the model searched for several steps and never loaded them, so reliability is good but not perfect: a line in the prompt that says to load before writing is the main cue.
+- The loop refuses a call to a tool that is on demand and not loaded, whatever name the model used (the skill guard and the rest of the hooks still run on the tools that are offered).
 
 ## First steps (when it's built)
 
-1. Defer the **browser** only: about 17,700 characters off almost every turn. Check with the Debug tab (captured LLM traffic) that the prompt shrank and that browsing tasks still load it.
-2. Then split **files**: reading always loaded; writing, editing and moving on demand.
-3. Keep the tool list stable across turns: watch for the built-in tools that change it.
+1. Done: the browser on demand.
+2. Done: files split (reading always; writing, editing, moving and copying on demand).
+3. Still to do: check the Debug tab on a live request, to see the prompt shrink as measured rather than as computed from the schemas.
+4. Keep the tool list stable across turns: watch for the built-in tools that change it.
 
 Related: the phone becoming an MCP plugin in version 2 ([phone.md](phone.md)) would put its tools under the same rules.

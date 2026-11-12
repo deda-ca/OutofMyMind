@@ -148,14 +148,16 @@ class Harness {
     const hub = this.hub
     if (!hub) throw new Error('The harness has no plugins')
     const own = new Map(builtins.map((b) => [b.tool.function.name, b]))
-    // Plugins on demand: their tools are offered once loaded (tools__load), for the rest of this reply.
+    // Plugins (or some of their tools) on demand: offered once loaded (tools__load), for the rest of this reply.
+    const deferrals = hub.deferrals()
     const loaded = new Set<string>()
-    const onDemand = new Set(hub.deferred().map((d) => d.name))
     const hidden = (name: string) => {
       const plugin = hub.pluginOf(name)
-      return plugin !== undefined && onDemand.has(plugin) && !loaded.has(plugin)
+      const d = deferrals.find((x) => x.name === plugin)
+      if (!d || loaded.has(d.name)) return false
+      return d.whole || d.tools.includes(name.slice(d.name.length + 2))
     }
-    const loader = (): BuiltinTool[] => loadTool(hub, allow, onDemand, loaded)
+    const loader = (): BuiltinTool[] => loadTool(hub, allow, deferrals, loaded, hidden)
     const host: ToolHost = {
       // Built-in tools only touch Jarvis's own screen, never the owner's data: every agent gets them.
       // First in the list: with 20+ tools, a smaller model favours the early ones it recognises.
@@ -167,6 +169,11 @@ class Harness {
       label: (name) => own.get(name)?.label ?? hub.label(name),
       crud: (name) => own.get(name)?.crud ?? hub.crudOf(name),
       call: async (name, args, callSignal) => {
+        // Not offered yet (a tool on demand that isn't loaded): refused, whatever name the model used.
+        if (!own.has(name) && hidden(name)) {
+          const plugin = hub.pluginOf(name) ?? ''
+          return { text: `${name} isn't loaded yet: call tools__load with { "plugin": "${plugin}" } first.`, isError: true }
+        }
         const builtin = own.get(name) ?? loader().find((b) => b.tool.function.name === name)
         const crud = builtin?.crud ?? hub.crudOf(name)
         const refused = hooks.before?.(name, args, crud)
@@ -200,11 +207,17 @@ class Harness {
     const blocked = this.catalog().flatMap((p) =>
       p.enabled ? p.tools.filter((t) => t.enabled && t.blockedBy.length > 0 && allow(`${p.name}__${t.name}`)).map((t) => `${p.name}__${t.name}`) : [],
     )
-    // Plugins on demand: one line each (their full instructions come with tools__load).
+    // Plugins on demand: one line each. Those on demand as a whole leave their instructions to tools__load; those with
+    // some tools on demand keep theirs, and list the tools that wait for tools__load.
     const hub = this.hub
-    const onDemand = (hub?.deferred() ?? []).filter((d) => hub!.tools().some((t) => hub!.pluginOf(t.function.name) === d.name && allow(t.function.name)))
-    const lines = onDemand.map((d) => `${d.name} (on demand): ${d.summary}. Its tools are loaded with tools__load({ "plugin": "${d.name}" }) when a request needs them.`)
-    return toolGuidance([...(hub?.instructions(allow, (p) => onDemand.some((d) => d.name === p)) ?? []), ...lines], off, blocked)
+    const offered = (name: string) => hub!.tools().some((t) => hub!.pluginOf(t.function.name) === name && allow(t.function.name))
+    const deferrals = (hub?.deferrals() ?? []).filter((d) => offered(d.name))
+    const lines = deferrals.map((d) =>
+      d.whole
+        ? `${d.name} (on demand): ${d.summary}. Its tools are loaded with tools__load({ "plugin": "${d.name}" }) when a request needs them.`
+        : `${d.name} (some tools on demand): ${d.summary}. ${d.tools.join(', ')} are loaded with tools__load({ "plugin": "${d.name}" }) before use.`,
+    )
+    return toolGuidance([...(hub?.instructions(allow, (p) => deferrals.some((d) => d.whole && d.name === p)) ?? []), ...lines], off, blocked)
   }
 
   async close(): Promise<void> {
@@ -259,12 +272,21 @@ export const harness = new Harness()
 export type { LoopMessage, LoopResult, PluginLink, PluginStatus }
 
 /**
- * tools__load, offered while some plugin on demand is not loaded yet (and the
- * agent may use one of its tools): it loads that plugin's tools for the rest
- * of the reply, and returns the plugin's instructions.
+ * tools__load, offered while some plugin has tools on demand that aren't loaded
+ * yet (and the agent may use one of them): it loads that plugin's on-demand
+ * tools for the rest of the reply, and returns their names (and, for a plugin
+ * on demand as a whole, its instructions).
  */
-function loadTool(hub: McpHub, allow: ToolAllow, onDemand: Set<string>, loaded: Set<string>): BuiltinTool[] {
-  const plugins = [...onDemand].filter((p) => !loaded.has(p) && hub.tools().some((t) => hub.pluginOf(t.function.name) === p && allow(t.function.name)))
+function loadTool(
+  hub: McpHub,
+  allow: ToolAllow,
+  deferrals: { name: string; whole: boolean; tools: string[] }[],
+  loaded: Set<string>,
+  hidden: (name: string) => boolean,
+): BuiltinTool[] {
+  const plugins = deferrals
+    .filter((d) => !loaded.has(d.name) && hub.tools().some((t) => hub.pluginOf(t.function.name) === d.name && allow(t.function.name) && hidden(t.function.name)))
+    .map((d) => d.name)
   if (plugins.length === 0) return []
   return [
     {
@@ -281,9 +303,11 @@ function loadTool(hub: McpHub, allow: ToolAllow, onDemand: Set<string>, loaded: 
       run: async (args) => {
         const plugin = String(args.plugin ?? '')
         if (!plugins.includes(plugin)) return { text: `No plugin "${plugin}" to load here: ${plugins.join(', ') || 'none'}.`, isError: true }
+        // The tools that were waiting (the rest of the plugin was offered already).
+        const names = hub.tools().filter((t) => hub.pluginOf(t.function.name) === plugin && allow(t.function.name) && hidden(t.function.name)).map((t) => t.function.name)
         loaded.add(plugin)
-        const names = hub.tools().filter((t) => hub.pluginOf(t.function.name) === plugin && allow(t.function.name)).map((t) => t.function.name)
-        const about = hub.instructions(allow).filter((s) => s.startsWith(`${plugin}: `))
+        const whole = deferrals.find((d) => d.name === plugin)?.whole
+        const about = whole ? hub.instructions(allow).filter((s) => s.startsWith(`${plugin}: `)) : []
         return { text: `Loaded ${plugin}: ${names.join(', ')}. You can call them now.${about.length ? ` ${about.join(' ')}` : ''}`, isError: false }
       },
     },

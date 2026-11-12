@@ -505,7 +505,12 @@ export class Phone extends EventEmitter<{ change: [] }> {
   private newVoice(transcribed = false): VoiceLeg {
     const live = transcribed ? this.live : null
     const bridge = this.bridge
-    return new VoiceLeg({ name: this.d.assistantName, ...this.d.voice, onSay: live && bridge ? (text) => live.add(this.d.assistantName, text, bridge.seconds * 1000) : undefined })
+    return new VoiceLeg({
+      name: this.d.assistantName,
+      ...this.d.voice,
+      clockMs: () => (this.bridge?.seconds ?? 0) * 1000,
+      onSay: live && bridge ? (text, atMs) => live.add(this.d.assistantName, text, atMs) : undefined,
+    })
   }
 
   /** Rings the owner's cell (from the DID): their leg once they answer, null if they don't. */

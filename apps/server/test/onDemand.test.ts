@@ -120,3 +120,43 @@ test('an unknown plugin name to tools__load is an error', async () => {
   const result = requests[1]!.messages.at(-1)!
   assert.match(String(result.content), /No plugin "nope" to load/)
 })
+
+test('some tools of a plugin on demand: the rest is offered; the named one waits for tools__load, and calling it early is refused', async () => {
+  await harness.close()
+  const pluginsDir = path.resolve(import.meta.dirname, '../../../plugins')
+  const cfg = path.join(dir, 'split.json')
+  fs.writeFileSync(
+    cfg,
+    JSON.stringify({
+      mcpServers: {
+        notes: {
+          command: process.execPath,
+          args: [path.join(pluginsDir, 'notes/server.ts')],
+          env: { NOTES_DIR: path.join(dir, 'notes') },
+          deferTools: ['append_to_note'],
+          summary: "adding to the owner's notes",
+        },
+      },
+    }),
+  )
+  await harness.start(cfg, () => {})
+  requests.length = 0
+  script = [
+    // Calls the waiting tool straight away: refused, and told to load it.
+    [{ tool_calls: [{ index: 0, id: 'a1', function: { name: 'notes__append_to_note', arguments: '{"path":"shopping","text":"- bread"}' } }] }],
+    [{ tool_calls: [{ index: 0, id: 'l1', function: { name: 'tools__load', arguments: '{"plugin":"notes"}' } }] }],
+    [{ tool_calls: [{ index: 0, id: 'a2', function: { name: 'notes__append_to_note', arguments: '{"path":"shopping","text":"- bread"}' } }] }],
+    [{ content: 'Added bread.' }],
+  ]
+  const r = await harness.run(target, [{ role: 'user', content: 'add bread to my shopping list' }], () => {})
+  assert.equal(r.text, 'Added bread.')
+  // First request: the other notes tools are offered, the waiting one isn't.
+  const first = names(requests[0]!)
+  assert.ok(first.includes('notes__read_note'))
+  assert.ok(!first.includes('notes__append_to_note'))
+  assert.match(String(requests[1]!.messages.at(-1)!.content), /isn't loaded yet: call tools__load/)
+  // After loading, it's offered and it runs.
+  assert.ok(names(requests[2]!).includes('notes__append_to_note'))
+  assert.match(String(requests[3]!.messages.at(-1)!.content), /Appended|Created|Added|append|shopping/i)
+  assert.match(fs.readFileSync(path.join(dir, 'notes', 'shopping.md'), 'utf8'), /bread/)
+})

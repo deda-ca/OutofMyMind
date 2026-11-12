@@ -146,3 +146,42 @@ test('the other side talking over Marvin for 300 ms stops it, and what they say 
   assert.ok(got && got.length > FRAME_SAMPLES * 10, 'their words are what Marvin hears')
   leg.close()
 })
+
+test('a sentence cut off by the other side is recorded as the part that was said; a finished one whole', async () => {
+  const { wavFromPcm } = await import('../src/audiocpp.ts')
+  const { cutText } = await import('../src/phone/voice.ts')
+  assert.equal(cutText('one two three four five six', 0.5), 'one two three')
+  assert.equal(cutText('one two three four', 0), '')
+  const text = 'one two three four five six seven eight nine ten'
+  const logged: string[] = []
+  // Two seconds of Marvin's voice (the test's audio), played out at real time.
+  const leg = new VoiceLeg({
+    name: 'Marvin',
+    synthesize: async () => wavFromPcm(Buffer.alloc(64000), 16000),
+    transcribe: async () => '',
+    onSay: (said) => void logged.push(said),
+  })
+  const pace = () => new Promise((r) => setTimeout(r, 20))
+  const drain = setInterval(() => leg.read(), 20)
+  drain.unref()
+  try {
+    // Finished: nothing talks over it.
+    const whole = await leg.say('Okay then.')
+    assert.equal(whole, 'Okay then.')
+    // Cut off after about a second of two: the other side talks over it.
+    const said = leg.say(text)
+    await new Promise((r) => setTimeout(r, 1000))
+    for (let f = 0; f < 60 && leg.interrupted === 0; f++) {
+      leg.write(tone(4000))
+      await pace()
+    }
+    const part = await said
+    assert.equal(leg.interrupted, 1)
+    assert.ok(part.length > 0 && part.length < text.length, `cut: "${part}"`)
+    assert.ok(text.startsWith(part), 'what was said is the start of the sentence')
+    assert.deepEqual(logged, ['Okay then.', part], 'the live transcript has what was said, not the whole sentence')
+  } finally {
+    clearInterval(drain)
+    leg.close()
+  }
+})
