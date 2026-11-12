@@ -8,6 +8,7 @@
 import { AgentLibrary, toolAllowed } from '../agents/library.ts'
 import { systemPrompt } from '../assistant/assistant.ts'
 import { chatTarget, streamChat } from '../assistant/llm.ts'
+import { withUsage } from '../assistant/usage.ts'
 import { config } from '../config.ts'
 import { harness, type BuiltinTool, type LoopResult } from '../harness/index.ts'
 import type { SkillLibrary } from '../skills/library.ts'
@@ -48,9 +49,11 @@ export function scheduledRun(deps: { agents: AgentLibrary; skills: SkillLibrary;
     }
     const builtins = deps.builtins(s.id, req.reason === 'unacknowledged')
     // With plugins: the tool loop (the screen tools come with it). Without: plain chat, whose reply is the notification.
-    const result: LoopResult = harness.status().length
-      ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, req.signal, undefined, allow, builtins)
-      : { text: await streamChat(target, [system, { role: 'user', content: ask }], () => {}, req.signal), steps: [] }
+    const { result } = await withUsage('schedule', undefined, async (): Promise<LoopResult> =>
+      harness.status().length
+        ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, req.signal, undefined, allow, builtins)
+        : { text: await streamChat(target, [system, { role: 'user', content: ask }], () => {}, req.signal), steps: [] },
+    )
     const steps = result.steps
     const text = result.text
     const tools = toolUses(steps)

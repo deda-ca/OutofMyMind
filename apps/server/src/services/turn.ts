@@ -11,6 +11,7 @@ import type { AgentLibrary } from '../agents/library.ts'
 import { toolAllowed } from '../agents/library.ts'
 import { systemPrompt } from '../assistant/assistant.ts'
 import { chatTarget, streamChat } from '../assistant/llm.ts'
+import { withUsage } from '../assistant/usage.ts'
 import { config } from '../config.ts'
 import { harness, type LoopResult } from '../harness/index.ts'
 import { MESSAGING } from '../schedule/run.ts'
@@ -61,9 +62,11 @@ export function serviceTurn(deps: TurnDeps) {
     const ask = `(Service "${turn.serviceName}": ${turn.payloads.length} "${turn.event}" event${turn.payloads.length === 1 ? '' : 's'}. Your instructions for it:\n${turn.trigger.prompt.replace(/\{\{\s*owner\s*\}\}/g, owner)})\n\n<untrusted source="service ${turn.serviceId}, event ${turn.event}">\n${events}\n</untrusted>`
     const target = chatTarget(agent)
     const signal = AbortSignal.timeout(5 * 60_000)
-    const result: LoopResult = harness.status().length
-      ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, signal, undefined, allow, [])
-      : { text: await streamChat(target, [system, { role: 'user', content: ask }], () => {}, signal), steps: [] }
+    const { result } = await withUsage(`service:${turn.serviceId}`, undefined, async (): Promise<LoopResult> =>
+      harness.status().length
+        ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, signal, undefined, allow, [])
+        : { text: await streamChat(target, [system, { role: 'user', content: ask }], () => {}, signal), steps: [] },
+    )
     const reply = clean(result.text)
     const tools = toolUses(result.steps)
     deps.log(turn.serviceId, `turn for ${turn.payloads.length} "${turn.event}" event(s): ${reply ? `told the owner: ${reply.slice(0, 200)}` : 'nothing to tell'}${tools.length ? ` (tools: ${tools.map((t) => t.name).join(', ')})` : ''}`)

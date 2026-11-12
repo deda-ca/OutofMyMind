@@ -257,6 +257,41 @@
               "extra": {
                 "type": "object",
                 "description": "Extra request fields sent with every request (openai kind)."
+              },
+              "prices": {
+                "type": "object",
+                "description": "Dollars per million tokens, by model (\"*\": any model), for the usage and cost shown: { \"gpt-5\": { \"input\": 1.25, \"output\": 10, \"cacheRead\": 0.125 } }. Claude's are built in; llama.cpp is free.",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "input",
+                    "output"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "input": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "output": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "cacheRead": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "cacheWrite": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  }
+                }
+              },
+              "budget": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Dollars a day on this connection: once spent, new turns use the default model (llm.default) until tomorrow, and you are told."
               }
             }
           }
@@ -583,6 +618,20 @@
             "number"
           ],
           "default": "Marvin"
+        },
+        "speech": {
+          "description": "The text-to-speech model it speaks with on the phone, as \"connection/model\" (audio.connections). Default: audio.tts.",
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "voice": {
+          "description": "Its voice on the phone (one the speech model has). Default: audio.ttsVoice.",
+          "type": [
+            "string",
+            "number"
+          ]
         },
         "maxCallMinutes": {
           "description": "The longest call.",

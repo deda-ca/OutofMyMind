@@ -14,6 +14,8 @@ const page = $('text')
 
 const state = {
   voice: '',
+  /** The speech model ("connection/model"); '' = Jarvis's default. */
+  model: '',
   rate: 1,
   voices: [],
   jarvisVoice: '',
@@ -246,7 +248,7 @@ function setSegments(next) {
   }
 }
 
-const key = (s, from) => `${state.voice}|${s}|${from}`
+const key = (s, from) => `${state.model}|${state.voice}|${s}|${from}`
 
 /** One sentence (from a word) as audio: a blob URL, fetched once. */
 function clip(s, from) {
@@ -254,7 +256,7 @@ function clip(s, from) {
   let p = clips.get(k)
   if (!p) {
     const text = segments[s].slice(from).join(' ').slice(0, 1000)
-    p = jarvis.call('tab_speak', { text, voice: state.voice || undefined }).then((r) => {
+    p = jarvis.call('tab_speak', { text, voice: state.voice || undefined, model: state.model || undefined }).then((r) => {
       if (r.isError) throw new Error(r.text)
       const bytes = Uint8Array.from(atob(JSON.parse(r.text).wav), (c) => c.charCodeAt(0))
       return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }))
@@ -404,7 +406,7 @@ $('clear').addEventListener('click', () => {
   page.focus()
 })
 
-const remember = () => void jarvis.call('tab_prefs', { voice: state.voice || undefined, rate: state.rate, zoom })
+const remember = () => void jarvis.call('tab_prefs', { model: state.model || undefined, voice: state.voice || undefined, rate: state.rate, zoom })
 
 /** The text size: steps up or down (A− / A+, Ctrl − / Ctrl +), remembered. */
 function setZoom(next, save = true) {
@@ -428,6 +430,12 @@ document.addEventListener('keydown', (e) => {
   else return
   e.preventDefault()
 })
+$('model').addEventListener('change', async (e) => {
+  state.model = e.target.value
+  // Its voices: keep the chosen one if it has it.
+  await loadVoices(state.model)
+  remember()
+})
 $('voice').addEventListener('change', (e) => {
   state.voice = e.target.value
   remember()
@@ -438,12 +446,19 @@ $('rate').addEventListener('change', (e) => {
   remember()
 })
 
-async function loadVoices() {
-  const v = await jarvis.json('tab_voices').catch(() => null)
+/** The speech models and the voices of the chosen one (`model`: switching to it; keep the voice if it has it). */
+async function loadVoices(model) {
+  const v = await jarvis.json('tab_voices', model === undefined ? {} : { model }).catch(() => null)
   if (!v) return
+  const keep = model === undefined ? v.voice : state.voice
+  state.model = v.model || ''
   state.voices = v.voices
   state.jarvisVoice = v.jarvis
-  state.voice = v.voice && v.voices.includes(v.voice) ? v.voice : (v.voices.find((x) => x !== v.jarvis) ?? v.voices[0] ?? '')
+  state.voice = keep && v.voices.includes(keep) ? keep : (v.voices.find((x) => x !== v.jarvis) ?? v.voices[0] ?? '')
+  const models = v.models ?? []
+  $('model').replaceChildren(new Option(`Default (${(models.find((m) => m.ref === v.defaultModel) ?? { label: v.defaultModel }).label})`, ''), ...models.map((m) => new Option(m.label, m.ref, false, m.ref === state.model)))
+  $('model').value = state.model
+  $('model').hidden = models.length < 2
   state.rate = RATES.includes(v.rate) ? v.rate : 1
   setZoom(typeof v.zoom === 'number' ? v.zoom : 1, false)
   $('voice').replaceChildren(...v.voices.map((x) => new Option(`${x}${x === v.jarvis ? ' (Jarvis)' : ''}`, x, false, x === state.voice)))

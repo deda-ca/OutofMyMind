@@ -12,11 +12,13 @@ import { AgentLibrary } from './agents/library.ts'
 import { agentRoutes } from './agents/routes.ts'
 import { contextMonitor } from './assistant/context.ts'
 import { chatTarget } from './assistant/llm.ts'
+import { connections } from './assistant/models.ts'
+import { usageLog } from './assistant/usage.ts'
 import { ttsRoutes } from './assistant/ttsRoutes.ts'
 import { config } from './config.ts'
 import { fileRoutes } from './files/routes.ts'
 import { toolRoutes } from './harness/routes.ts'
-import { startSchedules, stopSchedules } from './schedule/index.ts'
+import { notifier, startSchedules, stopSchedules } from './schedule/index.ts'
 import { startServices, stopServices } from './services/index.ts'
 import { startPhone, stopPhone } from './phone/index.ts'
 import { startTelegram, stopTelegram } from './telegram/index.ts'
@@ -61,6 +63,25 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.addHook('onClose', async () => db.close())
   // Timers, alarms, reminders (off in tests unless asked for).
   if (options.schedules) {
+    // What the LLMs cost (usage.ts): kept in the data folder, screens told when it changes (at most every 2 s).
+    usageLog.open(config.dataDir)
+    let usageTimer: NodeJS.Timeout | undefined
+    const onUsage = () => {
+      usageTimer ??= setTimeout(() => {
+        usageTimer = undefined
+        notifier.broadcast({ type: 'usage' })
+      }, 2000)
+    }
+    const onBudget = (connection: string, budget: number, spent: number) =>
+      void notifier.notify({ title: 'LLM budget', text: `Today's budget for ${connection} (${budget.toFixed(2)} dollars) is spent (${spent.toFixed(2)}): new requests use the default model until tomorrow.`, urgency: 'info', speak: false })
+    usageLog.on('change', onUsage)
+    usageLog.on('budget', onBudget)
+    app.addHook('onClose', async () => {
+      usageLog.off('change', onUsage)
+      usageLog.off('budget', onBudget)
+      clearTimeout(usageTimer)
+      usageLog.flush()
+    })
     // Self-contained plugins' events and requests (docs/plugins.md): from the start, so nothing a plugin sends while starting is lost.
     startPlatform({ agents, skills, sessions, log: (message, err) => (err ? app.log.warn({ err }, message) : app.log.info(message)) })
     app.addHook('onClose', async () => stopPlatform())
@@ -104,6 +125,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     const audiocpp = await audiocppHealth()
     return { status: audiocpp.ok ? 'ok' : 'degraded', audiocpp }
   })
+
+  /** What the LLMs cost: today (by model, by source), this month, a session (?session=id), and each connection's budget. */
+  app.get<{ Querystring: { session?: string } }>('/api/usage', async (req) => ({
+    ...usageLog.summary(req.query.session || sessions.activeId()),
+    budgets: connections()
+      .filter((c) => c.budget !== undefined)
+      .map((c) => ({ connection: c.id, label: c.label, budget: c.budget, spent: usageLog.spentToday(c.id) })),
+  }))
 
   /** The context meter: the last request to the local model, by section (null before the first). */
   app.get('/api/context', async () => {

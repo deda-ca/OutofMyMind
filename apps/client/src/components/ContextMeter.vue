@@ -56,7 +56,7 @@ function backdrop(event: MouseEvent): void {
       <circle cx="9" cy="9" :r="R" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-width="3" />
       <circle cx="9" cy="9" :r="R" fill="none" stroke="currentColor" stroke-width="3" :stroke-dasharray="dash" transform="rotate(-90 9 9)" stroke-linecap="round" />
     </svg>
-    <template v-if="context.stats">{{ pct(used, limit) }} · {{ shortTokens(used) }} / {{ shortTokens(limit) }}</template>
+    <template v-if="context.stats">{{ pct(used, limit) }} · {{ shortTokens(used) }} / {{ limit ? shortTokens(limit) : '?' }}</template>
     <template v-else>Context{{ limit ? ` · ${shortTokens(limit)}` : '' }}</template>
   </button>
 

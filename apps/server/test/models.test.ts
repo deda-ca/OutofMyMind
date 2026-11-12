@@ -171,7 +171,7 @@ test("Claude's stream comes back as OpenAI-style chunks: text, tool calls, usage
   assert.deepEqual(deltas[1]!.delta, { tool_calls: [{ index: 0, id: 'toolu_1', type: 'function', function: { name: 'files__read', arguments: '' } }] })
   assert.deepEqual(deltas[2]!.delta, { tool_calls: [{ index: 0, function: { arguments: '{"path":' } }] })
   assert.equal(deltas[4]!.finish_reason, 'tool_calls')
-  assert.deepEqual(chunks[5], { choices: [], usage: { prompt_tokens: 1015, completion_tokens: 20, total_tokens: 1035, prompt_tokens_details: { cached_tokens: 1000 } } })
+  assert.deepEqual(chunks[5], { choices: [], usage: { prompt_tokens: 1015, completion_tokens: 20, total_tokens: 1035, prompt_tokens_details: { cached_tokens: 1000, cache_creation_tokens: 5 } } })
   assert.deepEqual(chunks[6], { jarvis_raw: { model: 'claude-opus-5-5', content: toolStep.final.content } })
 })
 

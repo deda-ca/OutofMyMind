@@ -7,7 +7,8 @@
 import { postAnthropic } from './anthropic.ts'
 import { contextMonitor } from './context.ts'
 import { llmTap, teeBody, traceHeaders } from './llmTap.ts'
-import { resolve } from './models.ts'
+import { defaultRef, resolve } from './models.ts'
+import { type Price, usageLog } from './usage.ts'
 import { attachImages } from './vision.ts'
 
 export interface ChatMessage {
@@ -32,6 +33,9 @@ export interface ChatTarget {
   /** anthropic: how hard Claude thinks. */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   contextWindow?: number
+  /** Its prices and daily budget (usage.ts). */
+  prices?: Record<string, Price>
+  budget?: number
 }
 
 /** The target's API key as an Authorization header (none if it has no key). */
@@ -43,7 +47,15 @@ const warned = new Set<string>()
 
 /** Where to send a request: the agent's "connection/model" (agent.model), or the default. */
 export function chatTarget(agent?: { model?: string } | null): ChatTarget {
-  const { connection: c, model, note } = resolve(agent?.model)
+  let { connection: c, model, note } = resolve(agent?.model)
+  // Today's budget on that connection spent: the default model instead (unless that's the one).
+  if (c.budget !== undefined && usageLog.spentToday(c.id) >= c.budget) {
+    const fallback = resolve(defaultRef())
+    if (fallback.connection.id !== c.id) {
+      note = `${c.id}'s daily budget (${c.budget} dollars) is spent: using ${fallback.connection.id}/${fallback.model} until tomorrow`
+      ;({ connection: c, model } = fallback)
+    }
+  }
   if (note && !warned.has(note)) {
     warned.add(note)
     console.warn(`llm: ${note}`)
@@ -58,6 +70,8 @@ export function chatTarget(agent?: { model?: string } | null): ChatTarget {
     llamaCpp: c.llamaCpp,
     ...(c.effort ? { effort: c.effort } : {}),
     ...(c.contextWindow ? { contextWindow: c.contextWindow } : {}),
+    ...(c.prices ? { prices: c.prices } : {}),
+    ...(c.budget !== undefined ? { budget: c.budget } : {}),
     // llama.cpp: thinking off (for spoken conversation a fast short answer beats a slow considered one: 0.3 s vs 1.3 s+ measured).
     extra: { ...(c.llamaCpp ? { chat_template_kwargs: { enable_thinking: false } } : {}), ...c.extra },
   }
@@ -122,7 +136,7 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     ...body,
   }
   contextMonitor.request(target, json)
-  if (target.kind === 'anthropic') return postAnthropic(target, json, signal)
+  if (target.kind === 'anthropic') return owned(await postAnthropic(target, json, signal), target)
 
   // The Debug tab: a copy of the exchange, only while a client is watching.
   const traceId = llmTap.active ? llmTap.id() : 0
@@ -173,11 +187,21 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     const detail = fullDetail.slice(0, 300)
     throw new LlmError(`${name} returned HTTP ${response.status}: ${detail}`, response.status === 401 || response.status === 403 || response.status === 404)
   }
+  return owned(response, target)
+}
+
+/** Which target a response body came from: its usage is counted for it (readSse). */
+const owners = new WeakMap<ReadableStream<Uint8Array>, ChatTarget>()
+function owned(response: Response, target: ChatTarget): Response {
+  if (response.body) owners.set(response.body, target)
   return response
 }
 
+type UsageChunk = { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_creation_tokens?: number } }
+
 /** The server-sent events of a streaming response, until `[DONE]`. `event` is '' for plain data lines. */
 export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: Record<string, unknown> }> {
+  const target = owners.get(body)
   let buffer = ''
   let event = ''
   const decoder = new TextDecoder()
@@ -200,7 +224,18 @@ export async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator
       if (data === '[DONE]') return
       try {
         const parsed = JSON.parse(data) as Record<string, unknown>
-        if (parsed.usage && typeof parsed.usage === 'object') contextMonitor.usage(parsed.usage as Parameters<typeof contextMonitor.usage>[0])
+        if (parsed.usage && typeof parsed.usage === 'object') {
+          const u = parsed.usage as UsageChunk
+          contextMonitor.usage(u)
+          if (target) {
+            usageLog.record(target, {
+              input: u.prompt_tokens ?? 0,
+              cached: u.prompt_tokens_details?.cached_tokens ?? 0,
+              cacheWrite: u.prompt_tokens_details?.cache_creation_tokens ?? 0,
+              output: u.completion_tokens ?? 0,
+            })
+          }
+        }
         yield { event, data: parsed }
       } catch {
         // keep-alive or malformed

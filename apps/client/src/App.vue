@@ -19,9 +19,12 @@ import PhonePanel from './components/PhonePanel.vue'
 import PluginTab from './components/PluginTab.vue'
 import AgentPicker from './components/AgentPicker.vue'
 import ModelPicker from './components/ModelPicker.vue'
+import VoicePicker from './components/VoicePicker.vue'
 import { plugins, statusOf, tabRequest, tellTabs } from './plugins'
 import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
+import UsageMeter from './components/UsageMeter.vue'
+import { replyLine, type ReplyUsage } from './usage'
 import DebugPanel from './components/DebugPanel.vue'
 import HistoryPanel from './components/HistoryPanel.vue'
 import SignInPanel from './components/SignInPanel.vue'
@@ -77,6 +80,8 @@ interface Phrase {
   files?: FileRef[]
   /** When it started (ms), for the timestamps between groups of messages. */
   at: number
+  /** A reply's model, tokens and cost. */
+  usage?: ReplyUsage
 }
 
 const status = ref<Status>('idle')
@@ -310,6 +315,7 @@ function onAssistant(phrases: Phrase[], message: AssistantMessage): void {
     line.text = message.text
     line.final = true
     line.jarvis = message.kind
+    if (message.usage) line.usage = message.usage
   } else {
     line.text = message.message
     line.final = true
@@ -735,7 +741,7 @@ onBeforeUnmount(() => {
             <button type="button" class="badge theme-info" title="The Phone tab" @click="tab = 'phone'">📞 {{ phone.call.name || phone.call.display }} · {{ phone.call.state === 'active' ? 'on the call' : 'calling…' }}</button>
             <button type="button" class="badge theme-danger" @click="hangUpCall">Hang up</button>
           </template>
-          <span class="ms-auto"><ContextMeter /></span>
+          <span class="ms-auto d-flex gap-2 align-items-center"><UsageMeter /><ContextMeter /></span>
           <button
             type="button"
             class="btn-text btn-sm settings-button"
@@ -878,9 +884,10 @@ onBeforeUnmount(() => {
           >
             ■&#xFE0E; Stop talking
           </button>
-          <!-- Who you're talking to (the session's agent), and the LLM it uses in this session. -->
+          <!-- Who you're talking to (the session's agent), and the LLM and voice it uses in this session. -->
           <AgentPicker class="ms-auto" />
           <ModelPicker />
+          <VoicePicker />
         </div>
 
         <div v-if="error" class="alert theme-danger m-0 live-fixed" role="alert">{{ error }}</div>
@@ -949,6 +956,7 @@ onBeforeUnmount(() => {
                         </button>
                       </div>
                       <span v-else :class="phrase.jarvis === 'error' ? 'fg-danger' : 'fg-info'">{{ phrase.text || '…' }}</span>
+                      <span v-if="phrase.usage" class="text-xs fg-3 reply-usage" title="The model, the tokens it read and wrote, and what it cost">{{ replyLine(phrase.usage) }}</span>
                     </span>
                   </template>
                   <template v-else-if="phrase.files">

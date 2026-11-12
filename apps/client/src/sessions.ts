@@ -27,6 +27,8 @@ export interface SessionSummary {
   agent: string
   /** "connection/model"; missing = the agent's. */
   model?: string
+  /** The voice it's spoken in; missing = the agent's. */
+  voice?: string
   created: string
   updated: string
   messages: number
@@ -39,6 +41,8 @@ interface Listing {
   newAgent: string
   /** The model the next new session will use ('' = its agent's). */
   newModel?: string
+  /** The voice the next new session will use ('' = its agent's). */
+  newVoice?: string
   sessions: SessionSummary[]
 }
 
@@ -90,6 +94,7 @@ export const sessions = reactive({
   activeId: null as string | null,
   newAgent: '',
   newModel: '',
+  newVoice: '',
   agents: [] as AgentInfo[],
   /** The LLMs there are, for the model pickers (loaded when a picker is opened). */
   llm: { default: '', connections: [] } as LlmListing,
@@ -122,6 +127,7 @@ function apply(listing: Listing): void {
   sessions.activeId = listing.activeId
   sessions.newAgent = listing.newAgent ?? ''
   sessions.newModel = listing.newModel ?? ''
+  sessions.newVoice = listing.newVoice ?? ''
 }
 
 async function show(id: string | null): Promise<void> {
@@ -200,6 +206,22 @@ export const setModel = (model: string) =>
       sessions.shownId === null
         ? await api<Listing>('/api/sessions/new/model', json('PUT', { model }))
         : await api<Listing>(`/api/sessions/${encodeURIComponent(sessions.shownId)}`, json('PATCH', { model })),
+    )
+  })
+
+/** The voice picked for the session on screen (or the new one); '' = its agent's. */
+export function shownVoice(): string {
+  if (sessions.shownId === null) return sessions.newVoice
+  return sessions.list.find((s) => s.id === sessions.shownId)?.voice ?? ''
+}
+
+/** Speak in another voice in the session on screen (or the new one); '' = its agent's. */
+export const setVoice = (voice: string) =>
+  attempt(async () => {
+    apply(
+      sessions.shownId === null
+        ? await api<Listing>('/api/sessions/new/voice', json('PUT', { voice }))
+        : await api<Listing>(`/api/sessions/${encodeURIComponent(sessions.shownId)}`, json('PATCH', { voice })),
     )
   })
 

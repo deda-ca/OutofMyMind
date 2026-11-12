@@ -149,6 +149,8 @@ export interface VoiceDeps {
   /** 16 kHz → text (audio.cpp); overridable in tests. */
   transcribe?: (pcm: Int16Array) => Promise<string>
   voice?: string
+  /** The speech model, "connection/model" (default audio.tts). */
+  model?: string
   /** Called with each thing Marvin says, as it starts saying it (for the live transcript). */
   onSay?: (text: string) => void
 }
@@ -207,7 +209,7 @@ export class VoiceLeg implements Leg {
   /** Says `text` into the call; resolves when it has been played. */
   async say(text: string): Promise<void> {
     if (this.closed) throw new CallEnded()
-    const wav = await (this.d.synthesize ?? ((t: string) => synthesize(t, undefined, this.d.voice)))(text)
+    const wav = await (this.d.synthesize ?? ((t: string) => synthesize(t, undefined, this.d.voice, this.d.model)))(text)
     if (this.closed) throw new CallEnded()
     this.d.onSay?.(text)
     await this.play(wavToPcm16k(wav))

@@ -11,7 +11,9 @@
 //   - requests: jarvis/notify (a notification on screen), jarvis/note (a note
 //     in the active conversation), jarvis/tab-push (its tab should refresh),
 //     jarvis/tab-status (what its tab button shows: an icon, maybe pulsing,
-//     and a pill, e.g. the number of unread emails).
+//     and a pill, e.g. the number of unread emails), jarvis/speech (the
+//     speech models there are, and a model's voices) and jarvis/speak (text as
+//     speech, with any of them: the speech servers stay the server's business).
 //
 // The confirmation gate (the owner's yes for tools marked "confirm") is in the
 // harness (harness/mcp.ts); its "yes" comes from here (when the owner last spoke).
@@ -20,6 +22,9 @@ import path from 'node:path'
 import { type AgentLibrary, toolAllowed } from '../agents/library.ts'
 import { systemPrompt } from '../assistant/assistant.ts'
 import { chatTarget, streamChat } from '../assistant/llm.ts'
+import { synthesize, ttsVoices } from '../assistant/speech.ts'
+import { withUsage } from '../assistant/usage.ts'
+import { audioConnections, audioModels, defaultAudioRef } from '../audioConnections.ts'
 import { config } from '../config.ts'
 import { harness, type LoopResult } from '../harness/index.ts'
 import type { PluginManifest } from '../harness/manifest.ts'
@@ -143,6 +148,20 @@ export function startPlatform(deps: PlatformDeps): void {
         notifier.broadcast({ type: 'plugin-status', name: plugin, status })
         return {}
       }
+      if (method === 'jarvis/speech') {
+        const list = audioConnections()
+        const model = typeof params.model === 'string' && params.model ? params.model : undefined
+        const models = (await Promise.all(list.map(async (c) => (await audioModels(c)).tts.map((t) => ({ ref: `${c.id}/${t}`, label: list.length > 1 ? `${c.label} · ${t}` : t }))))).flat()
+        return { models, tts: defaultAudioRef('tts', list), voice: config.ttsVoice, voices: await ttsVoices(model) }
+      }
+      if (method === 'jarvis/speak') {
+        const text = String(params.text ?? '').replace(/\s+/g, ' ').trim()
+        if (!text || text.length > 1000) throw new Error('jarvis/speak takes a text of 1 to 1,000 characters.')
+        const model = typeof params.model === 'string' && params.model ? params.model : undefined
+        const voice = typeof params.voice === 'string' && params.voice ? params.voice : config.ttsVoice
+        const wav = await synthesize(text, AbortSignal.timeout(55_000), voice, model)
+        return { wav: wav.toString('base64') }
+      }
       if (method === 'jarvis/tab-push') {
         notifier.broadcast({ type: 'plugin', name: plugin })
         return {}
@@ -225,9 +244,11 @@ function pluginTurn(deps: PlatformDeps, tell: (title: string, text: string) => v
     const ask = `(${titleOf(m)} plugin: ${turn.payloads.length} "${turn.event}" event${turn.payloads.length === 1 ? '' : 's'}. Your instructions for it:\n${tr.prompt.replace(/\{\{\s*owner\s*\}\}/g, owner)})\n\n${body}`
     const target = chatTarget(agent)
     const signal = AbortSignal.timeout(5 * 60_000)
-    const result: LoopResult = harness.status().length
-      ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, signal, undefined, allow, [])
-      : { text: await streamChat(target, [system, { role: 'user', content: ask }], () => {}, signal), steps: [] }
+    const { result } = await withUsage(`plugin:${m.name}`, undefined, async (): Promise<LoopResult> =>
+      harness.status().length
+        ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, signal, undefined, allow, [])
+        : { text: await streamChat(target, [system, { role: 'user', content: ask }], () => {}, signal), steps: [] },
+    )
     const reply = clean(result.text)
     const tools = toolUses(result.steps)
     deps.log(`plugins: ${m.name}: turn for ${turn.payloads.length} "${turn.event}" event(s): ${reply ? `told the owner: ${reply.slice(0, 200)}` : 'nothing to tell'}${tools.length ? ` (tools: ${tools.map((x) => x.name).join(', ')})` : ''}`)

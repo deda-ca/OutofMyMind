@@ -17,9 +17,9 @@ Status: moved out of the client into a self-contained plugin on 2026-11-11 ([plu
 
 | Piece | Where |
 | --- | --- |
-| The plugin: voices, one sentence as speech (audio.cpp's `/v1/audio/speech`, the WAV base64 to the tab), preferences, text handed over | `plugins/reader/server.ts`, `plugin.json` |
+| The plugin: speech models and voices, one sentence as speech (asked of the server: `speechOptions` and `speak`, the WAV base64 to the tab), preferences, text handed over | `plugins/reader/server.ts`, `plugin.json` |
 | The tab: the page, words and sentences, playback, highlighting | `plugins/reader/ui/` (with `marked` and `DOMPurify` copied in `ui/vendor/`, versions and licenses in its README) |
 | Jarvis's tool | `reader__read_aloud` (text, title): Jarvis gets the text first (a file, a page, an email), the tab opens with it, the owner presses Play |
 | The client | the 🔊 button beside the message box opens the tab; the document viewer's 🔊 hands the document over (`readAloud` in `apps/client/src/plugins.ts`) |
 
-Settings: none of its own; it uses `AUDIOCPP_URL`, `TTS_MODEL` and `TTS_VOICE` like the server.
+Settings: none of its own. The speech comes from the server's speech servers (`audio.connections`), so any speech model and voice there can read; the bar shows a speech model choice when there's more than one, and the voice list follows it. The choices are remembered.

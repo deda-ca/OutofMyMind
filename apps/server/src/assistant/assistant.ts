@@ -30,6 +30,7 @@ import { Room, type RoomLine } from './room.ts'
 import { LlmError, chatTarget, streamChat, type AgentEvent, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
 import { ProgressSpeaker } from './progress.ts'
 import { SentenceSplitter, forSpeech, speakerFor, synthesize } from './speech.ts'
+import { type UsageScope, withUsage } from './usage.ts'
 import { addressedAgent, canonical, hasWakeWord, isDismissal, isWakeOnly, setAgentNames } from './wake.ts'
 
 /** After a request, how long a phrase scored as "someone else" is still taken as maybe the owner (it doesn't end the conversation). */
@@ -41,7 +42,7 @@ export type AssistantMessage =
   | { type: 'assistant.state'; state: AssistantState; followUpEndsAt: number | null; ownerTrained: boolean }
   | { type: 'assistant.start'; replyId: number; toPhraseId: number }
   | { type: 'assistant.delta'; replyId: number; delta: string }
-  | { type: 'assistant.done'; replyId: number; text: string; kind: ReplyKind }
+  | { type: 'assistant.done'; replyId: number; text: string; kind: ReplyKind; usage?: ReplyUsage }
   | { type: 'assistant.error'; replyId: number; message: string }
   /** A reply cancelled before it said anything (the owner carried on talking): the client drops its line. */
   | { type: 'assistant.cancel'; replyId: number }
@@ -106,8 +107,12 @@ export interface SessionLink {
   entries(): SessionEntry[]
   /** The session's agent ('' = the default). */
   agentId(): string
+  /** The session's id (none until its first message). */
+  id?(): string | null
   /** The session's LLM, "connection/model" ('' or missing: the agent's). */
   model?(): string
+  /** The session's voice ('' or missing: the agent's). */
+  voice?(): string
   record(entry: SessionEntry): void
   /** "Jarvis, new session". */
   startNew(): void
@@ -439,12 +444,14 @@ export class Assistant {
     const hooks = { before: guard.before.bind(guard), after: guard.after.bind(guard) }
     const nothingSaid = () => partial === ''
     try {
-      const answer = await this.ask(target, this.messagesFor(agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks)
+      const { result: answer, turn } = await withUsage('chat', () => this.session.id?.(), () =>
+        this.ask(target, this.messagesFor(agent, triggered), onDelta, abort.signal, onEvent, notice, nothingSaid, agent, builtins, hooks),
+      )
       for (const sentence of sentences.flush()) this.speakSentence(replyId, seq++, sentence, agent)
       const clean = answer.text.replace(/^\s*<think>[\s\S]*?<\/think>/, '').trim()
       const tools = toolUses(answer.steps)
       this.record({ kind: 'jarvis', at: new Date().toISOString(), text: clean, ...(tools.length ? { tools } : {}) })
-      if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply' })
+      if (!this.closed) this.o.emit({ type: 'assistant.done', replyId, text: clean, kind: 'reply', ...(turn.requests ? { usage: replyUsage(turn) } : {}) })
       this.o.saveReply(phrase.archiveId, 'reply', clean, firstWordMs, target.model)
     } catch (err) {
       if (abort.signal.aborted && nothingSaid()) {
@@ -662,7 +669,8 @@ ${updated.body}`, isError: false }
       .then(async () => {
         if (this.closed || replyId !== this.speakingReplyId) return
         const started = performance.now()
-        const { voice, model } = await speakerFor(agent, (m) => this.o.log(`assistant: ${m}`))
+        // The session's voice if one was picked in the chat, else the agent's.
+        const { voice, model } = await speakerFor({ ...agent, voice: this.session.voice?.() || agent?.voice }, (m) => this.o.log(`assistant: ${m}`))
         const wav = await synthesize(text, undefined, voice, model)
         if (this.closed || replyId !== this.speakingReplyId) return
         this.o.emit({ type: 'assistant.audio', replyId, seq, text, wav: wav.toString('base64'), synthMs: Math.round(performance.now() - started) })
@@ -835,6 +843,18 @@ function stampNow(at = new Date()): string {
 /** The agent's temperature, if it sets one. */
 function forAgent(target: ChatTarget, agent: Agent): ChatTarget {
   return agent.temperature === undefined ? target : { ...target, extra: { ...target.extra, temperature: agent.temperature } }
+}
+
+/** What a reply cost: its model, tokens (prompt and written) and dollars (null: the model has no price). */
+export interface ReplyUsage {
+  model: string
+  input: number
+  output: number
+  cost: number | null
+}
+
+function replyUsage(t: UsageScope['turn']): ReplyUsage {
+  return { model: t.model ?? '', input: t.input, output: t.output, cost: t.unpriced ? null : t.cost }
 }
 
 /** The history for plain chat (no tools): tool calls and results left out. */

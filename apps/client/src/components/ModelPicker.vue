@@ -41,6 +41,6 @@ onMounted(loadLlm)
 <style scoped>
 .model-picker-select {
   width: auto;
-  max-width: 14rem;
+  max-width: 17rem;
 }
 </style>

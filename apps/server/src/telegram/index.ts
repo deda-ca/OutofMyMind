@@ -21,6 +21,7 @@ import { MAX_DOWNLOAD, type TelegramMessage, Telegram, TelegramError } from '../
 import { type AgentLibrary, toolAllowed } from '../agents/library.ts'
 import { systemPrompt } from '../assistant/assistant.ts'
 import { type ChatMessage, chatTarget, streamChat } from '../assistant/llm.ts'
+import { withUsage } from '../assistant/usage.ts'
 import { speakerFor, spokenSentences, synthesize } from '../assistant/speech.ts'
 import { encodeOggOpus } from '../archive/oggOpus.ts'
 import { saveUpload } from '../files/workspaceFiles.ts'
@@ -274,7 +275,8 @@ export class TelegramChannel {
     void this.bot.typing(this.chatId)
     let result: LoopResult
     try {
-      result = await (this.d.turn ?? ((s) => this.turn(s)))(this.abort.signal)
+      const signal = this.abort.signal
+      result = (await withUsage('telegram', () => this.d.sessions.activeId(), () => (this.d.turn ?? ((s) => this.turn(s)))(signal))).result
     } catch (err) {
       if (this.stopped) return
       this.d.log('telegram: the reply failed', err)
@@ -308,7 +310,8 @@ export class TelegramChannel {
     const recording = setInterval(() => void this.bot.typing(this.chatId, 'record_voice'), 4500)
     void this.bot.typing(this.chatId, 'record_voice')
     try {
-      const { voice, model } = await speakerFor(this.d.agents.get(this.d.sessions.agentId() || undefined))
+      const agent = this.d.agents.get(this.d.sessions.agentId() || undefined)
+      const { voice, model } = await speakerFor({ ...agent, voice: this.d.sessions.voice() || agent.voice })
       const speak = this.d.synthesize ?? ((t: string) => synthesize(t, this.abort.signal, voice, model))
       const pieces: Int16Array[] = []
       for (const sentence of said) pieces.push(wavToPcm16k(await speak(sentence)))

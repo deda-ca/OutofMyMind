@@ -9,6 +9,7 @@
 // countdowns), reloaded whenever the server says it changed.
 
 import { loadPhone } from './phone'
+import { loadUsage } from './usage'
 import { loadPlugins, pluginChanged, plugins, type TabStatus } from './plugins'
 import { reactive } from 'vue'
 import { loadServices } from './services'
@@ -91,13 +92,14 @@ export function connectNotifications(device = deviceName()): void {
     }
   }
   source.onmessage = (e) => {
-    const event = JSON.parse(String(e.data)) as { type: 'notify'; notification: Notice; speak: boolean } | { type: 'ended'; id: string; status: Notice['status'] } | { type: 'schedules' } | { type: 'services' } | { type: 'phone' } | { type: 'plugin'; name: string } | { type: 'plugin-status'; name: string; status: TabStatus | null }
+    const event = JSON.parse(String(e.data)) as { type: 'notify'; notification: Notice; speak: boolean } | { type: 'ended'; id: string; status: Notice['status'] } | { type: 'schedules' } | { type: 'services' } | { type: 'phone' } | { type: 'plugin'; name: string } | { type: 'plugin-status'; name: string; status: TabStatus | null } | { type: 'usage' }
     if (event.type === 'notify') arrive(event.notification, event.speak)
     else if (event.type === 'ended') end(event.id)
     else if (event.type === 'services') void loadServices()
     else if (event.type === 'phone') void loadPhone()
     else if (event.type === 'plugin') pluginChanged(event.name)
     else if (event.type === 'plugin-status') plugins.status[event.name] = event.status
+    else if (event.type === 'usage') void loadUsage()
     else void loadSchedules()
   }
 }

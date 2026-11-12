@@ -85,6 +85,8 @@ export const config = {
     ringSeconds: Math.max(5, Number(env('PHONE_RING_SECONDS', '30')) || 30),
     /** What the assistant calls itself when it answers the phone. */
     assistantName: env('PHONE_ASSISTANT_NAME', 'Marvin'),
+    speech: env('PHONE_SPEECH', ''),
+    voice: env('PHONE_VOICE', ''),
   },
   /** Telegram (docs/telegram.md): the owner chats with Jarvis from Telegram; on when both are set, unless TELEGRAM=off. */
   telegram: {

@@ -7,6 +7,7 @@
 //   pinned: false
 //   agent: email                (optional; the default agent otherwise)
 //   model: claude/claude-opus-5-5   (optional; the agent's model otherwise)
+//   voice: zoe                  (optional; the agent's voice otherwise)
 //   created: 2026-11-09T19:30:12.000Z
 //   updated: 2026-11-09T19:41:03.000Z
 //   ---
@@ -72,6 +73,8 @@ export interface SessionMeta {
   agent: string
   /** The LLM it uses, "connection/model" (llm.connections); empty or missing: the agent's. */
   model?: string
+  /** The voice it's spoken in (one the agent's speech model has); empty or missing: the agent's. */
+  voice?: string
   created: string
   updated: string
 }
@@ -89,6 +92,8 @@ const NOT_TO_JARVIS = ' (not to Jarvis)'
 
 /** "connection/model". */
 export const MODEL_REF = /^[A-Za-z0-9_-]{1,32}\/[^\s"'`<>]{1,200}$/
+/** A voice's name ("jarvis", "male-tz-calm"). */
+export const VOICE_NAME = /^[A-Za-z0-9_.-]{1,64}$/
 
 export function toMarkdown(session: Session): string {
   const out = [
@@ -97,6 +102,7 @@ export function toMarkdown(session: Session): string {
     `pinned: ${session.pinned}`,
     ...(session.agent ? [`agent: ${session.agent}`] : []),
     ...(session.model ? [`model: ${session.model}`] : []),
+    ...(session.voice ? [`voice: ${session.voice}`] : []),
     `created: ${session.created}`,
     `updated: ${session.updated}`,
     '---',
@@ -134,6 +140,7 @@ export function fromMarkdown(id: string, markdown: string): Session {
       else if (key === 'pinned') session.pinned = raw.trim() === 'true'
       else if (key === 'agent') session.agent = /^[A-Za-z0-9_-]{1,64}$/.test(raw.trim()) ? raw.trim() : ''
       else if (key === 'model' && MODEL_REF.test(raw.trim())) session.model = raw.trim()
+      else if (key === 'voice' && VOICE_NAME.test(raw.trim())) session.voice = raw.trim()
       else if (key === 'created') session.created = raw.trim()
       else if (key === 'updated') session.updated = raw.trim()
     }

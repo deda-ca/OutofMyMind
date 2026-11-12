@@ -8,6 +8,7 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { config, configFile } from '../config.ts'
+import type { Price } from './usage.ts'
 
 export interface Connection {
   id: string
@@ -26,6 +27,10 @@ export interface Connection {
   contextWindow?: number
   /** Extra request fields (openai kind). */
   extra?: Record<string, unknown>
+  /** Dollars per million tokens, by model ("*": any); Claude's are built in, llama.cpp is free (usage.ts). */
+  prices?: Record<string, Price>
+  /** Dollars a day: once spent, new turns use the default model instead. */
+  budget?: number
 }
 
 export class ModelError extends Error {}
@@ -87,8 +92,32 @@ export function readConnections(root: Record<string, unknown>, fallback = { url:
       ...(effort ? { effort: effort as Connection['effort'] } : {}),
       ...(typeof c.contextWindow === 'number' && c.contextWindow > 0 ? { contextWindow: c.contextWindow } : {}),
       ...(c.extra && typeof c.extra === 'object' && !Array.isArray(c.extra) ? { extra: c.extra as Record<string, unknown> } : {}),
+      ...(c.prices !== undefined ? { prices: readPrices(c.prices, `${where}.prices`) } : {}),
+      ...(c.budget !== undefined ? { budget: positive(c.budget, `${where}.budget`) } : {}),
     }
   })
+}
+
+function positive(v: unknown, where: string): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new ModelError(`${where} should be a number of dollars (0 or more)`)
+  return v
+}
+
+/** { "model": { "input": 3, "output": 15, "cacheRead": 0.3 } }: dollars per million tokens. */
+function readPrices(v: unknown, where: string): Record<string, Price> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new ModelError(`${where} should be { "model": { "input": …, "output": … } } (dollars per million tokens)`)
+  const out: Record<string, Price> = {}
+  for (const [model, raw] of Object.entries(v as Record<string, unknown>)) {
+    const p = (raw ?? {}) as Record<string, unknown>
+    const at = `${where}.${model}`
+    out[model] = {
+      input: positive(p.input, `${at}.input`),
+      output: positive(p.output, `${at}.output`),
+      ...(p.cacheRead !== undefined ? { cacheRead: positive(p.cacheRead, `${at}.cacheRead`) } : {}),
+      ...(p.cacheWrite !== undefined ? { cacheWrite: positive(p.cacheWrite, `${at}.cacheWrite`) } : {}),
+    }
+  }
+  return out
 }
 
 let cached: Connection[] | null = null

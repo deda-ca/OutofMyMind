@@ -54,6 +54,17 @@ const CONNECTION_SCHEMA = {
       effort: { enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'anthropic: how hard Claude thinks (default: the model\'s own).' },
       contextWindow: { type: 'number', description: 'Its context size in tokens, for the context meter (llama.cpp tells it itself).' },
       extra: { type: 'object', description: 'Extra request fields sent with every request (openai kind).' },
+      prices: {
+        type: 'object',
+        description: 'Dollars per million tokens, by model ("*": any model), for the usage and cost shown: { "gpt-5": { "input": 1.25, "output": 10, "cacheRead": 0.125 } }. Claude\'s are built in; llama.cpp is free.',
+        additionalProperties: {
+          type: 'object',
+          required: ['input', 'output'],
+          additionalProperties: false,
+          properties: { input: { type: 'number', minimum: 0 }, output: { type: 'number', minimum: 0 }, cacheRead: { type: 'number', minimum: 0 }, cacheWrite: { type: 'number', minimum: 0 } },
+        },
+      },
+      budget: { type: 'number', minimum: 0, description: 'Dollars a day on this connection: once spent, new turns use the default model (llm.default) until tomorrow, and you are told.' },
     },
   },
 }
@@ -92,8 +103,8 @@ export const SECTIONS: Section[] = [
         example: [
           '"connections": [',
           '  { "id": "local", "kind": "openai", "url": "http://127.0.0.1:5454", "model": "Assistant", "llamaCpp": true, "vision": true },',
-          '  { "id": "anthropic", "kind": "anthropic", "apiKey": "${ANTHROPIC_API_KEY}", "model": "claude-opus-5-5" },',
-          '  { "id": "openai", "kind": "openai", "url": "https://api.openai.com", "apiKey": "${OPENAI_API_KEY}", "model": "gpt-5" },',
+          '  { "id": "anthropic", "kind": "anthropic", "apiKey": "${ANTHROPIC_API_KEY}", "model": "claude-opus-5-5", "budget": 5 },',
+          '  { "id": "openai", "kind": "openai", "url": "https://api.openai.com", "apiKey": "${OPENAI_API_KEY}", "model": "gpt-5", "prices": { "gpt-5": { "input": 1.25, "output": 10, "cacheRead": 0.125 } } },',
           '  { "id": "grok", "kind": "openai", "url": "https://api.x.ai", "apiKey": "${XAI_API_KEY}", "model": "grok-4" }',
           ']',
         ],
@@ -205,6 +216,8 @@ export const SETTINGS: Setting[] = [
   { path: 'phone.apiPassword', env: 'VOIPMS_API_PASSWORD', type: 'secret', doc: 'For texts: the API password (not the login password).' },
   { path: 'phone.apiToken', env: 'VOIPMS_API_TOKEN', type: 'secret', doc: "The bearer token from VoIP.ms's API page." },
   { path: 'phone.assistantName', env: 'PHONE_ASSISTANT_NAME', type: 'string', default: 'Marvin', doc: 'What the assistant calls itself when it answers the phone.' },
+  { path: 'phone.speech', env: 'PHONE_SPEECH', type: 'string', doc: 'The text-to-speech model it speaks with on the phone, as "connection/model" (audio.connections). Default: audio.tts.' },
+  { path: 'phone.voice', env: 'PHONE_VOICE', type: 'string', doc: 'Its voice on the phone (one the speech model has). Default: audio.ttsVoice.' },
   { path: 'phone.maxCallMinutes', env: 'PHONE_MAX_CALL_MINUTES', type: 'number', default: 120, min: 1, doc: 'The longest call.' },
   { path: 'phone.dailyMinutes', env: 'PHONE_DAILY_MINUTES', type: 'number', default: 180, min: 0, doc: 'Outgoing minutes a day, all calls together.' },
   { path: 'phone.dailyTexts', env: 'PHONE_DAILY_TEXTS', type: 'number', default: 50, min: 0, doc: 'Texts Jarvis may send a day.' },

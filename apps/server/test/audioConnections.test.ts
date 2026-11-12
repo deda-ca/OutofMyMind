@@ -93,3 +93,21 @@ test("a session's own model: kept in its file, '' back to the agent's, a new ses
   assert.equal(store.model(), '')
   fs.rmSync(dir, { recursive: true, force: true })
 })
+
+test("a session's own voice: kept in its file, '' back to the agent's, a new session starts on its agent's", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-voice-'))
+  const store = new SessionStore(path.join(dir, 'sessions'), path.join(dir, 'sessions.json'))
+  store.setNewVoice('zoe')
+  store.record({ kind: 'owner', at: new Date().toISOString(), text: 'hello' })
+  const id = store.activeId()!
+  assert.equal(store.voice(), 'zoe')
+  assert.match(fs.readFileSync(path.join(dir, 'sessions', `${id}.md`), 'utf8'), /^voice: zoe$/m)
+  // Read back from the file by a fresh store.
+  assert.equal(new SessionStore(path.join(dir, 'sessions'), path.join(dir, 'sessions.json')).voice(), 'zoe')
+  store.update(id, { voice: '' })
+  assert.equal(store.voice(), '')
+  store.update(id, { voice: 'jarvis' })
+  store.startNew()
+  assert.equal(store.voice(), '')
+  fs.rmSync(dir, { recursive: true, force: true })
+})

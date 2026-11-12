@@ -1,6 +1,7 @@
 // The phone, one for the server (started by app.ts) when VoIP.ms is set up.
 // Design: docs/phone.md.
 
+import { speakerFor } from '../assistant/speech.ts'
 import { config } from '../config.ts'
 import { harness } from '../harness/index.ts'
 import { notifier } from '../schedule/index.ts'
@@ -37,7 +38,8 @@ export async function startPhone(deps: { sessions: SessionStore; log: (message: 
     settings: config.phone,
     rules,
     assistantName: config.phone.assistantName,
-    voice: { voice: config.ttsVoice },
+    // Marvin's own speech model and voice (phone.speech, phone.voice; default audio.tts and audio.ttsVoice).
+    voice: { voice: config.phone.voice || config.ttsVoice, ...(config.phone.speech ? { model: config.phone.speech } : {}) },
     dataDir: config.dataDir,
     workspaceDir: config.workspaceDir,
     ownerName: config.ownerName,
@@ -47,6 +49,8 @@ export async function startPhone(deps: { sessions: SessionStore; log: (message: 
     notify: (title, text) => void notifier.notify({ title, text, urgency: 'info' }),
   })
   phone = p
+  // Said once if the speech model hasn't that voice (calls would fail to speak).
+  if (config.phone.voice || config.phone.speech) void speakerFor({ voice: config.phone.voice || undefined, speech: config.phone.speech || undefined }, (m) => deps.log(`phone: ${m}`))
   const s = config.phone
   if (s.apiUser && s.apiPassword && s.did) {
     texts = new Texts({

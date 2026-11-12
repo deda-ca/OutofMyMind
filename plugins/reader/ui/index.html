@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="reader.css" />
   </head>
   <body>
-    <!-- One bar: what it is, the player, where it is, the text size, the voice. -->
+    <!-- One bar: what it is, the player, where it is, the text size, the speech model, the voice. -->
     <header class="bar">
       <strong id="title" class="title">Read aloud</strong>
       <span class="group" role="group" aria-label="Player">
@@ -23,12 +23,13 @@
         <button id="smaller" type="button" title="Smaller text (Ctrl −)" aria-label="Smaller text">A−</button>
         <button id="bigger" type="button" title="Bigger text (Ctrl +)" aria-label="Bigger text">A+</button>
       </span>
+      <select id="model" aria-label="Speech model" title="The speech model it's read with" hidden></select>
       <select id="voice" aria-label="Voice" title="The voice it's read in"></select>
       <select id="rate" aria-label="Speed" title="Speed"></select>
       <button id="clear" type="button" title="Clear the page" aria-label="Clear the page" hidden>🗑</button>
     </header>
     <div id="error" class="error" hidden></div>
-    <div id="only-jarvis" class="muted note" hidden>Only Jarvis's voice is available: add another voice in audio.cpp to tell them apart.</div>
+    <div id="only-jarvis" class="muted note" hidden>Only Jarvis's voice is available: add another voice to your speech server to tell them apart.</div>
     <main class="page">
       <article
         id="text"

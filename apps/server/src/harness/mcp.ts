@@ -58,7 +58,7 @@ export interface PluginEvent {
 /** What the platform does with what plugins send (set by plugins/index.ts). */
 export interface PluginLink {
   event(plugin: string, event: PluginEvent): void
-  /** A request from a plugin (jarvis/notify, jarvis/note, jarvis/tab-push): its result, or throws. */
+  /** A request from a plugin (jarvis/notify, jarvis/note, jarvis/tab-push, jarvis/speak, …): its result, or throws. */
   request(plugin: string, method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>
   /** A self-contained plugin (re)connected: it can be sent what it missed. */
   connected?(plugin: string): void
@@ -68,7 +68,7 @@ const EventNotification = z.object({
   method: z.literal('notifications/jarvis/event'),
   params: z.object({ type: z.string(), id: z.string().optional(), at: z.string().optional(), payload: z.unknown(), summary: z.string().optional() }).passthrough(),
 })
-const PLUGIN_REQUESTS = ['jarvis/notify', 'jarvis/note', 'jarvis/tab-push', 'jarvis/tab-status'] as const
+const PLUGIN_REQUESTS = ['jarvis/notify', 'jarvis/note', 'jarvis/tab-push', 'jarvis/tab-status', 'jarvis/speech', 'jarvis/speak'] as const
 
 /** How long the owner has to say yes to a tool that needs it (the confirmation gate). */
 const CONFIRM_MS = 5 * 60_000

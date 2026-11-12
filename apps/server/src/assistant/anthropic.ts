@@ -270,7 +270,7 @@ export async function postAnthropic(target: ChatTarget, body: Record<string, unk
         const u = final.usage ?? {}
         const cached = u.cache_read_input_tokens ?? 0
         const prompt = (u.input_tokens ?? 0) + cached + (u.cache_creation_input_tokens ?? 0)
-        send({ choices: [], usage: { prompt_tokens: prompt, completion_tokens: u.output_tokens ?? 0, total_tokens: prompt + (u.output_tokens ?? 0), prompt_tokens_details: { cached_tokens: cached } } })
+        send({ choices: [], usage: { prompt_tokens: prompt, completion_tokens: u.output_tokens ?? 0, total_tokens: prompt + (u.output_tokens ?? 0), prompt_tokens_details: { cached_tokens: cached, cache_creation_tokens: u.cache_creation_input_tokens ?? 0 } } })
         // Claude's own blocks (thinking included), to go back unchanged on the next step.
         send({ jarvis_raw: { model: target.model, content: final.content } satisfies RawReply })
         send('[DONE]')

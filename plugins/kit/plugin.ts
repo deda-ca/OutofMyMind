@@ -65,6 +65,24 @@ export async function note(server: McpServer, text: string): Promise<void> {
   await server.server.request({ method: 'jarvis/note', params: { text } }, Empty)
 }
 
+/** The speech models there are ("connection/model", with a label), the default one, Jarvis's voice, and the voices of `model` (default: the default one). */
+export async function speechOptions(server: McpServer, model?: string): Promise<{ models: { ref: string; label: string }[]; tts: string; voice: string; voices: string[] }> {
+  return server.server.request(
+    { method: 'jarvis/speech', params: model ? { model } : {} },
+    z.object({ models: z.array(z.object({ ref: z.string(), label: z.string() })), tts: z.string(), voice: z.string(), voices: z.array(z.string()) }).passthrough(),
+  )
+}
+
+/** Text (up to 1,000 characters) as speech, by the server's speech servers: a WAV. */
+export async function speak(server: McpServer, text: string, options: { voice?: string; model?: string } = {}): Promise<Buffer> {
+  const r = await server.server.request(
+    { method: 'jarvis/speak', params: { text, ...(options.voice ? { voice: options.voice } : {}), ...(options.model ? { model: options.model } : {}) } },
+    z.object({ wav: z.string() }).passthrough(),
+    { timeout: 60_000 },
+  )
+  return Buffer.from(r.wav, 'base64')
+}
+
 /** Tells the plugin's tab to reload its data. */
 export async function refreshTab(server: McpServer): Promise<void> {
   await server.server.request({ method: 'jarvis/tab-push', params: {} }, Empty).catch(() => {})

@@ -139,6 +139,8 @@ export class StreamSession {
               entries: () => options.sessions!.entries(),
               agentId: () => options.sessions!.agentId(),
               model: () => options.sessions!.model(),
+              voice: () => options.sessions!.voice(),
+              id: () => options.sessions!.activeId(),
               record: (entry) => options.sessions!.record(entry),
               startNew: () => options.sessions!.startNew(),
               setAgent: (agent) => {

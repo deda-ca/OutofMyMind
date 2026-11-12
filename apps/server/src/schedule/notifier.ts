@@ -49,6 +49,8 @@ export type NotifierEvent =
   | { type: 'plugin'; name: string }
   /** What a plugin's tab button shows (null: just its title and icon). */
   | { type: 'plugin-status'; name: string; status: { icon?: string; animate?: boolean; badge?: string; title?: string } | null }
+  /** What the LLMs have cost changed (GET /api/usage). */
+  | { type: 'usage' }
 
 interface Screen {
   id: number

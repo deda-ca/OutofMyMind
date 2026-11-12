@@ -67,7 +67,7 @@ export type AssistantMessage =
   | { type: 'assistant.state'; state: 'idle' | 'conversation'; followUpEndsAt: number | null; ownerTrained: boolean }
   | { type: 'assistant.start'; replyId: number; toPhraseId: number }
   | { type: 'assistant.delta'; replyId: number; delta: string }
-  | { type: 'assistant.done'; replyId: number; text: string; kind: 'reply' | 'wake' | 'dismiss' }
+  | { type: 'assistant.done'; replyId: number; text: string; kind: 'reply' | 'wake' | 'dismiss'; usage?: { model: string; input: number; output: number; cost: number | null } }
   | { type: 'assistant.error'; replyId: number; message: string }
   /** A reply cancelled before it said anything (the owner carried on talking): drop its line. */
   | { type: 'assistant.cancel'; replyId: number }
