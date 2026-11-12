@@ -286,6 +286,23 @@ plugin.registerTool(
     }),
 )
 
+plugin.registerTool(
+  'busy_between',
+  {
+    description: 'What is booked between two local times, as JSON: [{ start, end, title, allDay }]. For checking a time exactly (e.g. before Marvin accepts an appointment).',
+    inputSchema: { from: z.string().min(8).describe('e.g. 2026-11-12T09:00'), to: z.string().min(8).describe('e.g. 2026-11-12T10:00') },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ from, to }) =>
+    guard(async () => {
+      if (!configured) return NOT_SET_UP
+      await sync()
+      const start = parseWhen(from)
+      const end = parseWhen(to)
+      return JSON.stringify(store.between(start, end).map((o) => ({ start: o.start.toISOString(), end: o.end.toISOString(), title: o.summary, allDay: o.allDay })))
+    }),
+)
+
 const eventFields = {
   title: z.string().min(1).optional(),
   start: z.string().optional().describe('Local time, e.g. 2026-11-12T15:00 (or 2026-11-12 for all day).'),

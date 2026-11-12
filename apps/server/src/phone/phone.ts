@@ -16,6 +16,9 @@ import { FRAME_SAMPLES } from './rtp.ts'
 import { decide, findContact, isUsNumber, type RulesStore } from './rules.ts'
 import { type OwnerLeg, screenCall, type ScreenDeps, type Stage, spokenNumber } from './screening.ts'
 import { VoiceLeg, type VoiceDeps } from './voice.ts'
+import { type Busy, type ErrandBrief, errandCall, type ErrandResult } from './errand.ts'
+import type { ChatTarget } from '../assistant/llm.ts'
+import { withUsage } from '../assistant/usage.ts'
 import { LiveTranscript } from './live.ts'
 import { formatTranscript, PHONE_SAMPLE_RATE, type Line as TranscriptLine } from './transcript.ts'
 
@@ -53,7 +56,19 @@ export interface PhoneDeps {
   voice?: Omit<VoiceDeps, 'name'>
   /** Screening's waits (tests shorten them). */
   timing?: ScreenDeps['timing']
+  /** For calls Marvin makes for the owner (errand.ts): the calendar, and the LLM it talks with. */
+  errands?: {
+    busy(from: Date, to: Date): Promise<Busy[] | null>
+    book(brief: ErrandBrief, start: Date, end: Date, notes: string): Promise<string | null>
+    target(): ChatTarget
+    /** Errand waits and the LLM step (tests). */
+    timing?: Parameters<typeof errandCall>[0]['timing']
+    loop?: Parameters<typeof errandCall>[0]['loop']
+  }
 }
+
+/** How long Marvin lets a business's phone ring before giving up. */
+const ERRAND_RING_MS = 45_000
 
 /** Lines of the live transcript sent to the screens (the file has them all). */
 const LIVE_LINES = 40
@@ -85,6 +100,8 @@ export interface CallRecord {
   message?: string
   /** The caller asked not to be recorded: nothing was kept. */
   recordingOff?: boolean
+  /** A call Marvin made for the owner: what for, and how it went. */
+  errand?: { who: string; goal: string; outcome: ErrandResult['outcome']; summary: string; booked?: string }
 }
 
 export interface CallView {
@@ -100,7 +117,7 @@ export interface CallView {
   deviceJoined: boolean
   muted: boolean
   /** Marvin has the call (screening, ringing the owner, taking a message); null once the owner has it. */
-  marvin: Stage | null
+  marvin: Stage | 'calling for you' | null
   /** What the caller said when asked who they are. */
   said: string
   /** The live transcript so far (the latest lines, in call order). */
@@ -163,7 +180,9 @@ export class Phone extends EventEmitter<{ change: [] }> {
   private ringTimer: ReturnType<typeof setTimeout> | null = null
   /** Marvin on the call (the caller's side), while screening or taking a message. */
   private marvin: VoiceLeg | null = null
-  private stage: Stage | null = null
+  private stage: Stage | 'calling for you' | null = null
+  /** A call Marvin is making for the owner (errand.ts), and how it's going. */
+  private errandJob: { brief: ErrandBrief; result: ErrandResult | null } | null = null
   private said = ''
   /** The owner's cell, while Marvin rings it, announces, and once it's connected. */
   private owner: { call: Call; bridge: Bridge; leg: Leg; voice: VoiceLeg; connected: boolean } | null = null
@@ -265,6 +284,81 @@ export class Phone extends EventEmitter<{ change: [] }> {
   }
 
   // ------------------------------------------------------------------ calls
+
+  /**
+   * Marvin calls a business for the owner (errand.ts): dials, and once they
+   * pick up, talks toward the brief's goal; the result is told to the owner
+   * when the call ends. The owner can pick up from a screen at any time.
+   */
+  async errand(brief: ErrandBrief): Promise<CallView> {
+    if (!this.d.errands) throw new PhoneError('Calls for the owner need the calendar and the LLM (not set up).')
+    const view = await this.dial(brief.number)
+    const call = this.call!
+    const job = { brief, result: null as ErrandResult | null }
+    this.errandJob = job
+    void this.runErrand(call, job).catch((err: Error) => {
+      this.d.log('phone: the call for the owner failed', err)
+      job.result = { outcome: 'failed', summary: `Something went wrong: ${err.message}` }
+      void call.hangUp('something went wrong')
+    })
+    return view
+  }
+
+  private async runErrand(call: Call, job: { brief: ErrandBrief; result: ErrandResult | null }): Promise<void> {
+    const e = this.d.errands!
+    const answered = await new Promise<boolean>((resolve) => {
+      if (call.state === 'active') return resolve(true)
+      if (call.state === 'ended') return resolve(false)
+      const timer = setTimeout(() => {
+        void call.hangUp('not answered')
+        resolve(false)
+      }, ERRAND_RING_MS)
+      call.on('state', (state) => {
+        if (state === 'active' || state === 'ended') {
+          clearTimeout(timer)
+          resolve(state === 'active')
+        }
+      })
+    })
+    if (!answered) {
+      job.result = { outcome: 'not done', summary: `${job.brief.who} didn't answer.` }
+      return
+    }
+    if (!this.bridge || this.call !== call) return
+    const marvin = this.newVoice(true)
+    this.marvin = marvin
+    this.stage = 'calling for you'
+    this.said = ''
+    this.pickedUp = false
+    this.bridge.join(marvin)
+    this.changed()
+    const { ownerCell, callerId } = this.d.settings
+    const { result } = await withUsage('phone', undefined, () =>
+      errandCall({
+        marvin,
+        brief: job.brief,
+        ownerName: this.d.ownerName,
+        callback: spokenNumber(this.e164(callerId || ownerCell)),
+        assistantName: this.d.assistantName,
+        recordingNotice: this.d.rules.get().recordingNotice || isUsNumber(call.number),
+        target: e.target(),
+        busy: (from, to) => e.busy(from, to),
+        book: (start, end, notes) => e.book(job.brief, start, end, notes),
+        dtmf: (digit) => {
+          if (call.state === 'active') call.sendDtmf(digit)
+        },
+        hangUp: () => call.hangUp(`${this.d.assistantName} hung up`),
+        report: (r) => {
+          job.result = r
+          this.said = r.summary
+          this.changed()
+        },
+        ...(e.timing ? { timing: e.timing } : {}),
+        ...(e.loop ? { loop: e.loop } : {}),
+      }),
+    )
+    job.result = result
+  }
 
   /** Places a call to `number` (any North American format). The caller ID is the owner's (VOIPMS_CALLER_ID), or the DID when calling the owner. */
   async dial(number: string): Promise<CallView> {
@@ -614,6 +708,9 @@ export class Phone extends EventEmitter<{ change: [] }> {
     const owner = this.owner
     this.owner = null
     if (owner && owner.call.state !== 'ended') void owner.call.hangUp(call.endReason || 'the caller hung up')
+    const job = this.errandJob
+    this.errandJob = null
+    const errand = job ? { ...(job.result ?? { outcome: 'hung up' as const, summary: `${job.brief.who} hung up.` }), ...(this.pickedUp ? { outcome: 'picked up' as const } : {}) } : null
     const screened: typeof this.screened = this.screened ?? (this.marvinCall ? { outcome: 'hung up', said: this.said, messageFromMs: null, recordingOff: false } : null)
     this.marvinCall = false
     if (screened && this.pickedUp) screened.outcome = 'picked up'
@@ -634,12 +731,21 @@ export class Phone extends EventEmitter<{ change: [] }> {
       transcript: null,
       status: call.answeredAt && bridge?.isRecording ? 'transcribing' : 'done',
       ...(screened ? { outcome: screened.outcome, said: screened.said, recordingOff: screened.recordingOff } : {}),
+      ...(job && errand
+        ? { errand: { who: job.brief.who, goal: job.brief.goal, outcome: errand.outcome, summary: errand.summary, ...(errand.booked ? { booked: errand.booked.start.toISOString() } : {}) } }
+        : {}),
     }
     this.log.unshift(record)
     this.log = this.log.slice(0, LOG_KEEP)
     this.save()
     this.changed()
     const who = call.name ? `${call.name} (${display(call.number)})` : display(call.number)
+    if (job && errand) {
+      const head = `${this.d.assistantName} called ${job.brief.who} to ${job.brief.goal}`
+      const text = errand.outcome === 'picked up' ? `${head}; you picked up.` : `${head}: ${errand.summary}${errand.booked ? ' It is on your calendar.' : ''}`
+      this.d.notify('Phone', text)
+      this.d.note(text)
+    }
     if (call.direction === 'in' && !call.answeredAt && record.outcome !== 'blocked') {
       this.d.notify('Phone', `Missed call from ${who}.`)
       this.d.note(`Missed call from ${who}.`)

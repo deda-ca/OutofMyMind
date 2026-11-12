@@ -1,7 +1,9 @@
 // The phone, one for the server (started by app.ts) when VoIP.ms is set up.
 // Design: docs/phone.md.
 
+import { chatTarget } from '../assistant/llm.ts'
 import { speakerFor } from '../assistant/speech.ts'
+import { localTime } from './errand.ts'
 import { config } from '../config.ts'
 import { harness } from '../harness/index.ts'
 import { notifier } from '../schedule/index.ts'
@@ -39,6 +41,24 @@ export async function startPhone(deps: { sessions: SessionStore; log: (message: 
     rules,
     assistantName: config.phone.assistantName,
     // Marvin's own speech model and voice (phone.speech, phone.voice; default audio.tts and audio.ttsVoice).
+    errands: {
+      busy: async (from, to) => {
+        const r = await harness.callAsOwner('calendar', 'busy_between', { from: localTime(from), to: localTime(to) }).catch(() => null)
+        if (!r || r.isError) return null
+        try {
+          return (JSON.parse(r.text) as { start: string; end: string; title: string; allDay: boolean }[]).map((e) => ({ ...e, start: new Date(e.start), end: new Date(e.end) }))
+        } catch {
+          return null
+        }
+      },
+      book: async (brief, start, end, notes) => {
+        const r = await harness
+          .callAsOwner('calendar', 'add_event', { title: brief.title, start: localTime(start), minutes: Math.round((end.getTime() - start.getTime()) / 60_000), notes, ...(brief.location ? { location: brief.location } : {}) })
+          .catch((err: Error) => ({ isError: true, text: err.message }))
+        return r.isError ? r.text.slice(0, 200) : null
+      },
+      target: () => chatTarget(config.phone.model ? { model: config.phone.model } : null),
+    },
     voice: { voice: config.phone.voice || config.ttsVoice, ...(config.phone.speech ? { model: config.phone.speech } : {}) },
     dataDir: config.dataDir,
     workspaceDir: config.workspaceDir,

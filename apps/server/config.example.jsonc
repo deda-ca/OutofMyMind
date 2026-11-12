@@ -155,6 +155,8 @@
     // "apiToken": ""
     // What the assistant calls itself when it answers the phone.
     // "assistantName": "Marvin"
+    // The LLM Marvin talks with when it calls a business for you, as "connection/model" (llm.connections). Default: llm.default.
+    // "model": ""
     // The text-to-speech model it speaks with on the phone, as "connection/model" (audio.connections). Default: audio.tts.
     // "speech": ""
     // Its voice on the phone (one the speech model has). Default: audio.ttsVoice.

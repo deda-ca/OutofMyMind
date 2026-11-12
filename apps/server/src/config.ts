@@ -86,6 +86,7 @@ export const config = {
     /** What the assistant calls itself when it answers the phone. */
     assistantName: env('PHONE_ASSISTANT_NAME', 'Marvin'),
     speech: env('PHONE_SPEECH', ''),
+    model: env('PHONE_MODEL', ''),
     voice: env('PHONE_VOICE', ''),
   },
   /** Telegram (docs/telegram.md): the owner chats with Jarvis from Telegram; on when both are set, unless TELEGRAM=off. */

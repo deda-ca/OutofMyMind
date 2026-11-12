@@ -619,6 +619,13 @@
           ],
           "default": "Marvin"
         },
+        "model": {
+          "description": "The LLM Marvin talks with when it calls a business for you, as \"connection/model\" (llm.connections). Default: llm.default.",
+          "type": [
+            "string",
+            "number"
+          ]
+        },
         "speech": {
           "description": "The text-to-speech model it speaks with on the phone, as \"connection/model\" (audio.connections). Default: audio.tts.",
           "type": [

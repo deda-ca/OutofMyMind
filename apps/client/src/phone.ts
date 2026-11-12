@@ -21,7 +21,7 @@ export interface CallView {
   deviceJoined: boolean
   muted: boolean
   /** Marvin has the call: what it's doing (null once the owner has it, or Marvin never answered). */
-  marvin: 'greeting' | 'asking' | 'ringing owner' | 'announcing' | 'connected' | 'taking a message' | 'done' | null
+  marvin: 'greeting' | 'asking' | 'ringing owner' | 'announcing' | 'connected' | 'taking a message' | 'done' | 'calling for you' | null
   /** What the caller said when Marvin asked who they are (their words). */
   said: string
   /** The live transcript so far (latest lines, in call order). */
@@ -47,6 +47,8 @@ export interface CallRecord {
   said?: string
   message?: string
   recordingOff?: boolean
+  /** A call Marvin made for the owner: what for, and how it went. */
+  errand?: { who: string; goal: string; outcome: 'booked' | 'done' | 'not done' | 'needs owner' | 'voicemail' | 'hung up' | 'picked up' | 'failed'; summary: string; booked?: string }
 }
 
 export interface Contact {

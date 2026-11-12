@@ -216,6 +216,7 @@ export const SETTINGS: Setting[] = [
   { path: 'phone.apiPassword', env: 'VOIPMS_API_PASSWORD', type: 'secret', doc: 'For texts: the API password (not the login password).' },
   { path: 'phone.apiToken', env: 'VOIPMS_API_TOKEN', type: 'secret', doc: "The bearer token from VoIP.ms's API page." },
   { path: 'phone.assistantName', env: 'PHONE_ASSISTANT_NAME', type: 'string', default: 'Marvin', doc: 'What the assistant calls itself when it answers the phone.' },
+  { path: 'phone.model', env: 'PHONE_MODEL', type: 'string', doc: 'The LLM Marvin talks with when it calls a business for you, as "connection/model" (llm.connections). Default: llm.default.' },
   { path: 'phone.speech', env: 'PHONE_SPEECH', type: 'string', doc: 'The text-to-speech model it speaks with on the phone, as "connection/model" (audio.connections). Default: audio.tts.' },
   { path: 'phone.voice', env: 'PHONE_VOICE', type: 'string', doc: 'Its voice on the phone (one the speech model has). Default: audio.ttsVoice.' },
   { path: 'phone.maxCallMinutes', env: 'PHONE_MAX_CALL_MINUTES', type: 'number', default: 120, min: 1, doc: 'The longest call.' },

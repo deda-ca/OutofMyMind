@@ -17,6 +17,7 @@ Status: built 2026-11-11, a self-contained plugin on the plugin platform ([plugi
 | `calendar__agenda` | read | What's on: today, or from a date for some days. |
 | `calendar__find_events` | read | By words in the title, place or notes, a month back to a year ahead. |
 | `calendar__free_time` | read | Free stretches on a day between two times. |
+| `calendar__busy_between` | read | What's booked between two times, as JSON: for checking a time exactly (Marvin's bookings check every time with it). |
 | `calendar__add_event` | create | Title, start (local), end or length, place, notes, reminder, all day. |
 | `calendar__update_event` | update | For a repeating event, moving changes just that occurrence (it leaves the series and becomes a one-off) unless `series`; a series moves by as much as the occurrence did. |
 | `calendar__delete_event` | delete, confirm | Just that occurrence of a repeating event (a skipped date) unless `series`. |

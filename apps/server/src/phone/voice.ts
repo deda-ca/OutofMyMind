@@ -73,6 +73,8 @@ export interface Endpointing {
 }
 
 const DEFAULT_ENDPOINTING: Endpointing = { endSilenceMs: 800, maxMs: 15_000 }
+/** Utterances kept while nobody listens. */
+const MAX_UNHEARD = 5
 
 /**
  * Finds utterances in a stream of 20 ms frames by loudness, against a noise
@@ -172,6 +174,11 @@ export class VoiceLeg implements Leg {
   // Listening: the utterance being heard, and who's waiting for the next one.
   private readonly ears = new Endpointer()
   private waiting: ((pcm: Int16Array | null) => void) | null = null
+  /**
+   * What was said while nobody was listening (Marvin thinking, or the other
+   * side talking as Marvin finished): kept for the next listen, oldest first.
+   */
+  private unheard: Int16Array[] = []
   /** Not listening until then (ms): the echo of what Marvin just said. */
   private deafUntil = 0
 
@@ -202,8 +209,14 @@ export class VoiceLeg implements Leg {
     const pcm = this.ears.push(frame)
     if (!pcm) return
     const w = this.waiting
+    if (!w) {
+      // Nobody is listening yet: keep it (a few utterances at most; the oldest go first).
+      this.unheard.push(pcm)
+      if (this.unheard.length > MAX_UNHEARD) this.unheard.shift()
+      return
+    }
     this.waiting = null
-    w?.(pcm)
+    w(pcm)
   }
 
   /** Says `text` into the call; resolves when it has been played. */
@@ -242,6 +255,8 @@ export class VoiceLeg implements Leg {
   hear(waitMs: number, ep: Partial<Endpointing> = {}): Promise<Int16Array | null> {
     if (this.closed) return Promise.reject(new CallEnded())
     this.ears.ep = { ...DEFAULT_ENDPOINTING, ...ep }
+    const kept = this.unheard.shift()
+    if (kept) return Promise.resolve(kept)
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         // Still talking at the deadline: wait for them to finish.

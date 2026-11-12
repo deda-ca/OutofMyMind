@@ -9,6 +9,7 @@ import type { BuiltinTool } from '../harness/index.ts'
 import { display, NumberError, toE164 } from './numbers.ts'
 import { type CallRecord, type Phone, PhoneError } from './phone.ts'
 import type { Texts } from './texts.ts'
+import { describeWindow, type ErrandBrief } from './errand.ts'
 
 const CONFIRM_MS = 3 * 60_000
 
@@ -33,7 +34,37 @@ const OUTCOME: Record<NonNullable<CallRecord['outcome']>, string> = {
 const LIVE_IN_LOG = 20
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, '0')}`
 
-const pending = new Map<string, { number: string; who: string; at: number; message?: string }>()
+const pending = new Map<string, { number: string; who: string; at: number; message?: string; brief?: ErrandBrief }>()
+
+/** The longest stretch ahead a booking window may reach (days). */
+const WINDOW_DAYS = 60
+
+/** The brief from the tool's arguments; throws saying what's wrong. */
+export function readBrief(args: Record<string, unknown>, now = new Date()): ErrandBrief {
+  const text = (k: string, max: number, need = false) => {
+    const v = typeof args[k] === 'string' ? (args[k] as string).replace(/\s+/g, ' ').trim().slice(0, max) : ''
+    if (need && !v) throw new Error(`Give "${k}".`)
+    return v
+  }
+  const number = toE164(String(args.number ?? ''))
+  const raw = Array.isArray(args.windows) ? (args.windows as { from?: unknown; to?: unknown }[]) : []
+  if (raw.length > 40) throw new Error('At most 40 windows.')
+  const windows = raw.map((w, i) => {
+    const from = new Date(String(w?.from ?? ''))
+    const to = new Date(String(w?.to ?? ''))
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) throw new Error(`windows[${i}]: give "from" and "to" as local times, "to" after "from".`)
+    if (to.getTime() <= now.getTime()) throw new Error(`windows[${i}] is in the past.`)
+    if (from.getTime() > now.getTime() + WINDOW_DAYS * 86_400_000) throw new Error(`windows[${i}] is more than ${WINDOW_DAYS} days away.`)
+    return { from, to }
+  })
+  const minutes = args.minutes === undefined ? 60 : Number(args.minutes)
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 480) throw new Error('"minutes" is 5 to 480.')
+  const location = text('location', 200)
+  const booking = windows.length > 0
+  // A message for a person is left on their voicemail; a booking call hangs up on one (unless told otherwise).
+  const voicemail = typeof args.voicemail === 'boolean' ? args.voicemail : !booking
+  return { number, who: text('who', 80, true), goal: text('goal', 400, true), share: text('share', 400), windows, minutes, title: booking ? text('title', 100, true) : text('title', 100), voicemail, ...(location ? { location } : {}) }
+}
 
 export function phoneTools(ctx: PhoneToolContext): BuiltinTool[] {
   const { phone } = ctx
@@ -49,7 +80,7 @@ export function phoneTools(ctx: PhoneToolContext): BuiltinTool[] {
     'jarvis__call',
     'Jarvis: phone call',
     ['create'],
-    "Place a phone call for the owner, which they talk on through their Jarvis screen or app; it's recorded and transcribed. Two steps: first call with the number " +
+    "Place a phone call that the owner talks on themselves, through their Jarvis screen or app; it's recorded and transcribed. (For Marvin to talk to them for the owner, to pass on a message, ask something or book, use jarvis__call_for_owner.) Two steps: first call with the number " +
       '(and who it is): nothing is dialled; you get a code. Read the number back and ask the owner to confirm. Only when they say yes, call again with the same number and confirm: the code. ' +
       'North American numbers only; never 911.',
     {
@@ -117,7 +148,8 @@ export function phoneTools(ctx: PhoneToolContext): BuiltinTool[] {
         const said = r.said ? `; said who they were: «${r.said}»` : ''
         const message = r.message ? `; message: «${r.message}»` : ''
         const off = r.recordingOff ? '; asked not to be recorded (nothing kept)' : ''
-        return `- ${when}: ${r.direction === 'out' ? 'to' : 'from'} ${who}, ${talk}, ${r.endReason}${handled}${t}${said}${message}${off}`
+        const errand = r.errand ? `; Marvin called for the owner to ${r.errand.goal}: ${r.errand.outcome}, ${r.errand.summary}` : ''
+        return `- ${when}: ${r.direction === 'out' ? 'to' : 'from'} ${who}, ${talk}, ${r.endReason}${handled}${t}${said}${message}${off}${errand}`
       })
       let current = now ? `In progress: ${now.direction === 'out' ? 'to' : 'from'} ${now.name || now.display}, ${now.state}.\n` : ''
       if (now?.live.length) {
@@ -129,8 +161,71 @@ export function phoneTools(ctx: PhoneToolContext): BuiltinTool[] {
     },
   )
 
+  const errand = tool(
+    'jarvis__call_for_owner',
+    'Jarvis: Marvin calls for the owner',
+    ['create'],
+    "Marvin phones anyone for the owner and talks to them itself (the owner isn't on the call): to pass on a message (\"tell my wife I'll be 30 minutes late\"), " +
+      'to ask something and report back ("ask the pharmacy if my prescription is ready"), or to book an appointment (the dentist, an oil change: give windows; it books only inside them, free on the calendar, and adds it). ' +
+      "It says it's an AI assistant calling for the owner, leaves a voicemail message if nobody answers (for a message to a person), and when the call ends the owner is told what happened and what they said. " +
+      "Two steps: first call it right away with the brief (nothing is dialled on this first call): you get a summary and a code. Read that summary back and ask the owner to confirm; don't ask them to confirm anything before this first call. Only when they say yes, call again with confirm: the code (the brief can't change in between). " +
+      'Find the number yourself if you can (contacts). For a booking, ask the owner first for anything missing: when they are free (turn it into exact windows). North American numbers only.',
+    {
+      number: { type: 'string', description: 'The number, e.g. 613-555-0123.' },
+      who: { type: 'string', description: 'Who it is, e.g. "Maria (his wife)" or "Joe\'s Garage".' },
+      goal: { type: 'string', description: 'What to get done, in full: the message to pass on ("tell her Sam will be about 30 minutes late, he\'s stuck in traffic"), the question to ask, or the booking ("book an oil change for the 2019 Civic").' },
+      share: { type: 'string', description: 'What Marvin may tell them besides the owner\'s name and number, e.g. "2019 Honda Civic, about 80,000 km". Nothing else is given out.' },
+      windows: {
+        type: 'array',
+        description: 'Only for a booking: when the owner is free for it, as local times, e.g. [{ "from": "2026-11-17T08:00", "to": "2026-11-17T12:00" }]. Marvin books only inside these. Leave out for a message or a question.',
+        items: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
+      },
+      minutes: { type: 'number', description: 'Bookings: how long the appointment takes, about (default 60).' },
+      title: { type: 'string', description: 'Bookings: the calendar event\'s title, e.g. "Oil change at Joe\'s Garage".' },
+      voicemail: { type: 'boolean', description: 'Leave the message on voicemail if nobody answers (default: yes for a message or question, no for a booking).' },
+      location: { type: 'string', description: 'Their address, if known (goes on the event).' },
+      confirm: { type: 'string', description: 'The code from the first step, only after the owner said yes.' },
+    },
+    ['number', 'who', 'goal'],
+    async (args) => {
+      if (!ctx.kindOn('create')) return fail('Placing calls is switched off in the Tools tab (creating things).')
+      const code = typeof args.confirm === 'string' ? args.confirm.trim() : ''
+      const now = Date.now()
+      for (const [k, p] of pending) if (now - p.at > CONFIRM_MS) pending.delete(k)
+      if (!code) {
+        let brief: ErrandBrief
+        try {
+          brief = readBrief(args)
+        } catch (err) {
+          return fail(err instanceof NumberError ? err.message : (err as Error).message)
+        }
+        const id = crypto.randomBytes(3).toString('hex')
+        pending.set(id, { number: brief.number, who: brief.who, at: now, brief })
+        const summary =
+          `Marvin will call ${brief.who} (${display(brief.number)}) to ${brief.goal}. It says it's an AI assistant calling for the owner. ` +
+          (brief.windows.length
+            ? `It books only a time inside: ${brief.windows.map(describeWindow).join('; ')}, that's free on the calendar, about ${brief.minutes} minutes, as "${brief.title}". `
+            : '') +
+          `It may tell them the owner's name and number${brief.share ? `, and: ${brief.share}` : ''}; anything else, the owner gives them directly. ` +
+          (brief.voicemail ? 'If nobody answers, it leaves a voicemail message.' : 'If voicemail answers, it hangs up.')
+        return { text: `Not dialled yet. Read this back and ask the owner to confirm: "${summary}" If they say yes, call jarvis__call_for_owner again with number "${brief.number}", who, goal and confirm "${id}" (valid 3 minutes).`, isError: false }
+      }
+      const p = pending.get(code)
+      if (!p?.brief) return fail('That confirmation code is unknown, expired or for another call: start again (call without confirm) and ask the owner.')
+      const heard = ctx.lastHeard()
+      if (!heard || heard <= p.at) return fail("The owner hasn't answered since you asked: wait for their yes, then call again with the code.")
+      pending.delete(code)
+      try {
+        const view = await phone.errand(p.brief)
+        return { text: `Marvin is calling ${p.brief.who} (${view.display}). The owner can listen or pick up from the Phone tab, and hears how it went when it ends. Say so in a few words.`, isError: false }
+      } catch (err) {
+        return fail(`The call couldn't be placed: ${(err as Error).message}`)
+      }
+    },
+  )
+
   const texts = ctx.texts
-  if (!texts) return [call, hangUp, log]
+  if (!texts) return [call, errand, hangUp, log]
 
   const sendText = tool(
     'jarvis__send_text',
@@ -201,5 +296,5 @@ export function phoneTools(ctx: PhoneToolContext): BuiltinTool[] {
     },
   )
 
-  return [call, hangUp, log, sendText, listTexts]
+  return [call, errand, hangUp, log, sendText, listTexts]
 }

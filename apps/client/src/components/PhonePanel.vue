@@ -45,6 +45,18 @@ const MARVIN_STAGE: Record<string, string> = {
   'ringing owner': 'ringing your cell',
   announcing: 'telling you on your cell',
   'taking a message': 'taking a message',
+  'calling for you': 'calling for you',
+}
+
+const ERRAND: Record<string, string> = {
+  booked: 'booked',
+  done: 'done',
+  'not done': 'not done',
+  'needs owner': 'needs you',
+  voicemail: 'got voicemail',
+  'hung up': 'they hung up',
+  'picked up': 'you picked up',
+  failed: 'went wrong',
 }
 
 const callState = computed(() => {
@@ -298,12 +310,16 @@ const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponen
           <span v-if="length(r)" class="fg-3 font-monospace">{{ length(r) }}</span>
           <span class="fg-3">{{ outcome(r) }}</span>
           <span v-if="r.recordingOff" class="badge theme-secondary badge-subtle" title="They asked not to be recorded: nothing was kept">not recorded</span>
+          <span v-if="r.errand" class="badge badge-subtle" :class="r.errand.outcome === 'booked' || r.errand.outcome === 'done' ? 'theme-success' : r.errand.outcome === 'needs owner' ? 'theme-warning' : 'theme-secondary'" :title="`${phone.assistant} called for you to ${r.errand.goal}`">{{ phone.assistant }}: {{ ERRAND[r.errand.outcome] }}</span>
           <span class="ms-auto d-flex gap-2 align-items-center">
             <span v-if="r.status === 'transcribing'" class="badge theme-secondary badge-subtle">transcribing…</span>
             <span v-else-if="r.status === 'failed'" class="badge theme-warning badge-subtle">not transcribed</span>
             <button v-if="r.transcript" type="button" class="btn-outline theme-secondary btn-sm" @click="openTranscript(r.transcript)">Transcript</button>
             <a v-for="(rec, i) in r.recordings" :key="i" :href="`/api/phone/calls/${r.id}/${i + 1}.ogg`" target="_blank" rel="noopener" class="btn-outline theme-secondary btn-sm">🎧 {{ rec.who }}</a>
           </span>
+          <div v-if="r.errand" class="w-100 vstack gap-1 ps-4">
+            <span><span class="fg-3">To {{ r.errand.goal }}:</span> {{ r.errand.summary }}</span>
+          </div>
           <div v-if="r.said || r.message" class="w-100 vstack gap-1 ps-4">
             <span v-if="r.said"><span class="fg-3">Said who they were:</span> <q>{{ r.said }}</q></span>
             <span v-if="r.message"><span class="fg-3">Message:</span> <q>{{ r.message }}</q></span>

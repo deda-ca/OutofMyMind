@@ -10,6 +10,7 @@
     "agenda": { "crud": ["read"] },
     "find_events": { "crud": ["read"] },
     "free_time": { "crud": ["read"] },
+    "busy_between": { "crud": ["read"] },
     "add_event": { "crud": ["create"] },
     "update_event": { "crud": ["update"] },
     "delete_event": { "crud": ["delete"], "confirm": "owner" },
