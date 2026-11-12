@@ -11,7 +11,8 @@ test('read aloud: voices from audio.cpp, speech in the chosen voice, unknown voi
     let body = ''
     req.on('data', (c) => (body += c))
     req.on('end', () => {
-      if (req.url === '/v1/audio/voices') return res.end(JSON.stringify({ voices: ['jarvis', 'reader'] }))
+      // Asked per speech model (audio.cpp: ?model=…).
+      if (req.url === `/v1/audio/voices?model=${config.ttsModel}`) return res.end(JSON.stringify({ voices: ['jarvis', 'reader'] }))
       asked.push(JSON.parse(body))
       res.writeHead(200, { 'Content-Type': 'audio/wav' })
       res.end(Buffer.from('RIFFfake'))

@@ -25,6 +25,8 @@ export interface SessionSummary {
   pinned: boolean
   /** Agent id; '' = the default agent. */
   agent: string
+  /** "connection/model"; missing = the agent's. */
+  model?: string
   created: string
   updated: string
   messages: number
@@ -35,7 +37,23 @@ interface Listing {
   activeId: string | null
   /** The agent the next new session will use. */
   newAgent: string
+  /** The model the next new session will use ('' = its agent's). */
+  newModel?: string
   sessions: SessionSummary[]
+}
+
+/** The LLM connections and their models (server: GET /api/llm). */
+export interface LlmConnection {
+  id: string
+  label: string
+  kind: string
+  model: string
+  models: string[]
+  error?: string
+}
+export interface LlmListing {
+  default: string
+  connections: LlmConnection[]
 }
 
 /** An agent (WORKSPACE_DIR/agents/<id>.md). */
@@ -52,6 +70,8 @@ export interface AgentInfo {
   icon?: string
   /** "connection/model" (llm.connections on the server); unset: the default. */
   model?: string
+  /** Its text-to-speech "connection/model" (audio.connections); unset: the default. */
+  speech?: string
   /** The instructions as written in its file (comments kept). */
   body: string
   /** Sessions without their own agent use the default one. */
@@ -69,7 +89,10 @@ export const sessions = reactive({
   list: [] as SessionSummary[],
   activeId: null as string | null,
   newAgent: '',
+  newModel: '',
   agents: [] as AgentInfo[],
+  /** The LLMs there are, for the model pickers (loaded when a picker is opened). */
+  llm: { default: '', connections: [] } as LlmListing,
   /** The default agent's id: sessions with agent '' use it. */
   defaultAgent: 'jarvis',
   /** What each tool does (create / read / …), by function name: for the pills on saved tool calls. */
@@ -98,6 +121,7 @@ function apply(listing: Listing): void {
   sessions.list = listing.sessions
   sessions.activeId = listing.activeId
   sessions.newAgent = listing.newAgent ?? ''
+  sessions.newModel = listing.newModel ?? ''
 }
 
 async function show(id: string | null): Promise<void> {
@@ -163,7 +187,28 @@ export const setAgent = (agent: string) =>
     )
   })
 
-/** An agent's display name ('' or unknown = the default agent). */
+/** The model picked for the session on screen (or the new one); '' = its agent's. */
+export function shownModel(): string {
+  if (sessions.shownId === null) return sessions.newModel
+  return sessions.list.find((s) => s.id === sessions.shownId)?.model ?? ''
+}
+
+/** Use another model in the session on screen (or the new one); '' = its agent's. */
+export const setModel = (model: string) =>
+  attempt(async () => {
+    apply(
+      sessions.shownId === null
+        ? await api<Listing>('/api/sessions/new/model', json('PUT', { model }))
+        : await api<Listing>(`/api/sessions/${encodeURIComponent(sessions.shownId)}`, json('PATCH', { model })),
+    )
+  })
+
+/** The LLM connections and their models (for the pickers). */
+export const loadLlm = () =>
+  attempt(async () => {
+    sessions.llm = await api<LlmListing>('/api/llm')
+  })
+
 /** After the Agents tab (or anything else) changed the agents. */
 export function applyAgents(listing: AgentListing): void {
   sessions.agents = listing.agents

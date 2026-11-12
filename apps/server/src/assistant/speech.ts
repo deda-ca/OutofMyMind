@@ -1,41 +1,42 @@
 // Jarvis's voice: replies are spoken sentence by sentence with text-to-speech
-// on audio.cpp (Qwen3-TTS, ~8× faster than real time), so the first sentence
+// (audio.cpp's Qwen3-TTS is ~8× faster than real time; audioConnections.ts picks the server), so the first sentence
 // can play while the LLM is still writing the rest.
 
+import { audioVoices, defaultAudioRef, speakWav, TtsError } from '../audioConnections.ts'
 import { config } from '../config.ts'
 
-export class SpeechError extends Error {}
+/** Speaking failed (the server couldn't be reached, or said no). */
+export const SpeechError = TtsError
 
-/** Synthesises one piece of text (in Jarvis's voice unless another is given); returns a WAV file. */
-export async function synthesize(text: string, signal?: AbortSignal, voice = config.ttsVoice): Promise<Buffer> {
-  let response: Response
-  try {
-    response = await fetch(new URL('/v1/audio/speech', config.audiocppUrl), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.ttsModel, input: text, voice }),
-      signal,
-    })
-  } catch (err) {
-    throw new SpeechError(`Could not reach audio.cpp for speech: ${(err as Error).message}`)
-  }
-  if (!response.ok) throw new SpeechError(`Text-to-speech failed (HTTP ${response.status}): ${(await response.text().catch(() => '')).slice(0, 200)}`)
-  return Buffer.from(await response.arrayBuffer())
+/** Synthesises one piece of text in a voice (Jarvis's unless given) with a speech model ("connection/model"; default audio.tts); returns a WAV file. */
+export async function synthesize(text: string, signal?: AbortSignal, voice = config.ttsVoice, model?: string): Promise<Buffer> {
+  return speakWav(text, voice, model, signal)
 }
 
-let voiceCache: { voices: string[]; at: number } | undefined
+/** The voices a speech model has ("connection/model"; default audio.tts), re-read every minute. */
+export async function ttsVoices(model?: string): Promise<string[]> {
+  return audioVoices(model)
+}
 
-/** The voices audio.cpp offers (GET /v1/audio/voices), re-read every minute. */
-export async function ttsVoices(): Promise<string[]> {
-  if (voiceCache && Date.now() - voiceCache.at < 60_000) return voiceCache.voices
-  try {
-    const response = await fetch(new URL('/v1/audio/voices', config.audiocppUrl), { signal: AbortSignal.timeout(5000) })
-    const voices = ((await response.json()) as { voices?: unknown }).voices
-    if (Array.isArray(voices)) voiceCache = { voices: voices.map(String), at: Date.now() }
-  } catch {
-    // keep what we had (or just Jarvis's)
+const missing = new Set<string>()
+
+/**
+ * The speech model and voice an agent speaks with: its own model (else
+ * audio.tts) and its own voice if that model has it; else Jarvis's (TTS_VOICE),
+ * else the model's first voice (said once in the log).
+ */
+export async function speakerFor(agent: { voice?: string; speech?: string } | undefined, log: (m: string) => void = console.warn): Promise<{ voice: string; model?: string }> {
+  const model = agent?.speech
+  const voices = await ttsVoices(model)
+  const wanted = agent?.voice || config.ttsVoice
+  if (voices.includes(wanted)) return { voice: wanted, ...(model ? { model } : {}) }
+  const voice = voices.includes(config.ttsVoice) ? config.ttsVoice : (voices[0] ?? wanted)
+  const key = `${model ?? ''}|${wanted}`
+  if (!missing.has(key)) {
+    missing.add(key)
+    log(`speech: ${model ?? defaultAudioRef('tts')} has no voice "${wanted}": speaking in "${voice}"`)
   }
-  return voiceCache?.voices ?? [config.ttsVoice]
+  return { voice, ...(model ? { model } : {}) }
 }
 
 /** Makes LLM text sound right when read aloud (no markdown symbols, no URLs spelled out). */

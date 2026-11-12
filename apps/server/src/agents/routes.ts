@@ -22,6 +22,7 @@ function input(body: unknown): AgentInput {
     ...(typeof b.voice === 'string' && b.voice.trim() ? { voice: b.voice.trim() } : {}),
     ...(typeof b.icon === 'string' && b.icon.trim() ? { icon: b.icon.trim() } : {}),
     ...(typeof b.model === 'string' && b.model.trim() ? { model: b.model.trim() } : {}),
+    ...(typeof b.speech === 'string' && b.speech.trim() ? { speech: b.speech.trim() } : {}),
     body: String(b.body ?? ''),
   }
 }
@@ -32,7 +33,7 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
     const defaultAgent = agents.defaultId()
     return {
       defaultAgent,
-      agents: agents.list().map(({ id, name, description, tools, temperature, voice, icon, model, body }) => ({
+      agents: agents.list().map(({ id, name, description, tools, temperature, voice, icon, model, speech, body }) => ({
         id,
         name,
         description,
@@ -41,6 +42,7 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
         voice,
         icon,
         model,
+        speech,
         body,
         isDefault: id === defaultAgent,
         /** The fallback agent: editable, not deletable. */

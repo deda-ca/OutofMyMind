@@ -11,6 +11,7 @@
 //   voice: male-tz-calm     # optional: the text-to-speech voice it speaks in (default TTS_VOICE)
 //   icon: "✉️"              # optional: shown with its name (an emoji or a character or two)
 //   model: claude/claude-sonnet-5-5   # optional: "connection/model" (llm.connections); default llm.default
+//   speech: local/Qwen3-TTS           # optional: its text-to-speech "connection/model" (audio.connections); default audio.tts
 //   ---
 //   You handle the owner's email. …
 //
@@ -36,6 +37,8 @@ export interface Agent {
   icon?: string
   /** "connection/model" from llm.connections (assistant/models.ts); unset: llm.default. */
   model?: string
+  /** Its text-to-speech "connection/model" (audio.connections); unset: audio.tts. Its voice is one this model has. */
+  speech?: string
   /** The agent's part of the system prompt (comments removed; fill `{{owner}}` with fillOwner()). */
   instructions: string
   /** The file's text after the frontmatter, as written (comments kept): what the editor shows. */
@@ -51,6 +54,7 @@ export interface AgentInput {
   voice?: string
   icon?: string
   model?: string
+  speech?: string
   /** The instructions, as written (comments allowed). */
   body: string
 }
@@ -280,6 +284,7 @@ export function parseAgent(id: string, text: string): Agent {
     ...(str('voice') && VOICE.test(str('voice')!) ? { voice: str('voice') } : {}),
     ...(str('icon') && isIcon(str('icon')!) ? { icon: str('icon')!.trim() } : {}),
     ...(str('model') && MODEL.test(str('model')!.trim()) ? { model: str('model')!.trim() } : {}),
+    ...(str('speech') && MODEL.test(str('speech')!.trim()) ? { speech: str('speech')!.trim() } : {}),
     instructions: stripComments(body),
     body: body.replace(/^\n+/, '').replace(/\s+$/, ''),
   }
@@ -307,6 +312,7 @@ export function toAgentFile(agent: AgentInput): string {
     ...(agent.voice ? [`voice: ${agent.voice}`] : []),
     ...(agent.icon ? [`icon: ${JSON.stringify(agent.icon)}`] : []),
     ...(agent.model ? [`model: ${JSON.stringify(agent.model)}`] : []),
+    ...(agent.speech ? [`speech: ${JSON.stringify(agent.speech)}`] : []),
     '---',
     agent.body.trim(),
   ]
@@ -348,9 +354,11 @@ export function validate(input: AgentInput): AgentInput {
   if (icon && !isIcon(icon)) throw new AgentError('The icon is an emoji or a character or two', 400)
   const model = String(input.model ?? '').trim()
   if (model && !MODEL.test(model)) throw new AgentError('The model is "connection/model", like "claude/claude-sonnet-5-5" (or not set)', 400)
+  const speech = String(input.speech ?? '').trim()
+  if (speech && !MODEL.test(speech)) throw new AgentError('The speech model is "connection/model", like "local/Qwen3-TTS" (or not set)', 400)
   const body = String(input.body ?? '')
   if (body.length > 20000) throw new AgentError('The instructions are at most 20,000 characters', 400)
-  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), ...(voice ? { voice } : {}), ...(icon ? { icon } : {}), ...(model ? { model } : {}), body }
+  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), ...(voice ? { voice } : {}), ...(icon ? { icon } : {}), ...(model ? { model } : {}), ...(speech ? { speech } : {}), body }
 }
 
 /** "Email helper!" → "email-helper". */

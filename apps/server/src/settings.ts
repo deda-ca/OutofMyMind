@@ -58,6 +58,26 @@ const CONNECTION_SCHEMA = {
   },
 }
 
+/** One speech server in audio.connections (audioConnections.ts reads them). */
+const AUDIO_CONNECTION_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id'],
+    properties: {
+      id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,32}$', description: 'A short name, used in "connection/model" (e.g. "local").' },
+      label: { type: 'string', description: 'What it is called on screen.' },
+      kind: { enum: ['audiocpp', 'openai'], default: 'audiocpp', description: 'audiocpp: an audio.cpp server (lists its models and voices itself). openai: an OpenAI-style speech API (/v1/audio/transcriptions and /v1/audio/speech: OpenAI, Groq, Speaches, LocalAI, …).' },
+      url: { type: 'string', description: 'Its address (audiocpp: required; openai default https://api.openai.com).' },
+      apiKey: { type: 'string', description: 'Its API key; "${NAME}" takes it from the environment.' },
+      stt: { type: 'array', items: { type: 'string' }, description: 'Its transcription models (audiocpp: default, the ones it lists).' },
+      tts: { type: 'array', items: { type: 'string' }, description: 'Its text-to-speech models (audiocpp: default, the ones it lists).' },
+      voices: { type: 'array', items: { type: 'string' }, description: 'Its voices (audiocpp: default, the ones it lists; openai: needed, e.g. ["alloy", "nova"]).' },
+    },
+  },
+}
+
 export const SECTIONS: Section[] = [
   { name: 'owner', doc: 'Who Jarvis works for.' },
   { name: 'server', doc: 'The API server: where it listens, who may call it, HTTPS.' },
@@ -81,7 +101,23 @@ export const SECTIONS: Section[] = [
       },
     ],
   },
-  { name: 'audio', doc: 'Speech: audio.cpp for transcription and text-to-speech, and the voiceprint model.' },
+  {
+    name: 'audio',
+    doc: 'Speech: transcription (speech-to-text) and text-to-speech, and the voiceprint model. One audio.cpp server (url, asrModel, ttsModel below), or several servers in "connections": transcription and speech each pick "connection/model", and agents can pick their own speech model and voice.',
+    structured: [
+      {
+        name: 'connections',
+        doc: 'Several speech servers (when set, url, asrModel and ttsModel above are not used: make your audio.cpp one of these).',
+        example: [
+          '"connections": [',
+          '  { "id": "local", "kind": "audiocpp", "url": "http://127.0.0.1:5552" },',
+          '  { "id": "openai", "kind": "openai", "apiKey": "${OPENAI_API_KEY}", "stt": ["gpt-4o-transcribe"], "tts": ["gpt-4o-mini-tts"], "voices": ["alloy", "nova", "onyx"] }',
+          ']',
+        ],
+        schema: AUDIO_CONNECTION_SCHEMA,
+      },
+    ],
+  },
   { name: 'services', doc: 'Background services Jarvis writes for itself (docs/services.md).' },
   { name: 'scripts', doc: 'Scripts Jarvis runs (the scripts plugin), and the Node.js used for them and for services.' },
   { name: 'web', doc: 'Web search and the browser Jarvis uses (the web and browser plugins).' },
@@ -127,10 +163,12 @@ export const SETTINGS: Setting[] = [
   { path: 'llm.vision', env: 'LLM_VISION', type: 'boolean', default: false, doc: "The model can see images (llama.cpp with --mmproj): photos you add are sent to it." },
 
   // audio
+  { path: 'audio.stt', env: 'AUDIO_STT', type: 'string', doc: 'With several connections: the transcription model, as "connection/model" (e.g. "local/Qwen3-ASR"). Default: the first one there is.' },
+  { path: 'audio.tts', env: 'AUDIO_TTS', type: 'string', doc: 'With several connections: the text-to-speech model, as "connection/model" (e.g. "local/Qwen3-TTS"). Agents can pick their own. Default: the first one there is.' },
   { path: 'audio.url', env: 'AUDIOCPP_URL', type: 'string', default: 'http://127.0.0.1:5552', doc: 'audio.cpp, for transcription and text-to-speech.' },
   { path: 'audio.asrModel', env: 'ASR_MODEL', type: 'string', default: 'Qwen3-ASR', doc: 'The transcription model on audio.cpp.' },
   { path: 'audio.ttsModel', env: 'TTS_MODEL', type: 'string', default: 'Qwen3-TTS', doc: 'The text-to-speech model on audio.cpp.' },
-  { path: 'audio.ttsVoice', env: 'TTS_VOICE', type: 'string', default: 'jarvis', doc: "Jarvis's voice (agents can have their own)." },
+  { path: 'audio.ttsVoice', env: 'TTS_VOICE', type: 'string', default: 'jarvis', doc: "Jarvis's voice: one the text-to-speech model has (agents can have their own)." },
   { path: 'audio.voiceprintModel', env: 'VOICEPRINT_MODEL', type: 'path', default: 'models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx', doc: 'The voiceprint model for speaker recognition (npm run fetch-models). Missing: recognition is off.' },
 
   // services

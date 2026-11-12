@@ -107,7 +107,29 @@ Without `llm.connections`, Jarvis uses one LLM: `llm.url`, `llm.model`, `llm.api
 - **Fields:** `id` (a short name: it's the part before the `/`), `label` (shown in the picker), `kind` (`openai`, the default, for any OpenAI-compatible host: OpenAI, xAI, OpenRouter, Groq, Ollama, LM Studio, vLLM, llama.cpp; or `anthropic` for Claude), `url` (not needed for Claude), `apiKey`, `model` (its default), `models` (what the picker offers; without it, what the host lists at `/v1/models`, cached 5 minutes), `vision` (default: on for Claude), `llamaCpp`, `effort` (Claude: `low` … `max`), `contextWindow` (for the context meter), `extra` (more request fields, OpenAI kind). `${NAME}` is filled from the environment, so keys can stay out of the file. Once the list is there, `llm.url`/`model`/`apiKey` aren't used: the local server needs its own entry, with its key.
 - **llama.cpp (`"llamaCpp": true`):** gets the token cap (8,192), temperature 0.7 and thinking off, and its `/tokenize` and `/props` feed the context meter. Other OpenAI-style hosts get only the standard fields (OpenAI's newer models refuse a temperature or `max_tokens`), plus an agent's own temperature; their context meter is an estimate.
 - **Claude** goes through the official SDK (`@anthropic-ai/sdk`): the chat is turned into Anthropic's format (system prompt, image blocks, `tool_use`/`tool_result`) and the stream back into OpenAI-style chunks, so the tool loop doesn't change. Its thinking blocks come back at the end of each step and stay on the assistant message (`raw`) to be sent back unchanged while it's using tools (for the same model only). Prompt caching is on (`cache_control`), long tool arguments stream as they're written, server-side fallback is asked for on the models that have it, and a temperature is never sent. Claude needs the tools defined whenever the history has tool calls, so on the loop's last step it gets them with `tool_choice: none`.
-- **A mistake in the list** stops the server at start-up saying what's wrong; an agent naming a connection that isn't there falls back to the default (said once in the log). `GET /api/llm` lists the connections (never their keys), their models and the default, for the picker.
+- **A mistake in the list** stops the server at start-up saying what's wrong; an agent naming a connection that isn't there falls back to the default (said once in the log). `GET /api/llm` lists the connections (never their keys), their models and the default, for the pickers.
+- **Per session:** the model picker beside the agent picker in the chat changes the model for that session only (`model:` in the session file; `PATCH /api/sessions/:id { model }`, or `PUT /api/sessions/new/model` before the first message; `""` = the agent's). A new session starts on its agent's model. Which model a reply uses: the session's, else the agent's, else `llm.default`.
+
+## Speech connections
+
+Without `audio.connections`, transcription and text-to-speech use one audio.cpp (`audio.url`, with `audio.asrModel` and `audio.ttsModel`) as a connection called `local`. With it, there can be several speech servers; transcription uses `audio.stt` and speech `audio.tts` (each `"connection/model"`; default: the first a connection lists), and the voice is picked separately (`audio.ttsVoice`), from the ones the speech model has. Agents can pick their own speech model and voice (the Agents tab, or `speech:` and `voice:` in the file). Code: [audioConnections.ts](src/audioConnections.ts).
+
+```jsonc
+"audio": {
+  "stt": "local/Qwen3-ASR",
+  "tts": "local/Qwen3-TTS",
+  "ttsVoice": "jarvis",
+  "connections": [
+    { "id": "local", "kind": "audiocpp", "url": "http://127.0.0.1:5552" },
+    { "id": "openai", "kind": "openai", "apiKey": "${OPENAI_API_KEY}", "stt": ["gpt-4o-transcribe"], "tts": ["gpt-4o-mini-tts"], "voices": ["alloy", "nova", "onyx"] }
+  ]
+}
+```
+
+- **audiocpp** lists its models itself (`/v1/models`, by task: `asr` or `tts`) and each model's voices (`/v1/audio/voices?model=…`); `stt`, `tts` and `voices` narrow them. Transcription goes through `/v1/tasks/run` (the one route that takes per-request options with uploaded audio).
+- **openai** is any OpenAI-style speech API (OpenAI, Groq, Speaches, LocalAI, …): transcription is a form upload to `/v1/audio/transcriptions` (the language as its ISO code), speech is `/v1/audio/speech` asked for as WAV (a streamed WAV's unknown sizes are filled in). It doesn't say what it has, so list its `stt`/`tts` models and its `voices`.
+- **Voices:** a reply is spoken in the agent's voice if its speech model has it, else in `audio.ttsVoice`, else the model's first voice (said once in the log). `GET /api/audio` lists the servers, their models and the defaults; `GET /api/tts/voices?model=…` a model's voices; `POST /api/tts { text, voice?, model? }` speaks.
+- **Not yet:** the phone (Marvin) speaks with the default speech model and voice, and the Read aloud plugin still talks to `AUDIOCPP_URL` directly.
 
 ## Live transcription: `/api/stream`
 

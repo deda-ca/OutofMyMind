@@ -21,7 +21,7 @@ import { MAX_DOWNLOAD, type TelegramMessage, Telegram, TelegramError } from '../
 import { type AgentLibrary, toolAllowed } from '../agents/library.ts'
 import { systemPrompt } from '../assistant/assistant.ts'
 import { type ChatMessage, chatTarget, streamChat } from '../assistant/llm.ts'
-import { spokenSentences, synthesize } from '../assistant/speech.ts'
+import { speakerFor, spokenSentences, synthesize } from '../assistant/speech.ts'
 import { encodeOggOpus } from '../archive/oggOpus.ts'
 import { saveUpload } from '../files/workspaceFiles.ts'
 import { wavToPcm16k } from '../phone/voice.ts'
@@ -308,8 +308,8 @@ export class TelegramChannel {
     const recording = setInterval(() => void this.bot.typing(this.chatId, 'record_voice'), 4500)
     void this.bot.typing(this.chatId, 'record_voice')
     try {
-      const voice = this.d.agents.get(this.d.sessions.agentId() || undefined).voice ?? config.ttsVoice
-      const speak = this.d.synthesize ?? ((t: string) => synthesize(t, this.abort.signal, voice))
+      const { voice, model } = await speakerFor(this.d.agents.get(this.d.sessions.agentId() || undefined))
+      const speak = this.d.synthesize ?? ((t: string) => synthesize(t, this.abort.signal, voice, model))
       const pieces: Int16Array[] = []
       for (const sentence of said) pieces.push(wavToPcm16k(await speak(sentence)))
       const total = pieces.reduce((n, p) => n + p.length, 0)
@@ -361,7 +361,7 @@ export class TelegramChannel {
     ].join('\n')
     const system = systemPrompt(agent, agents, skills, [['Telegram', rules]])
     const messages = [system, ...historyMessages(sessions.entries(), HISTORY_MAX)]
-    const target = chatTarget(agent)
+    const target = chatTarget({ model: sessions.model() || agent.model })
     const allow = (name: string) => toolAllowed(agent, name)
     const builtins = [...liveScheduleTools(), ...liveServiceTools(), ...livePhoneTools()]
     if (!harness.status().length) {

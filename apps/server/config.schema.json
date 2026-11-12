@@ -264,10 +264,24 @@
       }
     },
     "audio": {
-      "description": "Speech: audio.cpp for transcription and text-to-speech, and the voiceprint model.",
+      "description": "Speech: transcription (speech-to-text) and text-to-speech, and the voiceprint model. One audio.cpp server (url, asrModel, ttsModel below), or several servers in \"connections\": transcription and speech each pick \"connection/model\", and agents can pick their own speech model and voice.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "stt": {
+          "description": "With several connections: the transcription model, as \"connection/model\" (e.g. \"local/Qwen3-ASR\"). Default: the first one there is.",
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "tts": {
+          "description": "With several connections: the text-to-speech model, as \"connection/model\" (e.g. \"local/Qwen3-TTS\"). Agents can pick their own. Default: the first one there is.",
+          "type": [
+            "string",
+            "number"
+          ]
+        },
         "url": {
           "description": "audio.cpp, for transcription and text-to-speech.",
           "type": [
@@ -293,7 +307,7 @@
           "default": "Qwen3-TTS"
         },
         "ttsVoice": {
-          "description": "Jarvis's voice (agents can have their own).",
+          "description": "Jarvis's voice: one the text-to-speech model has (agents can have their own).",
           "type": [
             "string",
             "number"
@@ -307,6 +321,65 @@
             "number"
           ],
           "default": "models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx"
+        },
+        "connections": {
+          "description": "Several speech servers (when set, url, asrModel and ttsModel above are not used: make your audio.cpp one of these).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,32}$",
+                "description": "A short name, used in \"connection/model\" (e.g. \"local\")."
+              },
+              "label": {
+                "type": "string",
+                "description": "What it is called on screen."
+              },
+              "kind": {
+                "enum": [
+                  "audiocpp",
+                  "openai"
+                ],
+                "default": "audiocpp",
+                "description": "audiocpp: an audio.cpp server (lists its models and voices itself). openai: an OpenAI-style speech API (/v1/audio/transcriptions and /v1/audio/speech: OpenAI, Groq, Speaches, LocalAI, …)."
+              },
+              "url": {
+                "type": "string",
+                "description": "Its address (audiocpp: required; openai default https://api.openai.com)."
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "Its API key; \"${NAME}\" takes it from the environment."
+              },
+              "stt": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Its transcription models (audiocpp: default, the ones it lists)."
+              },
+              "tts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Its text-to-speech models (audiocpp: default, the ones it lists)."
+              },
+              "voices": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Its voices (audiocpp: default, the ones it lists; openai: needed, e.g. [\"alloy\", \"nova\"])."
+              }
+            }
+          }
         }
       }
     },

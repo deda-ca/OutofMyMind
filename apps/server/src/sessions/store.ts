@@ -41,6 +41,8 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
   private active: string | null | undefined
   /** The agent for the next new session. */
   private nextAgent = ''
+  /** The model chosen for the next new session ('' = its agent's). */
+  private nextModel = ''
 
   constructor(dir: string, stateFile: string) {
     super()
@@ -84,9 +86,10 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
   activeId(): string | null {
     if (this.active === undefined) {
       try {
-        const state = JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as { activeId?: unknown; newAgent?: unknown }
+        const state = JSON.parse(fs.readFileSync(this.stateFile, 'utf8')) as { activeId?: unknown; newAgent?: unknown; newModel?: unknown }
         this.active = typeof state.activeId === 'string' && this.get(state.activeId) ? state.activeId : null
         this.nextAgent = typeof state.newAgent === 'string' ? state.newAgent : ''
+        this.nextModel = typeof state.newModel === 'string' ? state.newModel : ''
       } catch {
         this.active = null
       }
@@ -99,6 +102,26 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
   agentId(): string {
     const id = this.activeId()
     return id ? (this.get(id)?.agent ?? '') : this.nextAgent
+  }
+
+  /** The LLM of the active session, or the one chosen for the next new session ('' = its agent's). */
+  model(): string {
+    const id = this.activeId()
+    return id ? (this.get(id)?.model ?? '') : this.nextModel
+  }
+
+  /** The model chosen for the next new session. */
+  newModel(): string {
+    this.activeId()
+    return this.nextModel
+  }
+
+  /** Choose the model for the next new session ('' = its agent's). */
+  setNewModel(model: string): void {
+    this.activeId()
+    this.nextModel = model
+    this.setActive(this.active ?? null)
+    this.emit('change', this.active ?? null)
   }
 
   /** The agent chosen for the next new session. */
@@ -124,6 +147,8 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
   startNew(agent?: string): void {
     this.activeId()
     if (agent !== undefined) this.nextAgent = agent
+    // A new session starts on its agent's model.
+    this.nextModel = ''
     this.setActive(null)
     this.emit('change', null)
   }
@@ -132,7 +157,7 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
   record(entry: SessionEntry): void {
     let session = this.activeId() ? this.get(this.activeId()!) : undefined
     if (!session) {
-      session = { id: newId(new Date(entry.at)), title: '', pinned: false, agent: this.nextAgent, created: entry.at, updated: entry.at, entries: [] }
+      session = { id: newId(new Date(entry.at)), title: '', pinned: false, agent: this.nextAgent, ...(this.nextModel ? { model: this.nextModel } : {}), created: entry.at, updated: entry.at, entries: [] }
       this.setActive(session.id)
     }
     session.entries.push(entry)
@@ -154,7 +179,7 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
    * already has messages switches agent. Without it the model copies its own
    * earlier answers ("I'm read-only, I can't") and ignores the new agent.
    */
-  update(id: string, change: { title?: string; pinned?: boolean; agent?: string; agentName?: string }): SessionMeta {
+  update(id: string, change: { title?: string; pinned?: boolean; agent?: string; agentName?: string; model?: string }): SessionMeta {
     const session = this.get(id)
     if (!session) throw new SessionError('No such session', 404)
     if (change.agent !== undefined && change.agent !== session.agent && session.entries.length > 0) {
@@ -169,6 +194,10 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
     if (change.title !== undefined) session.title = change.title.replace(/\s+/g, ' ').trim().slice(0, 120)
     if (change.pinned !== undefined) session.pinned = change.pinned
     if (change.agent !== undefined) session.agent = change.agent
+    if (change.model !== undefined) {
+      if (change.model) session.model = change.model
+      else delete session.model
+    }
     this.write(session)
     this.emit('change', this.activeId())
     return summary(session)
@@ -198,13 +227,13 @@ export class SessionStore extends EventEmitter<{ change: [activeId: string | nul
   private setActive(id: string | null): void {
     this.active = id
     fs.mkdirSync(path.dirname(this.stateFile), { recursive: true })
-    fs.writeFileSync(this.stateFile, `${JSON.stringify({ activeId: id, newAgent: this.nextAgent })}\n`)
+    fs.writeFileSync(this.stateFile, `${JSON.stringify({ activeId: id, newAgent: this.nextAgent, ...(this.nextModel ? { newModel: this.nextModel } : {}) })}\n`)
   }
 }
 
 function summary(s: Session): SessionSummary {
   const first = s.entries.find((e) => e.kind === 'owner')?.text ?? ''
-  return { id: s.id, title: s.title, pinned: s.pinned, agent: s.agent, created: s.created, updated: s.updated, messages: s.entries.length, preview: first.slice(0, 120) }
+  return { id: s.id, title: s.title, pinned: s.pinned, agent: s.agent, ...(s.model ? { model: s.model } : {}), created: s.created, updated: s.updated, messages: s.entries.length, preview: first.slice(0, 120) }
 }
 
 /** "2026-11-09-1430-a1b2": sorts by time, and never changes when the session is renamed. */

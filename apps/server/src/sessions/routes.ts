@@ -3,6 +3,7 @@
 
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { AgentLibrary } from '../agents/library.ts'
+import { MODEL_REF } from './format.ts'
 import { SessionError, type SessionStore } from './store.ts'
 
 function fail(reply: FastifyReply, err: unknown) {
@@ -12,7 +13,9 @@ function fail(reply: FastifyReply, err: unknown) {
 
 export async function sessionRoutes(app: FastifyInstance, options: { sessions: SessionStore; agents: AgentLibrary }): Promise<void> {
   const { sessions, agents } = options
-  const listing = () => ({ activeId: sessions.activeId(), newAgent: sessions.newAgent(), sessions: sessions.list() })
+  const listing = () => ({ activeId: sessions.activeId(), newAgent: sessions.newAgent(), newModel: sessions.newModel(), sessions: sessions.list() })
+  /** "connection/model", or '' for the agent's. */
+  const badModel = (model: unknown) => model !== undefined && (typeof model !== 'string' || (model !== '' && !MODEL_REF.test(model)))
   const badAgent = (agent: unknown) => agent !== undefined && (typeof agent !== 'string' || (agent !== '' && !agents.has(agent)))
 
   app.get('/api/sessions', async () => listing())
@@ -24,14 +27,15 @@ export async function sessionRoutes(app: FastifyInstance, options: { sessions: S
     return { session }
   })
 
-  /** Rename ({ title }), pin ({ pinned }), and/or change agent ({ agent }: an agent id, '' = the default). */
-  app.patch<{ Params: { id: string }; Body: { title?: unknown; pinned?: unknown; agent?: unknown } }>('/api/sessions/:id', async (req, reply) => {
-    const { title, pinned, agent } = req.body ?? {}
+  /** Rename ({ title }), pin ({ pinned }), change agent ({ agent }: an agent id, '' = the default) and/or model ({ model }: "connection/model", '' = the agent's). */
+  app.patch<{ Params: { id: string }; Body: { title?: unknown; pinned?: unknown; agent?: unknown; model?: unknown } }>('/api/sessions/:id', async (req, reply) => {
+    const { title, pinned, agent, model } = req.body ?? {}
     if (badAgent(agent)) return reply.code(400).send({ error: `No agent "${String(agent)}"` })
+    if (badModel(model)) return reply.code(400).send({ error: 'The model is "connection/model" (or "" for the agent\'s)' })
     if (title !== undefined && typeof title !== 'string') return reply.code(400).send({ error: '"title" must be a string' })
     if (pinned !== undefined && typeof pinned !== 'boolean') return reply.code(400).send({ error: '"pinned" must be true or false' })
     try {
-      sessions.update(req.params.id, { title, pinned, agent: agent as string | undefined, agentName: typeof agent === 'string' ? agents.get(agent).name : undefined })
+      sessions.update(req.params.id, { title, pinned, agent: agent as string | undefined, agentName: typeof agent === 'string' ? agents.get(agent).name : undefined, model: model as string | undefined })
       return listing()
     } catch (err) {
       return fail(reply, err)
@@ -70,6 +74,14 @@ export async function sessionRoutes(app: FastifyInstance, options: { sessions: S
     const agent = req.body?.agent
     if (agent === undefined || badAgent(agent)) return reply.code(400).send({ error: `No agent "${String(agent)}"` })
     sessions.setNewAgent(agent as string)
+    return listing()
+  })
+
+  /** The model for the new session, before its first message ('' = its agent's). */
+  app.put<{ Body: { model?: unknown } }>('/api/sessions/new/model', async (req, reply) => {
+    const model = req.body?.model
+    if (model === undefined || badModel(model)) return reply.code(400).send({ error: 'The model is "connection/model" (or "" for the agent\'s)' })
+    sessions.setNewModel(model as string)
     return listing()
   })
 }

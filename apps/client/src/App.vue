@@ -18,6 +18,7 @@ import ServicesPanel from './components/ServicesPanel.vue'
 import PhonePanel from './components/PhonePanel.vue'
 import PluginTab from './components/PluginTab.vue'
 import AgentPicker from './components/AgentPicker.vue'
+import ModelPicker from './components/ModelPicker.vue'
 import { plugins, statusOf, tabRequest, tellTabs } from './plugins'
 import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
@@ -877,8 +878,9 @@ onBeforeUnmount(() => {
           >
             ■&#xFE0E; Stop talking
           </button>
-          <!-- Who you're talking to (the session's agent); a model picker can join it here later. -->
+          <!-- Who you're talking to (the session's agent), and the LLM it uses in this session. -->
           <AgentPicker class="ms-auto" />
+          <ModelPicker />
         </div>
 
         <div v-if="error" class="alert theme-danger m-0 live-fixed" role="alert">{{ error }}</div>
