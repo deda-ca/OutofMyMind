@@ -3,6 +3,7 @@
 // WORKSPACE_DIR/agents (library.ts); hand edits there show up here too.
 
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { connections, defaultRef, listModels } from '../assistant/models.ts'
 import { AgentError, DEFAULT_AGENT_ID, type AgentInput, type AgentLibrary } from './library.ts'
 
 function fail(reply: FastifyReply, err: unknown) {
@@ -20,6 +21,7 @@ function input(body: unknown): AgentInput {
     ...(b.temperature === undefined || b.temperature === null || b.temperature === '' ? {} : { temperature: Number(b.temperature) }),
     ...(typeof b.voice === 'string' && b.voice.trim() ? { voice: b.voice.trim() } : {}),
     ...(typeof b.icon === 'string' && b.icon.trim() ? { icon: b.icon.trim() } : {}),
+    ...(typeof b.model === 'string' && b.model.trim() ? { model: b.model.trim() } : {}),
     body: String(b.body ?? ''),
   }
 }
@@ -30,7 +32,7 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
     const defaultAgent = agents.defaultId()
     return {
       defaultAgent,
-      agents: agents.list().map(({ id, name, description, tools, temperature, voice, icon, body }) => ({
+      agents: agents.list().map(({ id, name, description, tools, temperature, voice, icon, model, body }) => ({
         id,
         name,
         description,
@@ -38,6 +40,7 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
         temperature,
         voice,
         icon,
+        model,
         body,
         isDefault: id === defaultAgent,
         /** The fallback agent: editable, not deletable. */
@@ -47,6 +50,20 @@ export async function agentRoutes(app: FastifyInstance, options: { agents: Agent
   }
 
   app.get('/api/agents', async () => listing())
+
+  /** For the agent editor's Model picker: the connections (never their keys), their models, and the default. */
+  app.get('/api/llm', async () => {
+    const list = connections()
+    return {
+      default: defaultRef(list),
+      connections: await Promise.all(
+        list.map(async (c) => {
+          const { models, error } = await listModels(c)
+          return { id: c.id, label: c.label, kind: c.kind, model: c.model, models, ...(error ? { error } : {}) }
+        }),
+      ),
+    }
+  })
 
   /** New agent; its id comes from the name unless { id } is given. */
   app.post<{ Body: unknown }>('/api/agents', async (req, reply) => {

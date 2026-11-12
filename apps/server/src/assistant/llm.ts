@@ -1,9 +1,13 @@
 // Streaming chat completions from an OpenAI-compatible server: llama.cpp's
-// llama-server (the local LLM), or any service that speaks the same API.
+// llama-server (the local LLM), or any service that speaks the same API; and
+// Claude through anthropic.ts, which answers in the same streamed form, so
+// the tool loop and everything else don't need to know which it is.
+// Which connection and model: the agent's (assistant/models.ts).
 
-import { config } from '../config.ts'
+import { postAnthropic } from './anthropic.ts'
 import { contextMonitor } from './context.ts'
 import { llmTap, teeBody, traceHeaders } from './llmTap.ts'
+import { resolve } from './models.ts'
 import { attachImages } from './vision.ts'
 
 export interface ChatMessage {
@@ -17,6 +21,17 @@ export interface ChatTarget {
   apiKey?: string
   /** Extra request fields (e.g. llama.cpp's chat_template_kwargs). */
   extra?: Record<string, unknown>
+  /** openai: an OpenAI-compatible host; anthropic: Claude (anthropic.ts). Default openai. */
+  kind?: 'openai' | 'anthropic'
+  /** The connection's id (llm.connections). */
+  connection?: string
+  /** Its models see images: the owner's photos are sent as images (vision.ts). */
+  vision?: boolean
+  /** A llama.cpp server (token counter, context size, no-thinking flag). */
+  llamaCpp?: boolean
+  /** anthropic: how hard Claude thinks. */
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+  contextWindow?: number
 }
 
 /** The target's API key as an Authorization header (none if it has no key). */
@@ -24,10 +39,28 @@ export function authHeader(target: Pick<ChatTarget, 'apiKey'>): Record<string, s
   return target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}
 }
 
-/** The LLM Jarvis answers with (LLM_URL, LLM_MODEL, LLM_API_KEY). */
-export function chatTarget(): ChatTarget {
-  // Thinking off: for spoken conversation a fast short answer beats a slow considered one (0.3 s vs 1.3 s+ measured).
-  return { url: config.llmUrl, model: config.llmModel, apiKey: config.llmApiKey, extra: { chat_template_kwargs: { enable_thinking: false } } }
+const warned = new Set<string>()
+
+/** Where to send a request: the agent's "connection/model" (agent.model), or the default. */
+export function chatTarget(agent?: { model?: string } | null): ChatTarget {
+  const { connection: c, model, note } = resolve(agent?.model)
+  if (note && !warned.has(note)) {
+    warned.add(note)
+    console.warn(`llm: ${note}`)
+  }
+  return {
+    kind: c.kind,
+    connection: c.id,
+    url: c.url,
+    model,
+    ...(c.apiKey ? { apiKey: c.apiKey } : {}),
+    vision: c.vision,
+    llamaCpp: c.llamaCpp,
+    ...(c.effort ? { effort: c.effort } : {}),
+    ...(c.contextWindow ? { contextWindow: c.contextWindow } : {}),
+    // llama.cpp: thinking off (for spoken conversation a fast short answer beats a slow considered one: 0.3 s vs 1.3 s+ measured).
+    extra: { ...(c.llamaCpp ? { chat_template_kwargs: { enable_thinking: false } } : {}), ...c.extra },
+  }
 }
 
 /** A tool call the agent is making, shown while it works. */
@@ -78,17 +111,18 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
     ...authHeader(target),
   }
   // max_tokens: a cap, not a target (spoken replies stay short); room for a tool call that writes a file.
+  // Only for llama.cpp, with its temperature: OpenAI's newer models refuse both (an agent's temperature still goes).
   const json = {
     model: target.model,
     stream: true,
-    max_tokens: 8192,
-    temperature: 0.7,
-    // llama-server then ends the stream with its token counts (for the context meter).
+    ...(target.llamaCpp !== false && target.kind !== 'anthropic' ? { max_tokens: 8192, temperature: 0.7 } : {}),
+    // The stream then ends with the token counts (for the context meter).
     stream_options: { include_usage: true },
     ...target.extra,
     ...body,
   }
   contextMonitor.request(target, json)
+  if (target.kind === 'anthropic') return postAnthropic(target, json, signal)
 
   // The Debug tab: a copy of the exchange, only while a client is watching.
   const traceId = llmTap.active ? llmTap.id() : 0
@@ -114,8 +148,11 @@ export async function postChat(target: ChatTarget, body: Record<string, unknown>
   let response: Response
   try {
     // Images the owner added go as images (vision.ts); the trace above keeps the readable text.
-    const messages = (json as { messages?: unknown }).messages
-    const sent = config.llmVision && Array.isArray(messages) ? { ...json, messages: attachImages(messages as { role: string; content?: unknown }[]) } : json
+    // Claude's own reply blocks ("raw", anthropic.ts) stay out: they mean nothing to another provider.
+    const given = (json as { messages?: unknown }).messages
+    const messages = Array.isArray(given) ? (given as { role: string; content?: unknown; raw?: unknown }[]).map(({ raw: _raw, ...m }) => m) : given
+    const plain = Array.isArray(messages) ? { ...json, messages } : json
+    const sent = target.vision && Array.isArray(messages) ? { ...json, messages: attachImages(messages) } : plain
     response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(sent), signal })
   } catch (err) {
     traceResponse(0, {}, '', null, signal?.aborted ? 'aborted' : (err as Error).message)

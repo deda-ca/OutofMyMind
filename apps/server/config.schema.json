@@ -147,10 +147,17 @@
       }
     },
     "llm": {
-      "description": "The LLM Jarvis answers with (an OpenAI-compatible chat endpoint: llama.cpp, or a hosted service).",
+      "description": "The LLMs Jarvis answers with. One connection (url, model, apiKey below), or several in \"connections\": each agent picks \"connection/model\".",
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "default": {
+          "description": "With several connections: the model agents use unless they pick one, as \"connection/model\" (e.g. \"local/Assistant\"). Default: the first connection's model.",
+          "type": [
+            "string",
+            "number"
+          ]
+        },
         "url": {
           "description": "The OpenAI-compatible chat endpoint (llama.cpp's llama-server, or a hosted service).",
           "type": [
@@ -178,6 +185,81 @@
           "description": "The model can see images (llama.cpp with --mmproj): photos you add are sent to it.",
           "type": "boolean",
           "default": false
+        },
+        "connections": {
+          "description": "Several LLM connections (when set, the url, model, apiKey and vision above are not used: make your local server one of these).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,32}$",
+                "description": "A short name, used in \"connection/model\" (e.g. \"anthropic\")."
+              },
+              "label": {
+                "type": "string",
+                "description": "What it is called on screen."
+              },
+              "kind": {
+                "enum": [
+                  "openai",
+                  "anthropic"
+                ],
+                "default": "openai",
+                "description": "openai: any OpenAI-compatible host (OpenAI, xAI Grok, OpenRouter, Groq, llama.cpp, Ollama, LM Studio, vLLM). anthropic: Claude, through Anthropic's own API."
+              },
+              "url": {
+                "type": "string",
+                "description": "Its address (openai kind: required; e.g. https://api.openai.com, https://api.x.ai, http://127.0.0.1:5454)."
+              },
+              "apiKey": {
+                "type": "string",
+                "description": "Its API key; \"${NAME}\" takes it from the environment."
+              },
+              "model": {
+                "type": "string",
+                "description": "The model agents on this connection use unless they name another."
+              },
+              "models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The models offered in the pickers. Default: the ones the connection lists."
+              },
+              "vision": {
+                "type": "boolean",
+                "description": "Its models can see images (anthropic: default true)."
+              },
+              "llamaCpp": {
+                "type": "boolean",
+                "description": "A llama.cpp server: its token counter and context size feed the context meter, and replies are asked for without thinking."
+              },
+              "effort": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ],
+                "description": "anthropic: how hard Claude thinks (default: the model's own)."
+              },
+              "contextWindow": {
+                "type": "number",
+                "description": "Its context size in tokens, for the context meter (llama.cpp tells it itself)."
+              },
+              "extra": {
+                "type": "object",
+                "description": "Extra request fields sent with every request (openai kind)."
+              }
+            }
+          }
         }
       }
     },

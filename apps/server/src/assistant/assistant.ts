@@ -403,7 +403,7 @@ export class Assistant {
     this.unanswered = unanswered
     // The session's agent: its instructions, tools, and optionally its temperature.
     const agent = this.agents.get(this.session.agentId())
-    const target = forAgent(chatTarget(), agent)
+    const target = forAgent(chatTarget(agent), agent)
     // The agent may take a while (tools): say what it's doing rather than leave silence (progress.ts).
     const progress =
       this.o.speakProgress?.() === false

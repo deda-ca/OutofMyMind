@@ -4,6 +4,7 @@ import { SkillLibrary } from './skills/library.ts'
 import { buildApp } from './app.ts'
 import { loadAccessKey } from './auth.ts'
 import { config, configFile } from './config.ts'
+import { connections, defaultRef, ModelError } from './assistant/models.ts'
 import { harness } from './harness/index.ts'
 import { DataHistory } from './history/history.ts'
 import { VoiceprintModel } from './speaker/voiceprint.ts'
@@ -12,6 +13,17 @@ import { loadTls } from './tls.ts'
 // What config.jsonc gave, and anything in it that looks wrong (a typo in a setting's name).
 if (configFile.found) console.log(`config: ${configFile.file}: ${configFile.applied.length} settings${configFile.overridden.length ? `; overridden by the environment: ${configFile.overridden.join(', ')}` : ''}`)
 for (const w of configFile.warnings) console.warn(`config: ${w}`)
+// The LLM connections (llm.connections): a mistake in the list stops here, saying what's wrong.
+try {
+  const list = connections()
+  const fallback = defaultRef(list)
+  if (process.env.LLM_DEFAULT?.trim() && process.env.LLM_DEFAULT.trim() !== fallback) console.warn(`config: llm.default "${process.env.LLM_DEFAULT.trim()}" isn't "connection/model" with a connection in llm.connections: using ${fallback}`)
+  console.log(`llm: ${list.map((c) => `${c.id} (${c.kind}${c.kind === 'anthropic' && !c.apiKey ? ', no apiKey!' : ''})`).join(', ')}; default ${fallback}`)
+} catch (err) {
+  if (!(err instanceof ModelError)) throw err
+  console.error(`config: ${err.message}`)
+  process.exit(1)
+}
 
 const voiceprintModel = await VoiceprintModel.load(config.voiceprintModel, (message) => console.warn(message))
 const access = loadAccessKey(config.dataDir, config.accessKey)

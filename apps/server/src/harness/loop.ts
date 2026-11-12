@@ -2,9 +2,11 @@
 // give it the results, and repeat until it answers in words.
 //
 // Text is streamed as it comes (so Jarvis can start speaking "Let me check."
-// while a tool runs). The last allowed step is sent without tools, so the
+// while a tool runs). The last allowed step is sent without tools (Claude gets
+// them but may not call one: it needs them defined), so the
 // loop always ends with an answer.
 
+import type { RawReply } from '../assistant/anthropic.ts'
 import { postChat, readSse, type AgentEvent, type ChatMessage, type ChatTarget } from '../assistant/llm.ts'
 import type { FunctionTool, ToolOutcome } from './mcp.ts'
 
@@ -25,7 +27,7 @@ export interface ToolCall {
 
 export type LoopMessage =
   | ChatMessage
-  | { role: 'assistant'; content: string | null; tool_calls: ToolCall[] }
+  | { role: 'assistant'; content: string | null; tool_calls: ToolCall[]; /** Claude's own reply blocks (anthropic.ts). */ raw?: RawReply }
   | { role: 'tool'; tool_call_id: string; content: string }
 
 export interface LoopOptions {
@@ -105,8 +107,10 @@ export async function runLoop(target: ChatTarget, messages: LoopMessage[], host:
   }
   for (let step = 1; step <= maxSteps; step++) {
     stepText = ''
-    const tools = step < maxSteps ? host.tools() : []
-    const { calls, cutOff } = await streamStep(target, transcript, tools, onDelta, options.signal)
+    // Claude needs the tools defined whenever the history has tool calls: on the last step it gets them, but may not call one.
+    const last = step >= maxSteps
+    const tools = !last || target.kind === 'anthropic' ? host.tools() : []
+    const { calls, cutOff, raw } = await streamStep(target, transcript, tools, onDelta, options.signal, last)
     flush()
     if (leaked || calls.length === 0) break
     // A call whose arguments aren't valid JSON (usually cut off: a whole file in one write) isn't run,
@@ -117,6 +121,7 @@ export async function runLoop(target: ChatTarget, messages: LoopMessage[], host:
       role: 'assistant',
       content: stepText || null,
       tool_calls: calls.map((c) => (broken.has(c.id) ? { ...c, function: { ...c.function, arguments: '{}' } } : c)),
+      ...(raw && broken.size === 0 ? { raw } : {}),
     })
     for (const call of calls) {
       const label = host.label(call.function.name)
@@ -174,13 +179,16 @@ async function streamStep(
   tools: FunctionTool[],
   onDelta: (text: string) => void,
   signal?: AbortSignal,
-): Promise<{ calls: ToolCall[]; cutOff: boolean }> {
-  const response = await postChat(target, { messages, ...(tools.length > 0 ? { tools } : {}) }, signal)
+  noCalls = false,
+): Promise<{ calls: ToolCall[]; cutOff: boolean; raw?: RawReply }> {
+  const response = await postChat(target, { messages, ...(tools.length > 0 ? { tools, ...(noCalls ? { tool_choice: 'none' } : {}) } : {}) }, signal)
   // Tool calls arrive in pieces, keyed by index: the id and name first, then the arguments bit by bit.
   const calls: ToolCall[] = []
   let cutOff = false
+  let raw: RawReply | undefined
   for await (const { event, data } of readSse(response.body!)) {
     if (event) continue
+    if (data.jarvis_raw) raw = data.jarvis_raw as RawReply
     const choice = (data as { choices?: { delta?: StreamDelta; finish_reason?: string | null }[] }).choices?.[0]
     // "length": the reply hit max_tokens, so a tool call in it may be unfinished.
     if (choice?.finish_reason === 'length') cutOff = true
@@ -195,7 +203,7 @@ async function streamStep(
       if (piece.function?.arguments) call.function.arguments += piece.function.arguments
     }
   }
-  return { calls: calls.filter(Boolean).map((call, i) => ({ ...call, id: call.id || `call_${i}` })), cutOff }
+  return { calls: calls.filter(Boolean).map((call, i) => ({ ...call, id: call.id || `call_${i}` })), cutOff, ...(raw ? { raw } : {}) }
 }
 
 function validJson(text: string): boolean {

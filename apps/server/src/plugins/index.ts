@@ -223,7 +223,7 @@ function pluginTurn(deps: PlatformDeps, tell: (title: string, text: string) => v
     events = events.replace(/<\/?untrusted/gi, '‹untrusted')
     const body = event.untrusted ? `<untrusted source="${m.name} plugin, event ${turn.event}">\n${events}\n</untrusted>` : events
     const ask = `(${titleOf(m)} plugin: ${turn.payloads.length} "${turn.event}" event${turn.payloads.length === 1 ? '' : 's'}. Your instructions for it:\n${tr.prompt.replace(/\{\{\s*owner\s*\}\}/g, owner)})\n\n${body}`
-    const target = chatTarget()
+    const target = chatTarget(agent)
     const signal = AbortSignal.timeout(5 * 60_000)
     const result: LoopResult = harness.status().length
       ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, signal, undefined, allow, [])

@@ -361,7 +361,7 @@ export class TelegramChannel {
     ].join('\n')
     const system = systemPrompt(agent, agents, skills, [['Telegram', rules]])
     const messages = [system, ...historyMessages(sessions.entries(), HISTORY_MAX)]
-    const target = chatTarget()
+    const target = chatTarget(agent)
     const allow = (name: string) => toolAllowed(agent, name)
     const builtins = [...liveScheduleTools(), ...liveServiceTools(), ...livePhoneTools()]
     if (!harness.status().length) {

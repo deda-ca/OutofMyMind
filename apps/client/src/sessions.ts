@@ -50,6 +50,8 @@ export interface AgentInfo {
   voice?: string
   /** Shown with its name (an emoji or a character or two). */
   icon?: string
+  /** "connection/model" (llm.connections on the server); unset: the default. */
+  model?: string
   /** The instructions as written in its file (comments kept). */
   body: string
   /** Sessions without their own agent use the default one. */

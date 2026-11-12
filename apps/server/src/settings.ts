@@ -30,13 +30,57 @@ export interface Setting {
 export interface Section {
   name: string
   doc: string
+  /** Settings that are lists of objects (read by their own code, not as environment variables), with an example for the commented file. */
+  structured?: { name: string; doc: string; example: string[]; schema: Record<string, unknown> }[]
+}
+
+/** One LLM connection in llm.connections (assistant/models.ts reads them). */
+const CONNECTION_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['id'],
+    properties: {
+      id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,32}$', description: 'A short name, used in "connection/model" (e.g. "anthropic").' },
+      label: { type: 'string', description: 'What it is called on screen.' },
+      kind: { enum: ['openai', 'anthropic'], default: 'openai', description: 'openai: any OpenAI-compatible host (OpenAI, xAI Grok, OpenRouter, Groq, llama.cpp, Ollama, LM Studio, vLLM). anthropic: Claude, through Anthropic\'s own API.' },
+      url: { type: 'string', description: 'Its address (openai kind: required; e.g. https://api.openai.com, https://api.x.ai, http://127.0.0.1:5454).' },
+      apiKey: { type: 'string', description: 'Its API key; "${NAME}" takes it from the environment.' },
+      model: { type: 'string', description: 'The model agents on this connection use unless they name another.' },
+      models: { type: 'array', items: { type: 'string' }, description: 'The models offered in the pickers. Default: the ones the connection lists.' },
+      vision: { type: 'boolean', description: 'Its models can see images (anthropic: default true).' },
+      llamaCpp: { type: 'boolean', description: 'A llama.cpp server: its token counter and context size feed the context meter, and replies are asked for without thinking.' },
+      effort: { enum: ['low', 'medium', 'high', 'xhigh', 'max'], description: 'anthropic: how hard Claude thinks (default: the model\'s own).' },
+      contextWindow: { type: 'number', description: 'Its context size in tokens, for the context meter (llama.cpp tells it itself).' },
+      extra: { type: 'object', description: 'Extra request fields sent with every request (openai kind).' },
+    },
+  },
 }
 
 export const SECTIONS: Section[] = [
   { name: 'owner', doc: 'Who Jarvis works for.' },
   { name: 'server', doc: 'The API server: where it listens, who may call it, HTTPS.' },
   { name: 'data', doc: 'Where Jarvis keeps its data and your files.' },
-  { name: 'llm', doc: 'The LLM Jarvis answers with (an OpenAI-compatible chat endpoint: llama.cpp, or a hosted service).' },
+  {
+    name: 'llm',
+    doc: 'The LLMs Jarvis answers with. One connection (url, model, apiKey below), or several in "connections": each agent picks "connection/model".',
+    structured: [
+      {
+        name: 'connections',
+        doc: 'Several LLM connections (when set, the url, model, apiKey and vision above are not used: make your local server one of these).',
+        example: [
+          '"connections": [',
+          '  { "id": "local", "kind": "openai", "url": "http://127.0.0.1:5454", "model": "Assistant", "llamaCpp": true, "vision": true },',
+          '  { "id": "anthropic", "kind": "anthropic", "apiKey": "${ANTHROPIC_API_KEY}", "model": "claude-opus-5-5" },',
+          '  { "id": "openai", "kind": "openai", "url": "https://api.openai.com", "apiKey": "${OPENAI_API_KEY}", "model": "gpt-5" },',
+          '  { "id": "grok", "kind": "openai", "url": "https://api.x.ai", "apiKey": "${XAI_API_KEY}", "model": "grok-4" }',
+          ']',
+        ],
+        schema: CONNECTION_SCHEMA,
+      },
+    ],
+  },
   { name: 'audio', doc: 'Speech: audio.cpp for transcription and text-to-speech, and the voiceprint model.' },
   { name: 'services', doc: 'Background services Jarvis writes for itself (docs/services.md).' },
   { name: 'scripts', doc: 'Scripts Jarvis runs (the scripts plugin), and the Node.js used for them and for services.' },
@@ -76,6 +120,7 @@ export const SETTINGS: Setting[] = [
   { path: 'data.plugins', env: 'MCP_CONFIG', type: 'path', default: 'mcp.json', doc: "Which plugins are on (the LLM's tools)." },
 
   // llm
+  { path: 'llm.default', env: 'LLM_DEFAULT', type: 'string', doc: 'With several connections: the model agents use unless they pick one, as "connection/model" (e.g. "local/Assistant"). Default: the first connection\'s model.' },
   { path: 'llm.url', env: 'LLM_URL', type: 'string', default: 'http://127.0.0.1:5454', doc: 'The OpenAI-compatible chat endpoint (llama.cpp\'s llama-server, or a hosted service).' },
   { path: 'llm.model', env: 'LLM_MODEL', type: 'string', default: 'Assistant', doc: 'The model name to ask for.' },
   { path: 'llm.apiKey', env: 'LLM_API_KEY', type: 'secret', doc: 'Sent as "Authorization: Bearer …" (a hosted service, or llama-server --api-key).' },

@@ -59,7 +59,7 @@ export function serviceTurn(deps: TurnDeps) {
     // The closing tag can't be faked from inside.
     events = events.replace(/<\/?untrusted/gi, '‹untrusted')
     const ask = `(Service "${turn.serviceName}": ${turn.payloads.length} "${turn.event}" event${turn.payloads.length === 1 ? '' : 's'}. Your instructions for it:\n${turn.trigger.prompt.replace(/\{\{\s*owner\s*\}\}/g, owner)})\n\n<untrusted source="service ${turn.serviceId}, event ${turn.event}">\n${events}\n</untrusted>`
-    const target = chatTarget()
+    const target = chatTarget(agent)
     const signal = AbortSignal.timeout(5 * 60_000)
     const result: LoopResult = harness.status().length
       ? await harness.run(target, [system, { role: 'user', content: ask }], () => {}, signal, undefined, allow, [])

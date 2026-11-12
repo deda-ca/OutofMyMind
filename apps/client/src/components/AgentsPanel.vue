@@ -22,6 +22,9 @@ const catalog = ref<CatalogTool[]>([])
 /** The text-to-speech voices audio.cpp has, and the one Jarvis speaks in by default (TTS_VOICE). */
 const voices = ref<string[]>([])
 const defaultVoice = ref('')
+/** The LLM connections and their models (config.jsonc llm.connections), for the Model picker. */
+interface LlmConnection { id: string; label: string; kind: string; model: string; models: string[]; error?: string }
+const llm = ref<{ default: string; connections: LlmConnection[] }>({ default: '', connections: [] })
 
 /** The editor: null when closed; `id` null when creating. */
 const editing = ref<{ id: string | null } | null>(null)
@@ -36,6 +39,8 @@ const form = reactive({
   voice: '',
   /** '' = none (shown as 🤖). */
   icon: '',
+  /** "connection/model"; '' = the default. */
+  model: '',
   toolsMode: 'all' as 'all' | 'none' | 'some',
   picked: new Set<string>(),
   patterns: '',
@@ -86,6 +91,7 @@ async function load(): Promise<void> {
     const tts = await api<{ voices: string[]; jarvis: string }>('/api/tts/voices').catch(() => ({ voices: [], jarvis: '' }))
     voices.value = tts.voices
     defaultVoice.value = tts.jarvis
+    llm.value = await api<{ default: string; connections: LlmConnection[] }>('/api/llm').catch(() => ({ default: '', connections: [] }))
     catalog.value = list.flatMap((p) => p.tools.map((t) => ({ fn: `${p.name}__${t.name}`, name: t.name, plugin: p.name, description: t.description, crud: t.crud })))
   })
 }
@@ -95,7 +101,7 @@ function slug(name: string): string {
 }
 
 function startCreate(): void {
-  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', voice: '', icon: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
+  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', voice: '', icon: '', model: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
   editing.value = { id: null }
 }
 
@@ -110,6 +116,7 @@ function startEdit(agent: AgentInfo): void {
     temperature: agent.temperature === undefined ? '' : String(agent.temperature),
     voice: agent.voice ?? '',
     icon: agent.icon ?? '',
+    model: agent.model ?? '',
     toolsMode: agent.tools === null ? 'all' : agent.tools.length === 0 ? 'none' : 'some',
     // Exact tool names become ticks; wildcards and tools of plugins that aren't running stay as patterns.
     picked: new Set(tools.filter((t) => known.has(t))),
@@ -156,7 +163,7 @@ async function save(): Promise<void> {
     return
   }
   const temperature = String(form.temperature).trim() === '' ? null : Number(form.temperature)
-  const body = { name: form.name, description: form.description, tools, temperature, voice: form.voice, icon: form.icon.trim(), body: form.body }
+  const body = { name: form.name, description: form.description, tools, temperature, voice: form.voice, icon: form.icon.trim(), model: form.model, body: form.body }
   const id = editing.value?.id
   const ok = await act(async () => {
     applyAgents(id ? await api<AgentListing>(`/api/agents/${encodeURIComponent(id)}`, json('PUT', body)) : await api<AgentListing>('/api/agents', json('POST', { ...body, id: form.id || undefined })))
@@ -172,6 +179,9 @@ async function remove(agent: AgentInfo): Promise<void> {
   if (!confirm(`Delete the agent “${agent.name}”? Its file (agents/${agent.id}.md) is removed. Sessions that used it switch to the default agent.`)) return
   await act(async () => applyAgents(await api<AgentListing>(`/api/agents/${encodeURIComponent(agent.id)}`, { method: 'DELETE' })), `Deleted “${agent.name}”.`)
 }
+
+/** The agent's model, if no connection offers it any more (so it's shown, and kept unless changed). */
+const missingModel = computed(() => (form.model && !llm.value.connections.some((c) => c.models.some((m) => `${c.id}/${m}` === form.model)) ? form.model : ''))
 
 /** Quick picks for an agent's icon. */
 const ICONS = ['🤖', '🧠', '✉️', '📅', '💼', '🏠', '🍳', '🎓', '🧾', '💪', '🎵', '🛠️', '🌿', '❤️']
@@ -214,7 +224,7 @@ onMounted(load)
     <div class="d-flex align-items-center gap-3 flex-wrap">
       <span class="text-sm fg-3">
         An agent is who Jarvis is in a session: its instructions (added to SYSTEM.md in every request), which tools it
-        may use, and optionally its own temperature, voice and icon. Sessions without their own agent use the default one.
+        may use, and optionally its own model, temperature, voice and icon. Sessions without their own agent use the default one.
         Agents are files in the workspace's <code>agents/</code> folder.
       </span>
       <button type="button" class="btn-solid theme-primary btn-sm ms-auto" :disabled="busy || editing !== null" @click="startCreate">+ New agent</button>
@@ -257,10 +267,21 @@ onMounted(load)
             <label for="agent-description" class="form-label m-0 fw-semibold">Description</label>
             <input id="agent-description" v-model="form.description" class="form-control" maxlength="200" placeholder="What it's for, shown in the session picker" />
           </div>
+          <div class="col-12 vstack gap-1">
+            <label for="agent-model" class="form-label m-0 fw-semibold">Model</label>
+            <select id="agent-model" v-model="form.model" class="form-select" aria-describedby="agent-model-help">
+              <option value="">Default{{ llm.default ? ` (${llm.default})` : '' }}</option>
+              <optgroup v-for="c in llm.connections" :key="c.id" :label="`${c.label}${c.error ? ' (couldn\'t list its models)' : ''}`">
+                <option v-for="m in c.models" :key="m" :value="`${c.id}/${m}`">{{ m }}</option>
+              </optgroup>
+              <option v-if="missingModel" :value="missingModel">{{ missingModel }} (not in config.jsonc)</option>
+            </select>
+            <span id="agent-model-help" class="form-text m-0">Which LLM it thinks with: the connections are <code>llm.connections</code> in config.jsonc.</span>
+          </div>
           <div class="col-12 md:col-6 vstack gap-1">
             <label for="agent-temperature" class="form-label m-0 fw-semibold">Temperature</label>
-            <input id="agent-temperature" v-model="form.temperature" type="number" min="0" max="2" step="0.1" class="form-control" placeholder="Default (0.7)" />
-            <span class="form-text m-0">Lower is steadier and more literal, higher more varied. Leave empty for the default.</span>
+            <input id="agent-temperature" v-model="form.temperature" type="number" min="0" max="2" step="0.1" class="form-control" placeholder="Default" />
+            <span class="form-text m-0">Lower is steadier and more literal, higher more varied. Leave empty for the default. Claude doesn't take one.</span>
           </div>
           <div class="col-12 md:col-6 vstack gap-1">
             <label for="agent-voice" class="form-label m-0 fw-semibold">Voice</label>
@@ -358,6 +379,7 @@ onMounted(load)
         <span class="text-sm fg-3">
           {{ toolsSummary(agent) }}
           <template v-if="agent.temperature !== undefined"> · temperature {{ agent.temperature }}</template>
+          <template v-if="agent.model"> · {{ agent.model }}</template>
           <template v-if="agent.voice"> · voice {{ agent.voice }}</template>
           <template v-if="agent.builtIn"> · the fallback agent: can be edited, not deleted</template>
         </span>

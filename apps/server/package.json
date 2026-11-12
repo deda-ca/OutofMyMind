@@ -16,6 +16,7 @@
     "config:schema": "node scripts/config.ts schema"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.8.0",
     "@fastify/websocket": "^11.3.7",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.8",

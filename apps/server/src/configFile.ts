@@ -27,6 +27,8 @@ export interface ConfigFileStatus {
   overridden: string[]
   /** Unknown settings, references to unset variables. */
   warnings: string[]
+  /** The file as read (for the sections that are lists of objects, like llm.connections). */
+  root: Record<string, unknown>
 }
 
 export class ConfigError extends Error {}
@@ -69,7 +71,7 @@ export function loadConfigFile(env: NodeJS.ProcessEnv = process.env, file = conf
 const LOADED = Symbol.for('jarvis.configFile')
 
 function readInto(env: NodeJS.ProcessEnv, file: string | null): ConfigFileStatus {
-  const status: ConfigFileStatus = { file: file ?? '(none)', found: false, applied: [], overridden: [], warnings: [] }
+  const status: ConfigFileStatus = { file: file ?? '(none)', found: false, applied: [], overridden: [], warnings: [], root: {} }
   if (!file || !fs.existsSync(file)) return status
   status.found = true
   const text = fs.readFileSync(file, 'utf8')
@@ -80,10 +82,11 @@ function readInto(env: NodeJS.ProcessEnv, file: string | null): ConfigFileStatus
   }
   if (!root || typeof root !== 'object' || Array.isArray(root)) throw new ConfigError(`${file}: the file must be one { … } object`)
   const obj = root as Record<string, unknown>
+  status.root = obj
 
   // Unknown sections and settings: probably a typo, said once at start-up.
   const sections = new Set(SECTIONS.map((s) => s.name))
-  const known = new Set(SETTINGS.map((s) => s.path))
+  const known = new Set([...SETTINGS.map((s) => s.path), ...SECTIONS.flatMap((s) => (s.structured ?? []).map((x) => `${s.name}.${x.name}`))])
   for (const [key, value] of Object.entries(obj)) {
     if (key === '$schema') continue
     if (!sections.has(key)) {
@@ -201,6 +204,10 @@ export function renderConfig(values: Record<string, unknown> = {}, opts: { schem
         out.push(`    // ${JSON.stringify(name)}: ${s.default !== undefined ? JSON.stringify(s.default) : '""'}`)
       }
     })
+    for (const x of section.structured ?? []) {
+      comment(x.doc, '    ')
+      for (const line of x.example) out.push(`    // ${line}`)
+    }
     out.push(`  }${si < SECTIONS.length - 1 ? ',' : ''}`)
   })
   out.push('}', '')
@@ -232,7 +239,10 @@ export function configSchema(): Record<string, unknown> {
             description: section.doc,
             type: 'object',
             additionalProperties: false,
-            properties: Object.fromEntries(SETTINGS.filter((s) => s.path.startsWith(`${section.name}.`)).map((s) => [s.path.slice(section.name.length + 1), prop(s)])),
+            properties: {
+              ...Object.fromEntries(SETTINGS.filter((s) => s.path.startsWith(`${section.name}.`)).map((s) => [s.path.slice(section.name.length + 1), prop(s)])),
+              ...Object.fromEntries((section.structured ?? []).map((x) => [x.name, { description: x.doc, ...x.schema }])),
+            },
           },
         ]),
       ),

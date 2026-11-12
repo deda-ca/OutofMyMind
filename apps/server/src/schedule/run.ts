@@ -24,7 +24,7 @@ export function scheduledRun(deps: { agents: AgentLibrary; skills: SkillLibrary;
     const s = req.schedule
     const owner = config.ownerName || 'the owner'
     const agent = deps.agents.get(undefined)
-    const target = chatTarget()
+    const target = chatTarget(agent)
     const allow = (name: string) => toolAllowed(agent, name) && (s.allowChanges === true || !harness.crudOf(name).some((k) => k === 'update' || k === 'delete'))
     const now = new Date()
     const repeat = s.repeat ? describeRepeat(s.repeat, new Date(s.start)) : 'once'

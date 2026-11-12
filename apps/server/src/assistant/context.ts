@@ -154,6 +154,8 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
     const cached = this.tokenCache.get(key)
     if (cached !== undefined) return cached
     let tokens: number
+    // Only llama.cpp has a tokenizer to ask (an older target without the flag is one).
+    if (target.llamaCpp === false) return Math.ceil(text.length / 3.5)
     try {
       const response = await fetch(new URL('/tokenize', target.url), {
         method: 'POST',
@@ -172,6 +174,8 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
 
   /** The model's context window, from llama-server (/props, per model in router mode); re-read every 5 minutes. */
   async limit(target: ChatTarget): Promise<number> {
+    if (target.contextWindow) return target.contextWindow
+    if (target.llamaCpp === false) return guessWindow(target.model)
     const known = this.limits.get(target.model)
     if (known && Date.now() - known.at < 5 * 60_000) return known.limit
     let limit = known?.limit ?? 0
@@ -185,6 +189,16 @@ class ContextMonitor extends EventEmitter<{ update: [ContextStats] }> {
     this.limits.set(target.model, { limit, at: Date.now() })
     return limit
   }
+}
+
+/** A hosted model's context window, from its name (llm.connections[].contextWindow says it exactly). */
+export function guessWindow(model: string): number {
+  if (/^claude-(opus|sonnet|fable|mythos)-(5|4-[6-9])/.test(model)) return 1_000_000
+  if (/^claude-/.test(model)) return 200_000
+  if (/^gpt-4\.1/.test(model)) return 1_000_000
+  if (/^gpt-5/.test(model)) return 400_000
+  if (/^grok-4/.test(model)) return 256_000
+  return 128_000
 }
 
 /** The LLM server's API key, if it has one (llama-server --api-key also guards /tokenize and /props). */

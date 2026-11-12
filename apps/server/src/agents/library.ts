@@ -10,6 +10,7 @@
 //   temperature: 0.4        # optional
 //   voice: male-tz-calm     # optional: the text-to-speech voice it speaks in (default TTS_VOICE)
 //   icon: "✉️"              # optional: shown with its name (an emoji or a character or two)
+//   model: claude/claude-sonnet-5-5   # optional: "connection/model" (llm.connections); default llm.default
 //   ---
 //   You handle the owner's email. …
 //
@@ -33,6 +34,8 @@ export interface Agent {
   voice?: string
   /** Shown with its name (sessions list, replies): an emoji or a character or two. */
   icon?: string
+  /** "connection/model" from llm.connections (assistant/models.ts); unset: llm.default. */
+  model?: string
   /** The agent's part of the system prompt (comments removed; fill `{{owner}}` with fillOwner()). */
   instructions: string
   /** The file's text after the frontmatter, as written (comments kept): what the editor shows. */
@@ -47,6 +50,7 @@ export interface AgentInput {
   temperature?: number
   voice?: string
   icon?: string
+  model?: string
   /** The instructions, as written (comments allowed). */
   body: string
 }
@@ -275,6 +279,7 @@ export function parseAgent(id: string, text: string): Agent {
     ...(str('temperature') !== undefined && Number.isFinite(temperature) && temperature >= 0 && temperature <= 2 ? { temperature } : {}),
     ...(str('voice') && VOICE.test(str('voice')!) ? { voice: str('voice') } : {}),
     ...(str('icon') && isIcon(str('icon')!) ? { icon: str('icon')!.trim() } : {}),
+    ...(str('model') && MODEL.test(str('model')!.trim()) ? { model: str('model')!.trim() } : {}),
     instructions: stripComments(body),
     body: body.replace(/^\n+/, '').replace(/\s+$/, ''),
   }
@@ -301,6 +306,7 @@ export function toAgentFile(agent: AgentInput): string {
     ...(agent.temperature !== undefined ? [`temperature: ${agent.temperature}`] : []),
     ...(agent.voice ? [`voice: ${agent.voice}`] : []),
     ...(agent.icon ? [`icon: ${JSON.stringify(agent.icon)}`] : []),
+    ...(agent.model ? [`model: ${JSON.stringify(agent.model)}`] : []),
     '---',
     agent.body.trim(),
   ]
@@ -313,6 +319,9 @@ function isIcon(s: string): boolean {
   const t = s.trim()
   return t.length > 0 && [...t].length <= 8 && !/[\s<>"'`]/.test(t)
 }
+
+/** "connection/model": a connection id, then the model's name (which may have "/" and ":" in it). */
+const MODEL = /^[A-Za-z0-9_-]{1,32}\/[^\s"'`<>]{1,200}$/
 
 /** A voice name as audio.cpp has them ("jarvis", "male-tz-calm"). */
 const VOICE = /^[A-Za-z0-9_.-]{1,64}$/
@@ -337,9 +346,11 @@ export function validate(input: AgentInput): AgentInput {
   if (voice && !VOICE.test(voice)) throw new AgentError('The voice is a name like "jarvis" (letters, digits, - _ and .)', 400)
   const icon = String(input.icon ?? '').trim()
   if (icon && !isIcon(icon)) throw new AgentError('The icon is an emoji or a character or two', 400)
+  const model = String(input.model ?? '').trim()
+  if (model && !MODEL.test(model)) throw new AgentError('The model is "connection/model", like "claude/claude-sonnet-5-5" (or not set)', 400)
   const body = String(input.body ?? '')
   if (body.length > 20000) throw new AgentError('The instructions are at most 20,000 characters', 400)
-  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), ...(voice ? { voice } : {}), ...(icon ? { icon } : {}), body }
+  return { name, description, tools, ...(input.temperature !== undefined ? { temperature: input.temperature } : {}), ...(voice ? { voice } : {}), ...(icon ? { icon } : {}), ...(model ? { model } : {}), body }
 }
 
 /** "Email helper!" → "email-helper". */
