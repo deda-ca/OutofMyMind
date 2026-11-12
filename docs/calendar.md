@@ -27,13 +27,15 @@ A week at a time (Monday to Sunday), previous / today / next, refresh; an event 
 
 ## Settings
 
-```bash
-CALENDAR_URL=https://mail.example.com:2080/   # the CalDAV server (the calendar is found from there)
-CALENDAR_USER=me@example.com
-CALENDAR_PASSWORD='…'
-CALENDAR_NAME=                               # which calendar, if the account has several (default: the first that holds events)
-CALENDAR_REMINDER_MINUTES=15
-CALENDAR_POLL_SECONDS=120
+```jsonc
+"calendar": {
+  "url": "https://mail.example.com:2080/",   // the CalDAV server (the calendar is found from there)
+  "user": "me@example.com",
+  "password": "…",
+  "name": "",                                // which calendar, if the account has several (default: the first that holds events)
+  "reminderMinutes": 15,
+  "pollSeconds": 120
+}
 ```
 
 ## Not yet

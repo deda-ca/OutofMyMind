@@ -132,7 +132,9 @@ if (!result.success) {
   for (const log of result.logs) console.error(log)
   process.exit(1)
 }
-fs.copyFileSync(at('release', 'env.example'), path.join(out, '.env.example'))
+// The settings: every one, commented out at its default, and the schema an editor checks the file with.
+fs.copyFileSync(at('apps', 'server', 'config.example.jsonc'), path.join(out, 'config.example.jsonc'))
+fs.copyFileSync(at('apps', 'server', 'config.schema.json'), path.join(out, 'config.schema.json'))
 fs.copyFileSync(at('release', 'README.md'), path.join(out, 'README.md'))
 
 // 7. The tarball.

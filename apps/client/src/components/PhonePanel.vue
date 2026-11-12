@@ -155,8 +155,8 @@ const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponen
     </div>
 
     <div v-if="!phone.enabled" class="alert theme-secondary m-0">
-      The phone isn't set up: put the VoIP.ms settings (<code>VOIPMS_SIP_SERVER</code>, <code>VOIPMS_SIP_USER</code>, <code>VOIPMS_SIP_PASSWORD</code>,
-      <code>VOIPMS_DID</code>) in <code>apps/server/.env.local</code> and restart the server. See <code>docs/phone.md</code>.
+      The phone isn't set up: put the VoIP.ms settings (<code>phone.sipServer</code>, <code>phone.sipUser</code>, <code>phone.sipPassword</code>,
+      <code>phone.did</code>) in <code>apps/server/config.jsonc</code> and restart the server. See <code>docs/phone.md</code>.
     </div>
 
     <template v-else>
@@ -233,7 +233,7 @@ const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponen
             <div class="vstack gap-1">
               <label class="d-flex gap-2 align-items-center"><input v-model="draft.answer" type="radio" value="marvin" /> {{ phone.assistant }} answers: asks who's calling and what it's about, then rings your cell and tells you. Press 1 (or say "connect") to talk, 2 for a message.</label>
               <label class="d-flex gap-2 align-items-center"><input v-model="draft.answer" type="radio" value="screens" /> Your screens ring first; {{ phone.assistant }} takes a message if nobody picks up.</label>
-              <span v-if="!phone.ownerCell" class="fg-3">No <code>OWNER_CELL</code> in <code>.env.local</code>: {{ phone.assistant }} can only take messages.</span>
+              <span v-if="!phone.ownerCell" class="fg-3">No <code>phone.ownerCell</code> in <code>config.jsonc</code>: {{ phone.assistant }} can only take messages.</span>
             </div>
             <div class="d-flex gap-3 flex-wrap">
               <label class="vstack gap-1" style="flex: 1 1 16rem">
@@ -268,7 +268,7 @@ const openTranscript = (file: string) => window.open(`/?view=${encodeURIComponen
       <div class="vstack gap-2">
         <span class="fw-semibold">Texts</span>
         <span v-if="!phone.texts.enabled" class="text-sm fg-3">
-          Texts need the VoIP.ms API: <code>VOIPMS_API_USER</code> (your login email) and <code>VOIPMS_API_PASSWORD</code> in <code>apps/server/.env.local</code>.
+          Texts need the VoIP.ms API: <code>phone.apiUser</code> (your login email) and <code>phone.apiPassword</code> in <code>apps/server/config.jsonc</code>.
         </span>
         <template v-else>
           <div v-if="phone.texts.error" class="alert theme-warning m-0 text-sm">{{ phone.texts.error }}</div>

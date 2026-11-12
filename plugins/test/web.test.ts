@@ -178,7 +178,7 @@ test('Brave results, recency and errors', async () => {
   assert.equal(asked!.headers['X-Subscription-Token'], 'key123')
 
   const refused = new Brave('bad', (async () => new Response('{}', { status: 401 })) as unknown as typeof fetch)
-  await assert.rejects(refused.search('x', 5), (err: Error) => err instanceof SearchError && /BRAVE_API_KEY/.test(err.message))
+  await assert.rejects(refused.search('x', 5), (err: Error) => err instanceof SearchError && /web\.braveApiKey/.test(err.message))
   const limited = new Brave('k', (async () => new Response('{}', { status: 429 })) as unknown as typeof fetch)
   await assert.rejects(limited.search('x', 5), /too many searches/)
 })

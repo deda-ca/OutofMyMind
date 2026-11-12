@@ -5,7 +5,7 @@ One executable: the Jarvis server and its web client, with its plugins built in.
 ## Start
 
 ```bash
-cp .env.example .env        # then edit it: at least LLM_URL, LLM_MODEL, AUDIOCPP_URL, OWNER_NAME
+cp config.example.jsonc config.jsonc   # then edit it: at least llm.url, llm.model, audio.url, owner.name
 ./jarvis fetch-models       # once: the 28 MB voiceprint model, into ./models
 ./jarvis
 ```
@@ -16,7 +16,7 @@ Everything it keeps is in the folder you start it from:
 
 | Path | |
 | --- | --- |
-| `.env`, `.env.local` | Configuration (`.env.local` wins). Every setting of `apps/server/.env` works. |
+| `config.jsonc` | The settings, in sections: `config.example.jsonc` lists every one with what it does; `config.schema.json` lets an editor check the file. Environment variables win over it (and `.env`, `.env.local` still work). |
 | `data/` | Database, audio archive, workspace, access key, HTTPS certificate (`data/tls`). Private: back it up, never publish it. |
 | `mcp.json` | The plugins (the LLM's tools). Written the first time; edit it to turn plugins off or add your own. |
 | `models/` | The voiceprint model (`./jarvis fetch-models`). |
@@ -25,7 +25,7 @@ Unpacked copies of the web client, the services kit and ONNX Runtime go in `~/.c
 
 ## From your phone
 
-Set `HOST=0.0.0.0` in `.env`, restart, and open `https://<this machine's LAN address>:5180`. The certificate is self-signed (made once, for this machine's names and addresses at that moment; delete `data/tls` to make a new one): browsers ask once, and the Android app shows its fingerprint to pin. The fingerprint is also in the log at start-up. To use a real certificate instead, set `TLS_CERT` and `TLS_KEY`.
+Set `"host": "0.0.0.0"` in `config.jsonc`'s `server` section, restart, and open `https://<this machine's LAN address>:5180`. The certificate is self-signed (made once, for this machine's names and addresses at that moment; delete `data/tls` to make a new one): browsers ask once, and the Android app shows its fingerprint to pin. The fingerprint is also in the log at start-up. To use a real certificate instead, set `server.tlsCert` and `server.tlsKey`.
 
 ## Commands
 
@@ -70,4 +70,4 @@ WantedBy=multi-user.target
 
 ## Upgrading
 
-Stop it, replace the `jarvis` file, start it. `data/`, `.env` and `mcp.json` stay as they are. A new release may bring new plugins: they appear in a fresh `mcp.json` (move yours aside, start once, and merge).
+Stop it, replace the `jarvis` file, start it. `data/`, `config.jsonc` and `mcp.json` stay as they are. A new release may bring new plugins: they appear in a fresh `mcp.json` (move yours aside, start once, and merge).

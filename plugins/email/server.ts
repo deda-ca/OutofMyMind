@@ -40,7 +40,7 @@ fs.mkdirSync(dirs.data, { recursive: true })
 fs.mkdirSync(dirs.workspace, { recursive: true })
 const store = new Store(path.join(dirs.data, 'mail.db'))
 const mailbox = new Mailbox(settings)
-const NOT_SET_UP = 'Email isn\'t set up: EMAIL_IMAP_HOST, EMAIL_USER and EMAIL_PASSWORD go in apps/server/.env.local (docs/email.md).'
+const NOT_SET_UP = 'Email isn\'t set up: email.imapHost, email.user and email.password go in apps/server/config.jsonc (docs/email.md).'
 
 const plugin = createPlugin(
   'email',

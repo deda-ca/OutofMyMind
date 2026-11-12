@@ -24,7 +24,7 @@ const settings = {
 const reminderMinutes = Math.max(0, Number(env('CALENDAR_REMINDER_MINUTES') || 15))
 const pollMs = Math.max(30, Number(env('CALENDAR_POLL_SECONDS') || 120)) * 1000
 const configured = Boolean(settings.url && settings.user && settings.password)
-const NOT_SET_UP = "The calendar isn't set up: CALENDAR_URL, CALENDAR_USER and CALENDAR_PASSWORD go in apps/server/.env.local (docs/calendar.md)."
+const NOT_SET_UP = "The calendar isn't set up: calendar.url, calendar.user and calendar.password go in apps/server/config.jsonc (docs/calendar.md)."
 
 const dataDir = pluginDataDir || path.resolve('data')
 fs.mkdirSync(dataDir, { recursive: true })

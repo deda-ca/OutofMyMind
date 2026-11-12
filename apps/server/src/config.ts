@@ -1,6 +1,11 @@
-// Server configuration from environment variables (.env, then .env.local).
+// Server configuration: config.jsonc (configFile.ts, every setting listed in
+// settings.ts), with environment variables winning over it.
 
 import path from 'node:path'
+import { loadConfigFile } from './configFile.ts'
+
+/** What config.jsonc gave (main.ts logs it). Read first: everything below reads the environment it fills. */
+export const configFile = loadConfigFile()
 
 function env(name: string, fallback: string): string {
   const value = process.env[name]?.trim()
@@ -31,9 +36,9 @@ export const config = {
   /** The folder Jarvis's file tools may read and write (to-dos, lists, notes, …). Created at start-up. */
   workspaceDir: path.resolve(env('WORKSPACE_DIR', path.join(env('DATA_DIR', 'data'), 'workspace'))),
   /** OpenAI-compatible chat endpoint (llama.cpp's llama-server). */
-  llmUrl: env('LLM_URL', 'http://127.0.0.1:5550'),
-  llmModel: env('LLM_MODEL', 'Qwen3.6-35B-A3B'),
-  /** Optional: sent as "Authorization: Bearer …" to LLM_URL (a hosted service, or llama-server --api-key); put it in .env.local. */
+  llmUrl: env('LLM_URL', 'http://127.0.0.1:5454'),
+  llmModel: env('LLM_MODEL', 'Assistant'),
+  /** Optional: sent as "Authorization: Bearer …" to LLM_URL (a hosted service, or llama-server --api-key); llm.apiKey in config.jsonc. */
   llmApiKey: process.env.LLM_API_KEY?.trim() || undefined,
   /** MCP plugins for the harness (the LLM's tools). See src/harness/config.ts. */
   mcpConfig: path.resolve(env('MCP_CONFIG', 'mcp.json')),

@@ -42,7 +42,7 @@ export interface PluginManifest {
   dir: string
   command: string
   args: string[]
-  /** Settings it's given, by name, from the server's environment (.env.local). */
+  /** Settings it's given, by name, from the server's environment (which config.jsonc fills). */
   env: string[]
   /** Gets DATA_DIR/plugins/<name>/ (as JARVIS_DATA). */
   data: boolean

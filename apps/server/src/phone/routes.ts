@@ -22,7 +22,7 @@ import { toE164 } from './numbers.ts'
 export async function phoneRoutes(app: FastifyInstance): Promise<void> {
   const guard = async (reply: FastifyReply, body: (p: Phone) => unknown) => {
     const p = phoneLine()
-    if (!p) return reply.code(503).send({ error: 'The phone isn\'t set up (VOIPMS_SIP_SERVER, VOIPMS_SIP_USER and VOIPMS_SIP_PASSWORD in .env.local), or PHONE=off.' })
+    if (!p) return reply.code(503).send({ error: 'The phone isn\'t set up (phone.sipServer, phone.sipUser and phone.sipPassword in config.jsonc), or PHONE=off.' })
     try {
       return await body(p)
     } catch (err) {
@@ -43,7 +43,7 @@ export async function phoneRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { number?: unknown; message?: unknown } }>('/api/phone/texts', async (req, reply) =>
     guard(reply, async () => {
       const t = phoneTexts()
-      if (!t) return reply.code(503).send({ error: 'Texts need VOIPMS_API_USER and VOIPMS_API_PASSWORD (and VOIPMS_DID) in .env.local.' })
+      if (!t) return reply.code(503).send({ error: 'Texts need phone.apiUser and phone.apiPassword (and phone.did) in config.jsonc.' })
       return { text: await t.send(toE164(String(req.body?.number ?? '')).slice(1), String(req.body?.message ?? '')) }
     }),
   )

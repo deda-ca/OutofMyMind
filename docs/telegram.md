@@ -32,13 +32,15 @@ They're split because a bot's messages can be read by one program only (Telegram
 
 ## Settings
 
-In `apps/server/.env.local` (git ignores it):
+In `apps/server/config.jsonc` (git ignores it):
 
-```bash
-TELEGRAM_BOT_TOKEN='123456:ABC…'   # from @BotFather; Jarvis's alone (one reader of its messages)
-TELEGRAM_OWNER_CHAT_ID=123456789   # the owner's chat with the bot (send it /start, then read getUpdates)
-TELEGRAM=off                       # optional: no channel (the plugin still sends)
-TELEGRAM_VOICE_REPLIES=always      # optional: voice-note replies always (default), only to voice notes (voice), or never (off)
+```jsonc
+"telegram": {
+  "botToken": "123456:ABC…",   // from @BotFather; Jarvis's alone (one reader of its messages)
+  "ownerChatId": "123456789",  // your chat with the bot (send it /start, then read getUpdates)
+  "enabled": true,             // false: no channel (the plugin still sends)
+  "voiceReplies": "always"     // voice-note replies always (default), only to voice notes ("voice"), or never ("off")
+}
 ```
 
 The channel starts with the server when both are set. The bot's display name and picture are changed with @BotFather (`/setname`, `/setuserpic`); its username can't be.

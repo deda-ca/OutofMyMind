@@ -3,3 +3,7 @@
 node_modules
 data/
 models/
+
+# Settings with passwords (config.example.jsonc is the template)
+config.jsonc
+.env.local.migrated

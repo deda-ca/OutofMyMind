@@ -10,7 +10,7 @@
 //   }
 //
 // `${NAME}` in args, env, url and headers is replaced from the server's
-// environment (so secrets stay in .env.local), plus DATA_DIR and WORKSPACE_DIR.
+// environment (which config.jsonc fills: secrets stay there), plus DATA_DIR and WORKSPACE_DIR.
 // An optional "instructions" string is extra guidance for the LLM about the
 // plugin (e.g. how the workspace folder is laid out), Jarvis-only. stdio plugins
 // run with the config file's folder as their working directory, and get only

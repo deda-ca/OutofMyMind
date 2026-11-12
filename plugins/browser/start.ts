@@ -9,7 +9,7 @@
 //
 // Playwright MCP runs inside BROWSER_DIR: it limits file access (uploads, saved
 // snapshots, screenshots) to the folder it runs in, so a page can't get it to
-// upload anything else (like apps/server/.env.local). Its saved snapshots,
+// upload anything else (like apps/server/config.jsonc). Its saved snapshots,
 // screenshots and console logs go to BROWSER_DIR/output.
 
 import { spawn } from 'node:child_process'

@@ -1,6 +1,6 @@
 // Access protection: one pass-key for the whole API.
 //
-// The key comes from ACCESS_KEY (.env.local) or, if unset, is generated once
+// The key comes from server.accessKey (config.jsonc) or ACCESS_KEY or, if unset, is generated once
 // and kept in DATA_DIR/access-key. A browser signs in once (POST /api/login)
 // and gets an HttpOnly cookie; other clients can send "Authorization: Bearer <key>".
 // Everything under /api needs one or the other, except signing in itself.

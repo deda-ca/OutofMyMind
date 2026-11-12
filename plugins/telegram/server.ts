@@ -23,7 +23,7 @@ const MAX_FILE = 50_000_000
 let bot: Telegram | null = null
 let setupError = ''
 try {
-  if (!token || !chatId) throw new TelegramError('Telegram isn\'t set up: TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_CHAT_ID go in apps/server/.env.local (docs/telegram.md).')
+  if (!token || !chatId) throw new TelegramError('Telegram isn\'t set up: telegram.botToken and telegram.ownerChatId go in apps/server/config.jsonc (docs/telegram.md).')
   bot = new Telegram(token)
 } catch (err) {
   setupError = (err as Error).message

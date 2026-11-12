@@ -5,11 +5,14 @@
 //   jarvis fetch-models         downloads the voiceprint model into ./models
 //   jarvis version
 //
-// Configuration as in development: environment variables, .env and .env.local
+// Configuration as in development: config.jsonc in the folder it's started from
+// (config.example.jsonc beside the binary lists every setting), environment
+// variables winning over it; .env and .env.local still work (Bun loads them)
 // in the folder it's started from (Bun loads them), paths relative to it.
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadConfigFile } from '../apps/server/src/configFile.ts'
 import { BUILD, KIT, MCP_JSON, PLATFORM_KIT, PLUGIN_FILES, SITE } from './.generated/embedded.ts'
 import { PLUGINS } from './plugins.ts'
 import { pruneOtherBuilds, unpack } from './unpack.ts'
@@ -39,6 +42,8 @@ if (command === 'plugin') {
   process.env.JARVIS_PLUGINS_DIR = unpack('plugins', PLUGIN_FILES)
   process.env.JARVIS_PLATFORM_KIT = unpack('platform-kit', PLATFORM_KIT)
   pruneOtherBuilds()
+  // config.jsonc first: the defaults below apply only to what it (or the environment) doesn't set.
+  loadConfigFile()
   // Nothing sits in front of this server, so it speaks HTTPS itself unless told not to.
   if (!process.env.TLS?.trim()) process.env.TLS = 'self-signed'
   // The plugins' config, the first time: edit it like apps/server/mcp.json.

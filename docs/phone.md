@@ -122,20 +122,20 @@ Text-to-speech into the bridge, transcription out of it, the LLM deciding what t
 
 On when `VOIPMS_SIP_SERVER`, `VOIPMS_SIP_USER` and `VOIPMS_SIP_PASSWORD` are set (`PHONE=off` turns it off); texts when `VOIPMS_API_USER` and `VOIPMS_API_PASSWORD` are too. `PHONE_ASSISTANT_NAME` is what the assistant calls itself on the phone (Marvin). Limits: `PHONE_MAX_CALL_MINUTES` (120), `PHONE_DAILY_MINUTES` of outgoing calls (180), `PHONE_DAILY_TEXTS` (50), `PHONE_RING_SECONDS` before an unanswered incoming call is turned away (30), `PHONE_TEXT_POLL_SECONDS` (30).
 
-A password with a `#` in it must be quoted (`VOIPMS_SIP_PASSWORD='…'`): unquoted, everything from the `#` on is a comment.
+In `apps/server/config.jsonc` (git ignores it):
 
-`apps/server/.env.local` (git ignores it):
-
-```bash
-VOIPMS_SIP_SERVER=toronto.voip.ms   # the nearest VoIP.ms server
-VOIPMS_SIP_USER=123456_jarvis       # Jarvis's sub-account
-VOIPMS_SIP_PASSWORD=…
-VOIPMS_API_USER=…                   # the VoIP.ms login email
-VOIPMS_API_PASSWORD=…               # the API password (not the login password)
-VOIPMS_API_TOKEN=…                  # the bearer token from the API page (newer API; phase 0 checks which works)
-VOIPMS_DID=6135550123               # Jarvis's number
-VOIPMS_CALLER_ID=6135550199        # caller ID on calls placed for the owner: their cell, verified at VoIP.ms (empty: VOIPMS_DID)
-OWNER_CELL=6135550199               # where Marvin rings the owner
+```jsonc
+"phone": {
+  "sipServer": "toronto.voip.ms",   // the nearest VoIP.ms server
+  "sipUser": "123456_jarvis",       // Jarvis's sub-account
+  "sipPassword": "…",
+  "apiUser": "…",                   // the VoIP.ms login email
+  "apiPassword": "…",               // the API password (not the login password)
+  "apiToken": "…",                  // the bearer token from the API page
+  "did": "6135550123",              // Jarvis's number
+  "callerId": "6135550199",         // caller ID on calls placed for you: your cell, verified at VoIP.ms (empty: the DID)
+  "ownerCell": "6135550199"         // where Marvin rings you
+}
 ```
 
 The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to type them in, like services' secrets.
@@ -225,7 +225,7 @@ Work on the phone paused here. Built so far: phases 1 (calls through Jarvis), 2 
 
 - **A real incoming call**: point the DID's routing (`VOIPMS_DID`) at Jarvis's sub-account (`VOIPMS_SIP_USER`), restart the server, and call from a phone other than the owner's cell (Marvin rings that cell, so calling from it ends as a message). One call tests screening, ringing the cell, the three-way call and the live transcript.
 - **Texts**: add the server's public IP to the API's allowed IPs (VoIP.ms → API), then send one text and check a reply arrives within a minute.
-- Still to check from phase 1: how caller ID arrives on another phone (the owner's cell as `VOIPMS_CALLER_ID`, verified at VoIP.ms), and the Montreal 7 POP chosen in the portal vs the `toronto2` server in `.env.local`.
+- Still to check from phase 1: how caller ID arrives on another phone (the owner's cell as `VOIPMS_CALLER_ID`, verified at VoIP.ms), and the Montreal 7 POP chosen in the portal vs the `toronto2` server in `config.jsonc`.
 
 **Then build, in this order:**
 
@@ -265,7 +265,7 @@ To work out: a plugin restart drops calls in progress (the server restart does t
 | Charges run up (a loop, a long call) | Daily caps, a maximum call length, international off on the sub-account, no auto-recharge. |
 | A restart drops calls | Accepted for now. The call log shows it; a restart could wait for calls to end later. |
 | Recording without consent | The notice, on by default and always for US numbers. |
-| Credentials leak | `.env.local` (ignored by git), then the vault; never in the repo, logs or the LLM's context. |
+| Credentials leak | `config.jsonc` (ignored by git), then the vault; never in the repo, logs or the LLM's context. |
 
 ## Open questions
 

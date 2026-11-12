@@ -7,16 +7,19 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local --watch src/main.ts",
-    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local src/main.ts",
+    "dev": "node --env-file-if-exists=.env.local --watch --watch-path=src --watch-path=config.jsonc src/main.ts",
+    "start": "node --env-file-if-exists=.env.local src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"test/**/*.test.ts\"",
-    "fetch-models": "node scripts/fetch-models.ts"
+    "test": "CONFIG_FILE=off node --test \"test/**/*.test.ts\"",
+    "fetch-models": "node scripts/fetch-models.ts",
+    "config:init": "node scripts/config.ts init",
+    "config:schema": "node scripts/config.ts schema"
   },
   "dependencies": {
     "@fastify/websocket": "^11.3.7",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.8",
+    "jsonc-parser": "3.3.1",
     "libopus-wasm": "^0.4.1",
     "ogg-opus-decoder": "^1.7.5",
     "onnxruntime-node": "^1.31.1"

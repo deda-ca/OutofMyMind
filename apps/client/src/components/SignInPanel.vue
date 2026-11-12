@@ -22,7 +22,7 @@ async function submit(): Promise<void> {
         <div class="card-body vstack gap-4">
           <p class="m-0">
             Enter the access key. It's shown in the server's log when it starts (or set it yourself as
-            <code>ACCESS_KEY</code> in <code>apps/server/.env.local</code>). You only need to do this once on each device.
+            <code>server.accessKey</code> in <code>apps/server/config.jsonc</code>). You only need to do this once on each device.
           </p>
           <div class="vstack gap-1">
             <label for="access-key" class="form-label m-0">Access key</label>

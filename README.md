@@ -29,7 +29,7 @@ npm run dev        # starts apps/server (:5180) and apps/client (:5173) together
 
 Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C stops both.
 
-**From your phone (same network):** open `https://<this machine's LAN IP>:5173` (e.g. https://192.168.1.50:5173) and accept the certificate warning. The address must be listed in `ALLOWED_ORIGINS` in `apps/server/.env.local`. HTTPS is needed because browsers only allow the microphone on secure pages. Each device signs in once with the **access key**: it's printed in the server's log at startup (and kept in `apps/server/data/access-key`), or set your own as `ACCESS_KEY` in `apps/server/.env.local`.
+**From your phone (same network):** open `https://<this machine's LAN IP>:5173` (e.g. https://192.168.1.50:5173) and accept the certificate warning. The address must be listed in `server.allowedOrigins` in `apps/server/config.jsonc`. HTTPS is needed because browsers only allow the microphone on secure pages. Each device signs in once with the **access key**: it's printed in the server's log at startup (and kept in `apps/server/data/access-key`), or set your own as `server.accessKey` in `apps/server/config.jsonc`.
 
 | Script | |
 | --- | --- |
@@ -43,7 +43,7 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 
 `npm run build` (with [Bun](https://bun.sh) installed, after `npm run setup`) builds the web client and compiles one executable, `dist/jarvis-<version>-linux-<arch>/jarvis`, plus a `.tar.gz` of that folder and its `.sha256`. The version is `version` in `apps/server/package.json`.
 
-The executable contains the server, the built web client (it serves it itself, over HTTPS), every MCP plugin in `mcp.json` (`jarvis plugin <name>`), the services kit and ONNX Runtime. To deploy, unpack the tarball anywhere, copy `.env.example` to `.env`, run `./jarvis fetch-models` once, then `./jarvis`. [release/README.md](release/README.md) (also in the tarball) has the details.
+The executable contains the server, the built web client (it serves it itself, over HTTPS), every MCP plugin in `mcp.json` (`jarvis plugin <name>`), the services kit and ONNX Runtime. To deploy, unpack the tarball anywhere, copy `config.example.jsonc` to `config.jsonc` and set what you need, run `./jarvis fetch-models` once, then `./jarvis`. [release/README.md](release/README.md) (also in the tarball) has the details.
 
 How it's put together: [release/build.ts](release/build.ts) (the build, and small fixes for packages that don't bundle as they are), [release/main.ts](release/main.ts) (the binary's commands), [release/plugins.ts](release/plugins.ts) (the built-in plugins: a new plugin in `mcp.json` must be added there, or the build stops and says so). Development stays on Node: the release only adds `SITE_DIR` (src/site.ts) and `TLS` (src/tls.ts) to the server, both off by default.
 

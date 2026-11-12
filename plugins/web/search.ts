@@ -51,7 +51,7 @@ export class Brave implements SearchProvider {
       'X-Subscription-Token': this.key,
     })
     if (response.status === 401 || response.status === 403 || response.status === 422)
-      throw new SearchError('Brave Search refused the API key (BRAVE_API_KEY). Check it in apps/server/.env.local.')
+      throw new SearchError('Brave Search refused the API key (web.braveApiKey). Check it in apps/server/config.jsonc.')
     if (response.status === 429) throw new SearchError('Brave Search says too many searches (rate limit or monthly quota). Try again later.')
     if (!response.ok) throw new SearchError(`Brave Search said HTTP ${response.status}.`)
     const data = (await response.json().catch(() => ({}))) as { web?: { results?: { title?: string; url?: string; description?: string; age?: string; page_age?: string }[] } }

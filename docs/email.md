@@ -45,13 +45,15 @@ A page shipped by the plugin (`plugins/email/ui/`), shown by the client as a tab
 
 ## Settings
 
-```bash
-EMAIL_IMAP_HOST=mail.example.com   # port 993 (TLS) unless EMAIL_IMAP_PORT
-EMAIL_SMTP_HOST=mail.example.com   # port 465 (TLS) or 587 (STARTTLS) by EMAIL_SMTP_PORT
-EMAIL_USER=me@example.com
-EMAIL_PASSWORD='…'                 # quote it if it has a #
-EMAIL_ADDRESS=me@example.com       # the From address (default EMAIL_USER)
-EMAIL_HISTORY_DAYS=30              # how far back on first start
+```jsonc
+"email": {
+  "imapHost": "mail.example.com",   // port 993 (TLS) unless imapPort
+  "smtpHost": "mail.example.com",   // port 465 (TLS), or 587 (STARTTLS) with smtpPort
+  "user": "me@example.com",
+  "password": "…",
+  "address": "me@example.com",      // the From address (default: the login)
+  "historyDays": 30                 // how far back on the first start
+}
 ```
 
 ## Built
