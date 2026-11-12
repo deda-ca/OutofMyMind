@@ -185,7 +185,7 @@ The passwords move to the vault (`DATA_DIR/secrets.json`) once there's UI to typ
 | `apps/server/src/phone/numbers.ts`, `transcript.ts` | North American numbers (911, N11, premium refused); cutting a leg into utterances, the transcript |
 | `apps/server/src/phone/index.ts` | Starting and stopping it with the server; the tools for live replies |
 | `apps/server/src/phone/live.ts` | The live transcript: each leg's utterances transcribed as they end; Marvin's from its words |
-| `apps/server/src/phone/voice.ts` | Marvin's voice as a leg: text-to-speech in (24 kHz WAV → 16 kHz), what the others say heard live (cut by loudness) and transcribed; half duplex |
+| `apps/server/src/phone/voice.ts` | Marvin's voice as a leg: text-to-speech in (24 kHz WAV → 16 kHz), what the others say heard live (cut by loudness) and transcribed; half duplex, with barge-in: the other side talking over Marvin for 300 ms stops it (its own echo, quieter, doesn't count; `BARGE_*` constants) |
 | `apps/server/src/phone/screening.ts` | Marvin answering: the script (greeting, who's calling, ringing the owner, the announcement, 1 / "connect" or 2, the message) |
 | `apps/server/src/phone/rules.ts` | Who gets put through: always, blocked, quiet hours, who answers; `DATA_DIR/phone/rules.json` |
 | `apps/server/src/phone/texts.ts` | VoIP.ms API: send, poll |

@@ -85,3 +85,64 @@ test('a call: the other side talks while Marvin is thinking, and Marvin hears it
     leg.close()
   }
 })
+
+/** Speech-like loudness (sine amplitude a), 20 ms at 16 kHz. */
+const tone = (a: number) => {
+  const f = new Int16Array(FRAME_SAMPLES)
+  for (let i = 0; i < FRAME_SAMPLES; i++) f[i] = Math.round(a * Math.sin(i / 3))
+  return f
+}
+
+test("the line's echo of Marvin doesn't stop it; the other side talking over it does", async () => {
+  const { BARGE_MS, BARGE_MIN_RMS } = await import('../src/phone/voice.ts')
+  assert.ok(BARGE_MIN_RMS > 0 && BARGE_MS >= 200)
+  const leg = new VoiceLeg({ name: 'Marvin', synthesize: async () => Buffer.alloc(0), transcribe: async () => '' })
+  // Marvin's voice: 1.5 s of loud tone, played out at real time. The echo comes back 100 ms later, a quarter as loud.
+  const pcm = new Int16Array(FRAME_SAMPLES * 75)
+  for (let f = 0; f < 75; f++) pcm.set(tone(6000), f * FRAME_SAMPLES)
+  const sent: Int16Array[] = []
+  const pace = () => new Promise((r) => setTimeout(r, 20))
+  const playing = leg.play(pcm)
+  const echo: Int16Array[] = []
+  for (let f = 0; f < 75; f++) {
+    const out = leg.read()
+    if (out) sent.push(out)
+    // The echo: what went out 5 frames ago, quieter.
+    const old = sent[f - 5]
+    const e = old ? old.map((x) => Math.round(x * 0.25)) : new Int16Array(FRAME_SAMPLES)
+    echo.push(e)
+    leg.write(e)
+    await pace()
+  }
+  await playing
+  assert.equal(leg.interrupted, 0, "Marvin finished its sentence: the echo didn't stop it")
+  leg.close()
+})
+
+test('the other side talking over Marvin for 300 ms stops it, and what they say is heard', async () => {
+  const leg = new VoiceLeg({ name: 'Marvin', synthesize: async () => Buffer.alloc(0), transcribe: async () => 'Wait, what time?' })
+  const pcm = new Int16Array(FRAME_SAMPLES * 150)
+  for (let f = 0; f < 150; f++) pcm.set(tone(6000), f * FRAME_SAMPLES)
+  const playing = leg.play(pcm)
+  // Marvin is playing; after 200 ms the other side starts talking over it, at a voice that's quieter than Marvin's but clearly speech.
+  const pace = () => new Promise((r) => setTimeout(r, 20))
+  const heard = leg.hear(3000)
+  for (let f = 0; f < 150; f++) {
+    leg.read()
+    if (f >= 10) leg.write(tone(4000))
+    else leg.write(new Int16Array(FRAME_SAMPLES))
+    await pace()
+    if (leg.interrupted) break
+  }
+  await playing
+  assert.equal(leg.interrupted, 1, 'Marvin stopped')
+  // Then the other side keeps talking a moment, and silence ends the utterance.
+  // (A pause of over 800 ms ends the utterance.)
+  for (let f = 0; f < 80; f++) {
+    leg.write(f < 30 ? tone(4000) : new Int16Array(FRAME_SAMPLES))
+    await pace()
+  }
+  const got = await heard
+  assert.ok(got && got.length > FRAME_SAMPLES * 10, 'their words are what Marvin hears')
+  leg.close()
+})

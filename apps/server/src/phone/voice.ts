@@ -75,6 +75,18 @@ export interface Endpointing {
 const DEFAULT_ENDPOINTING: Endpointing = { endSilenceMs: 800, maxMs: 15_000 }
 /** Utterances kept while nobody listens. */
 const MAX_UNHEARD = 5
+/**
+ * Barge-in: while Marvin talks, the other side talking over it for this long
+ * (ms, continuously) stops Marvin, which then listens. Their voice must be
+ * louder than BARGE_MIN_RMS and than BARGE_ECHO_RATIO times how loud Marvin's
+ * own voice has been lately: the line's echo of Marvin comes back quieter, so
+ * it doesn't count. Tuned by hand for VoIP.ms calls; check on a real call.
+ */
+export const BARGE_MS = 300
+export const BARGE_MIN_RMS = 1500
+export const BARGE_ECHO_RATIO = 0.5
+/** How far back (frames) Marvin's own loudness is remembered for the echo check: 0.5 s, covering the line's delay. */
+const OWN_LEVEL_FRAMES = 25
 
 /**
  * Finds utterances in a stream of 20 ms frames by loudness, against a noise
@@ -181,6 +193,12 @@ export class VoiceLeg implements Leg {
   private unheard: Int16Array[] = []
   /** Not listening until then (ms): the echo of what Marvin just said. */
   private deafUntil = 0
+  /** Barge-in: how loud Marvin has been lately, and the other side's talk over it so far. */
+  private ownLevels: number[] = []
+  private talkingRun = 0
+  private heardWhileTalking: Int16Array[] = []
+  /** Times Marvin stopped talking because the other side talked over it. */
+  interrupted = 0
 
   constructor(deps: VoiceDeps) {
     this.name = deps.name
@@ -193,6 +211,10 @@ export class VoiceLeg implements Leg {
 
   read(): Int16Array | null {
     const frame = this.out.shift() ?? null
+    if (frame) {
+      this.ownLevels.push(rms(frame))
+      if (this.ownLevels.length > OWN_LEVEL_FRAMES) this.ownLevels.shift()
+    }
     if (frame && !this.out.length) this.deafUntil = Date.now() + 250
     if (!this.out.length && this.speakingDone) {
       const done = this.speakingDone
@@ -204,10 +226,16 @@ export class VoiceLeg implements Leg {
   }
 
   write(frame: Int16Array): void {
-    // Half duplex: not while talking, and not for a moment after (the line's delay, the far end's echo).
-    if (this.speaking || Date.now() < this.deafUntil) return
+    // While Marvin talks: only watching for the other side talking over it (barge-in).
+    if (this.speaking) return this.watchForTalkOver(frame)
+    // Not for a moment after talking (the line's delay, the far end's echo).
+    if (Date.now() < this.deafUntil) return
     const pcm = this.ears.push(frame)
-    if (!pcm) return
+    if (pcm) this.deliver(pcm)
+  }
+
+  /** An utterance heard: to whoever is waiting, else kept for the next listen. */
+  private deliver(pcm: Int16Array): void {
     const w = this.waiting
     if (!w) {
       // Nobody is listening yet: keep it (a few utterances at most; the oldest go first).
@@ -217,6 +245,35 @@ export class VoiceLeg implements Leg {
     }
     this.waiting = null
     w(pcm)
+  }
+
+  /** Marvin talking: a loud run of the other side's voice (not its echo) stops Marvin, and that voice is what it hears next. */
+  private watchForTalkOver(frame: Int16Array): void {
+    const level = rms(frame)
+    this.heardWhileTalking.push(frame)
+    if (this.heardWhileTalking.length > BARGE_MS / FRAME_MS + 5) this.heardWhileTalking.shift()
+    const ownLoudest = this.ownLevels.length ? Math.max(...this.ownLevels) : 0
+    const echoCeiling = Math.max(BARGE_MIN_RMS, BARGE_ECHO_RATIO * ownLoudest)
+    this.talkingRun = level > echoCeiling ? this.talkingRun + 1 : 0
+    if (this.talkingRun * FRAME_MS >= BARGE_MS) this.interrupt()
+  }
+
+  /** Stops Marvin mid-sentence: what was playing is dropped, and the talk over it goes to the ears. */
+  private interrupt(): void {
+    this.interrupted++
+    this.out = []
+    const done = this.speakingDone
+    this.speakingDone = null
+    this.ears.reset()
+    for (const f of this.heardWhileTalking) {
+      const pcm = this.ears.push(f)
+      if (pcm) this.deliver(pcm)
+    }
+    this.heardWhileTalking = []
+    this.talkingRun = 0
+    this.ownLevels = []
+    this.deafUntil = Date.now() + 150
+    done?.()
   }
 
   /** Says `text` into the call; resolves when it has been played. */
