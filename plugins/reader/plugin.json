@@ -13,5 +13,5 @@
     "tab_take": { "crud": ["read"], "tab": true }
   },
   "events": {},
-  "tab": { "title": "Read aloud", "page": "ui/index.html" }
+  "tab": { "title": "Read aloud", "page": "ui/index.html", "icon": "🔊" }
 }

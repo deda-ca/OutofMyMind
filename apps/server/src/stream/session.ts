@@ -140,6 +140,13 @@ export class StreamSession {
               agentId: () => options.sessions!.agentId(),
               record: (entry) => options.sessions!.record(entry),
               startNew: () => options.sessions!.startNew(),
+              setAgent: (agent) => {
+                const sessions = options.sessions!
+                const active = sessions.activeId()
+                // The same as picking it on screen: a session with messages gets a note that the agent changed.
+                if (active) sessions.update(active, { agent, agentName: options.agents?.get(agent).name })
+                else sessions.setNewAgent(agent)
+              },
             },
             agents: options.agents,
             skills: options.skills,

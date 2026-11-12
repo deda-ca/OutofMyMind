@@ -17,7 +17,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import addressparser from 'nodemailer/lib/addressparser/index.js'
 import { z } from 'zod'
-import { createPlugin, emit, failure, log, note, pluginDataDir, pluginWorkspaceDir, refreshTab, serve, text } from '../kit/plugin.ts'
+import { createPlugin, emit, failure, log, note, pluginDataDir, pluginWorkspaceDir, refreshTab, serve, tabStatus, text } from '../kit/plugin.ts'
 import { keep, writeMarkdown } from './mail.ts'
 import { Mailbox, type MailSettings } from './mailbox.ts'
 import { type Address, cleanTag, Store, type StoredMessage } from './store.ts'
@@ -94,7 +94,16 @@ async function wake(): Promise<void> {
     store.setState('synced', validity)
     if (saved) await note(plugin, `Saved ${saved} email${saved === 1 ? '' : 's'} from the last ${historyDays} days into email/ (the Email tab shows them). New mail is watched from now on.`).catch(() => {})
   }
-  if (saved) await refreshTab(plugin)
+  if (saved) {
+    await refreshTab(plugin)
+    await showUnread()
+  }
+}
+
+/** The Email tab's pill: how many are unread (none: no pill). */
+async function showUnread(): Promise<void> {
+  const unread = store.stats().unread
+  await tabStatus(plugin, unread ? { badge: unread > 999 ? '999+' : unread, title: `${unread} unread email${unread === 1 ? '' : 's'}` } : null)
 }
 
 function eventPayload(m: StoredMessage) {
@@ -389,6 +398,7 @@ plugin.registerTool(
     if (!m) return failure(`No email "${id}".`)
     store.setSeen(id, read)
     if (m.direction === 'in' && m.uid !== null) await mailbox.setSeen(m.uid, read).catch((err: Error) => log(`email: couldn't mark it on the server: ${err.message}`))
+    await showUnread()
     return json({ ok: true })
   },
 )
@@ -432,3 +442,4 @@ if (configured) {
 }
 process.once('SIGTERM', () => void mailbox.stop())
 await serve(plugin)
+await showUnread()

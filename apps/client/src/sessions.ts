@@ -48,6 +48,8 @@ export interface AgentInfo {
   temperature?: number
   /** Its text-to-speech voice; unset: the default (TTS_VOICE). */
   voice?: string
+  /** Shown with its name (an emoji or a character or two). */
+  icon?: string
   /** The instructions as written in its file (comments kept). */
   body: string
   /** Sessions without their own agent use the default one. */
@@ -164,6 +166,12 @@ export const setAgent = (agent: string) =>
 export function applyAgents(listing: AgentListing): void {
   sessions.agents = listing.agents
   sessions.defaultAgent = listing.defaultAgent
+}
+
+/** An agent's icon ('' or unknown = the default agent's); 🤖 when it has none. */
+export function agentIcon(id: string): string {
+  const resolved = id || sessions.defaultAgent
+  return sessions.agents.find((a) => a.id === resolved)?.icon || '🤖'
 }
 
 export function agentName(id: string): string {

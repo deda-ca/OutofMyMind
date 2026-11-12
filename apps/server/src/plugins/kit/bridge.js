@@ -6,6 +6,7 @@
 //   const data = await jarvis.json('list_messages', { limit: 50 })     // the tool's text, parsed as JSON
 //   jarvis.onRefresh(() => load())                                     // the plugin said something changed
 //   jarvis.ask('Summarise this email: …')                               // asks Jarvis in the conversation
+//   jarvis.setStatus({ icon: '🔊', animate: true, badge: '3' })        // what the tab's button shows (null: clear)
 //   jarvis.onHost((m) => …)                                            // the Jarvis page says something
 //                                                                      // (m.event: 'assistant-speaking', 'assistant-quiet')
 ;(() => {
@@ -44,6 +45,7 @@
     },
     onRefresh: (f) => refreshers.push(f),
     onHost: (f) => hostListeners.push(f),
+    setStatus: (status) => window.parent.postMessage({ jarvis: 'status', status: status ?? null }, '*'),
     ask: (text) => window.parent.postMessage({ jarvis: 'ask', text: String(text).slice(0, 4000) }, '*'),
     open: (url) => window.parent.postMessage({ jarvis: 'open', url: String(url) }, '*'),
   }

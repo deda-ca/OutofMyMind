@@ -9,7 +9,9 @@ Status: moved out of the client into a self-contained plugin on 2026-11-11 ([plu
 - Audio is fetched a couple of sentences ahead and kept, so going back is instant. The word being read is estimated from each sentence's audio length.
 - **Jarvis talking pauses it**, and it carries on when Jarvis is done (the Jarvis page tells every open tab, `jarvis.onHost`).
 - **It keeps reading in the background**: an opened plugin tab stays alive (hidden) while another tab is shown.
-- The voice and speed are remembered by the plugin (`DATA_DIR/plugins/reader/prefs.json`): a sandboxed tab has no browser storage.
+- **One bar**: the title, the player (previous, play/pause, stop, next), "Sentence x of y", the text size (A− / A+, or Ctrl − / Ctrl + / Ctrl 0), the voice, the speed, clear. The text size goes from 0.85× to 2.8×.
+- **The tab's button** shows a gently pulsing 🔊 while reading (on any tab), ⏸ while paused.
+- The voice, speed and text size are remembered by the plugin (`DATA_DIR/plugins/reader/prefs.json`): a sandboxed tab has no browser storage.
 
 ## How it's put together
 

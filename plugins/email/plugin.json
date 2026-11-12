@@ -48,5 +48,5 @@
       "untrusted": false
     }
   },
-  "tab": { "title": "Email", "page": "ui/index.html" }
+  "tab": { "title": "Email", "page": "ui/index.html", "icon": "✉️" }
 }

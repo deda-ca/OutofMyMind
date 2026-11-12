@@ -68,7 +68,7 @@ const EventNotification = z.object({
   method: z.literal('notifications/jarvis/event'),
   params: z.object({ type: z.string(), id: z.string().optional(), at: z.string().optional(), payload: z.unknown(), summary: z.string().optional() }).passthrough(),
 })
-const PLUGIN_REQUESTS = ['jarvis/notify', 'jarvis/note', 'jarvis/tab-push'] as const
+const PLUGIN_REQUESTS = ['jarvis/notify', 'jarvis/note', 'jarvis/tab-push', 'jarvis/tab-status'] as const
 
 /** How long the owner has to say yes to a tool that needs it (the confirmation gate). */
 const CONFIRM_MS = 5 * 60_000

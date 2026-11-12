@@ -70,6 +70,15 @@ export async function refreshTab(server: McpServer): Promise<void> {
   await server.server.request({ method: 'jarvis/tab-push', params: {} }, Empty).catch(() => {})
 }
 
+/**
+ * What the plugin's tab button shows besides its title: an icon (instead of
+ * its own; animate: it pulses gently), a pill (a number or a word or two), a
+ * tooltip. null clears it. E.g. tabStatus(plugin, { badge: unread }).
+ */
+export async function tabStatus(server: McpServer, status: { icon?: string; animate?: boolean; badge?: string | number; title?: string } | null): Promise<void> {
+  await server.server.request({ method: 'jarvis/tab-status', params: status ?? {} }, Empty).catch(() => {})
+}
+
 /** Server events (another plugin's event this one subscribed to, …). */
 export function onServerEvent(server: McpServer, handler: (type: string, payload: Record<string, unknown>) => void): void {
   server.server.setNotificationHandler(

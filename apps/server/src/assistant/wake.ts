@@ -3,6 +3,44 @@
 
 const WAKE = /\bjarvis\b/i
 
+/**
+ * Agents answer to their names too (docs: apps/server/README.md, Agents): "Chef,
+ * how long do I boil an egg?" wakes Jarvis like "Jarvis, …", and says which
+ * agent was meant. Detection works on the text with every agent's name turned
+ * into "Jarvis" (canonical()); what's recorded and sent stays as said.
+ */
+let agentNames: { id: string; name: string; re: RegExp }[] = []
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** The agents whose names wake Jarvis (called with the agent list before each phrase). */
+export function setAgentNames(agents: { id: string; name: string }[]): void {
+  agentNames = agents
+    .map((a) => ({ id: a.id, name: a.name.trim() }))
+    // A name has to be a real word or two to count: not empty, not a single letter.
+    .filter((a) => a.name.replace(/[^\p{L}\p{N}]/gu, '').length >= 2)
+    .sort((a, b) => b.name.length - a.name.length)
+    .map((a) => ({ ...a, re: new RegExp(`(?<![\\p{L}\\p{N}])${escape(a.name)}(?![\\p{L}\\p{N}])`, 'giu') }))
+}
+
+/** The text with every agent's name as "Jarvis", for the wake word and command checks. */
+export function canonical(text: string): string {
+  let t = text
+  for (const a of agentNames) t = t.replace(a.re, 'Jarvis')
+  return t
+}
+
+/** The agent named in the text (the first one said), or null. "Jarvis" is the agent called Jarvis, if there is one. */
+export function addressedAgent(text: string): string | null {
+  let best: { id: string; at: number } | null = null
+  for (const a of agentNames) {
+    a.re.lastIndex = 0
+    const m = a.re.exec(text)
+    if (m && (!best || m.index < best.at)) best = { id: a.id, at: m.index }
+  }
+  return best?.id ?? null
+}
+
 /** Words that, with the wake word, mean "you can go" ("thanks, Jarvis"). */
 const DISMISS_WITH_NAME = [
   /\b(thanks|thank you|cheers)\b[\s,.!]*(jarvis)?[\s,.!]*$/i,

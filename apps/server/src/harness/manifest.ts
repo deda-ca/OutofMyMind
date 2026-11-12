@@ -55,7 +55,8 @@ export interface PluginManifest {
   events: Record<string, ManifestEvent>
   /** Other plugins' event types it's sent (as server events). */
   subscribes: string[]
-  tab?: { title: string; page: string }
+  /** Its tab: the title, the page, and an icon shown before the title (an emoji or a character or two). */
+  tab?: { title: string; page: string; icon?: string }
 }
 
 const NAME = /^[A-Za-z0-9_-]{1,32}$/
@@ -119,7 +120,8 @@ export function loadManifest(dir: string): PluginManifest {
     const t = raw.tab as Record<string, unknown>
     const page = str(t.page, 'tab.page')
     if (path.isAbsolute(page) || page.split(/[\\/]/).includes('..')) fail('tab.page must be a path inside the plugin')
-    tab = { title: str(t.title, 'tab.title').slice(0, 30), page }
+    const icon = typeof t.icon === 'string' ? [...t.icon.trim()].slice(0, 4).join('') : ''
+    tab = { title: str(t.title, 'tab.title').slice(0, 30), page, ...(icon ? { icon } : {}) }
   }
 
   const workspace = str(raw.workspace, 'workspace', true)

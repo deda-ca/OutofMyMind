@@ -162,3 +162,16 @@ test('an agent can have its own voice: read from its file, written back, checked
     fs.rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('agent icons: kept in the file (quoted), read back, and only an emoji or a character or two', async () => {
+  const { validate } = await import('../src/agents/library.ts')
+  const file = toAgentFile(validate({ name: 'Email', description: '', tools: null, icon: '✉️', body: 'Mail.' }))
+  assert.match(file, /^icon: "✉️"$/m)
+  assert.equal(parseAgent('email', file).icon, '✉️')
+  assert.equal(parseAgent('x', '---\nicon: 🍳\n---\n').icon, '🍳')
+  // Not an icon: dropped when read, refused when saved.
+  assert.equal(parseAgent('x', '---\nicon: "<b>bold</b>"\n---\n').icon, undefined)
+  assert.equal(parseAgent('x', '---\nicon: a whole sentence here\n---\n').icon, undefined)
+  assert.throws(() => validate({ name: 'X', description: '', tools: null, icon: 'two words', body: '' }), /icon is an emoji/)
+  assert.equal(validate({ name: 'X', description: '', tools: null, icon: '  ', body: '' }).icon, undefined)
+})

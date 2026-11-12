@@ -27,6 +27,9 @@ let segments = []
 let words = []
 const AHEAD = 2
 const RATES = [0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75]
+/** Text sizes, as a multiple of the normal one. */
+const ZOOMS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2, 2.4, 2.8]
+let zoom = 1
 
 function showError(text) {
   $('error').textContent = text || ''
@@ -270,6 +273,8 @@ function setStatus(s) {
   state.status = s
   controls()
   highlight()
+  // The tab's button: a gently pulsing speaker while reading, a pause sign while paused.
+  jarvis.setStatus(s === 'playing' || s === 'loading' ? { icon: '🔊', animate: true, title: 'Reading aloud' } : s === 'paused' ? { icon: '⏸', title: 'Paused' } : null)
 }
 
 async function play(from = { s: state.s, w: state.w }) {
@@ -399,7 +404,30 @@ $('clear').addEventListener('click', () => {
   page.focus()
 })
 
-const remember = () => void jarvis.call('tab_prefs', { voice: state.voice || undefined, rate: state.rate })
+const remember = () => void jarvis.call('tab_prefs', { voice: state.voice || undefined, rate: state.rate, zoom })
+
+/** The text size: steps up or down (A− / A+, Ctrl − / Ctrl +), remembered. */
+function setZoom(next, save = true) {
+  zoom = ZOOMS.reduce((a, b) => (Math.abs(b - next) < Math.abs(a - next) ? b : a))
+  page.style.setProperty('--zoom', String(zoom))
+  $('smaller').disabled = zoom <= ZOOMS[0]
+  $('bigger').disabled = zoom >= ZOOMS.at(-1)
+  // Keep the sentence being read in view after the text reflows.
+  const word = page.querySelector('.rw-now, .rw-start')
+  if (word) word.scrollIntoView({ block: 'center' })
+  if (save) remember()
+}
+const zoomStep = (d) => setZoom(ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + d))])
+$('smaller').addEventListener('click', () => zoomStep(-1))
+$('bigger').addEventListener('click', () => zoomStep(1))
+document.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return
+  if (e.key === '+' || e.key === '=') zoomStep(1)
+  else if (e.key === '-' || e.key === '_') zoomStep(-1)
+  else if (e.key === '0') setZoom(1)
+  else return
+  e.preventDefault()
+})
 $('voice').addEventListener('change', (e) => {
   state.voice = e.target.value
   remember()
@@ -417,6 +445,7 @@ async function loadVoices() {
   state.jarvisVoice = v.jarvis
   state.voice = v.voice && v.voices.includes(v.voice) ? v.voice : (v.voices.find((x) => x !== v.jarvis) ?? v.voices[0] ?? '')
   state.rate = RATES.includes(v.rate) ? v.rate : 1
+  setZoom(typeof v.zoom === 'number' ? v.zoom : 1, false)
   $('voice').replaceChildren(...v.voices.map((x) => new Option(`${x}${x === v.jarvis ? ' (Jarvis)' : ''}`, x, false, x === state.voice)))
   $('rate').replaceChildren(...RATES.map((r) => new Option(`${r}×`, String(r), false, r === state.rate)))
   $('only-jarvis').hidden = !(v.voices.length > 0 && v.voices.every((x) => x === v.jarvis))

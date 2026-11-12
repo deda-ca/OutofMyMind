@@ -1,20 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
-import { agentName, deleteSession, loadAgents, newSession, openSession, pinSession, renameSession, sessionLabel, sessions, setAgent, shownAgent, type SessionSummary } from '../sessions'
+import { nextTick, ref } from 'vue'
+import { agentIcon, agentName, deleteSession, newSession, openSession, pinSession, renameSession, sessionLabel, sessions, type SessionSummary } from '../sessions'
 
-// The session list in the Live sidebar: open, rename, pin, delete, new, and
-// which agent the session on screen talks with. It fills the sidebar's height;
+// The session list in the Live sidebar: open, rename, pin, delete, new; each
+// with its agent (picked in the chat: AgentPicker.vue). It fills the sidebar's height;
 // the list scrolls inside it.
 
 const emit = defineEmits<{ close: [] }>()
-
-/** '' = the default agent (follows whichever agent is the default). */
-const agentId = computed(() => shownAgent())
-const agentInfo = computed(() => sessions.agents.find((a) => a.id === (agentId.value || sessions.defaultAgent)))
-
-function chooseAgent(event: Event): void {
-  void run(() => setAgent((event.target as HTMLSelectElement).value))
-}
 
 const renaming = ref<string | null>(null)
 const draft = ref('')
@@ -69,26 +61,6 @@ function when(iso: string): string {
       </div>
     </div>
 
-    <div class="card-body py-3 vstack gap-1 border-bottom">
-      <label for="session-agent" class="form-label m-0 text-sm fw-semibold">Agent</label>
-      <select
-        id="session-agent"
-        class="form-control form-control-sm"
-        :value="agentId"
-        :disabled="busy"
-        title="Who Jarvis is in this session: its instructions and tools (WORKSPACE_DIR/agents)"
-        @focus="loadAgents"
-        @change="chooseAgent"
-      >
-        <option value="">Default ({{ agentName('') }})</option>
-        <option v-for="a in sessions.agents" :key="a.id" :value="a.id">{{ a.name }}</option>
-        <option v-if="agentId && !sessions.agents.some((a) => a.id === agentId)" :value="agentId">{{ agentId }} (deleted: uses the default)</option>
-      </select>
-      <span v-if="agentInfo" class="text-sm fg-3">
-        {{ agentInfo.description || 'No description.' }}
-        <template v-if="agentInfo.tools !== null"> · {{ agentInfo.tools.length ? `tools: ${agentInfo.tools.join(', ')}` : 'no tools' }}</template>
-      </span>
-    </div>
 
     <div v-if="sessions.error" class="card-body py-2 text-sm fg-danger">{{ sessions.error }}</div>
 
@@ -124,9 +96,12 @@ function when(iso: string): string {
             :disabled="busy"
             @click="s.id !== sessions.shownId && run(() => openSession(s.id))"
           >
-            <span class="d-block text-truncate" :class="{ 'fst-italic': !s.title }">{{ sessionLabel(s) }}</span>
+            <span class="d-flex align-items-center gap-2">
+              <span class="session-agent" :title="`Agent: ${agentName(s.agent)}${s.agent && !sessions.agents.some((a) => a.id === s.agent) ? ' (deleted: uses the default)' : ''}`" aria-hidden="true">{{ agentIcon(s.agent) }}</span>
+              <span class="text-truncate" :class="{ 'fst-italic': !s.title }">{{ sessionLabel(s) }}</span>
+            </span>
             <span class="d-block text-sm fg-3">
-              {{ when(s.updated) }} · {{ s.messages }} message{{ s.messages === 1 ? '' : 's' }}<template v-if="s.agent"> · {{ agentName(s.agent) }}</template>
+              {{ when(s.updated) }} · {{ s.messages }} message{{ s.messages === 1 ? '' : 's' }} · {{ agentName(s.agent) }}<template v-if="s.agent && !sessions.agents.some((a) => a.id === s.agent)"> (deleted)</template>
             </span>
           </button>
           <div v-if="renaming !== s.id" class="d-flex gap-1 session-actions">
@@ -205,5 +180,10 @@ function when(iso: string): string {
 .session:focus-within .session-actions,
 .session-actions .pinned {
   opacity: 1;
+}
+.session-agent {
+  flex: none;
+  width: 1.4em;
+  text-align: center;
 }
 </style>

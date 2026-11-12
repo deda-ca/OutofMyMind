@@ -17,7 +17,8 @@ import AgentsPanel from './components/AgentsPanel.vue'
 import ServicesPanel from './components/ServicesPanel.vue'
 import PhonePanel from './components/PhonePanel.vue'
 import PluginTab from './components/PluginTab.vue'
-import { plugins, tabRequest, tellTabs } from './plugins'
+import AgentPicker from './components/AgentPicker.vue'
+import { plugins, statusOf, tabRequest, tellTabs } from './plugins'
 import { servicesNeedingOwner } from './services'
 import ContextMeter from './components/ContextMeter.vue'
 import DebugPanel from './components/DebugPanel.vue'
@@ -40,7 +41,7 @@ import VoicePanel from './components/VoicePanel.vue'
 import { loadContext, onContext } from './context'
 import { debugEnabled, onDebugMessage } from './debug'
 import { monitorEnabled } from './monitor'
-import { loadSessions, sessions, sessionsChanged, type SessionEntry } from './sessions'
+import { agentIcon, agentName, loadSessions, sessions, sessionsChanged, shownAgent, type SessionEntry } from './sessions'
 import { settings } from './settings'
 import type { ToolCallInfo } from './toolCalls'
 import { addFiles, type FileRef } from './uploads'
@@ -515,9 +516,13 @@ function replayReply(key: string, text: string, liveReplyId?: number): void {
 }
 
 /** Saved messages of the session on screen, as transcript lines. */
+/** Who answers in the session on screen: its agent, with its icon. */
+const replyLabel = computed(() => `${agentIcon(shownAgent())} ${agentName(shownAgent())}`)
+
 function entryBadge(entry: SessionEntry): { label: string; theme: string } {
   if (entry.kind === 'owner') return { label: 'You', theme: 'theme-primary' }
-  if (entry.kind === 'jarvis') return { label: 'Jarvis', theme: 'theme-info' }
+  // Replies are labelled with the session's agent (switching the agent switches who's answering).
+  if (entry.kind === 'jarvis') return { label: replyLabel.value, theme: 'theme-info' }
   if (entry.kind === 'context') return { label: entry.who, theme: 'theme-secondary' }
   if (entry.kind === 'note') return { label: 'Note', theme: 'theme-warning badge-subtle' }
   if (entry.kind === 'files') return { label: 'You', theme: 'theme-primary' }
@@ -601,8 +606,7 @@ watch(
     if (tabRequest.tab) tab.value = tabRequest.tab as Tab
   },
 )
-/** The Read aloud tab (the reader plugin), if it's there: the 🔊 button opens it. */
-const readerTab = computed(() => plugins.list.some((p) => p.name === 'reader' && p.tab))
+
 
 /** "/?view=todo.md": a tab with just that document (the viewer's ↗ button). */
 const standaloneView = new URLSearchParams(location.search).get('view')
@@ -696,7 +700,7 @@ onBeforeUnmount(() => {
               Jarvis stopped
             </span>
             <span v-if="assistant.state === 'conversation'" class="badge theme-info">
-              Talking with Jarvis{{ assistant.followUpEndsAt ? ` · follow-ups ${followUpSeconds} s` : '' }}
+              Talking with {{ agentName(shownAgent()) }}{{ assistant.followUpEndsAt ? ` · follow-ups ${followUpSeconds} s` : '' }}
             </span>
             <span v-else class="text-sm fg-3">Say “Jarvis” to talk to it</span>
             <button
@@ -788,8 +792,10 @@ onBeforeUnmount(() => {
             </button>
           </li>
           <li v-for="p in plugins.list.filter((x) => x.tab)" :key="p.name" class="nav-item">
-            <button type="button" class="nav-link" :class="{ active: tab === `plugin:${p.name}` }" :title="p.description" @click="tab = `plugin:${p.name}`">
-              {{ p.tab!.title }}<span v-if="!p.connected" class="badge theme-warning badge-subtle ms-2" title="The plugin isn't running">off</span>
+            <button type="button" class="nav-link" :class="{ active: tab === `plugin:${p.name}` }" :title="statusOf(p.name)?.title || p.description" @click="tab = `plugin:${p.name}`">
+              <span v-if="statusOf(p.name)?.icon || p.tab!.icon" class="tab-icon" :class="{ 'tab-icon-live': statusOf(p.name)?.animate }" aria-hidden="true">{{ statusOf(p.name)?.icon || p.tab!.icon }}</span
+              >{{ p.tab!.title }}<span v-if="statusOf(p.name)?.badge" class="badge theme-info badge-subtle ms-2">{{ statusOf(p.name)!.badge }}</span
+              ><span v-if="!p.connected" class="badge theme-warning badge-subtle ms-2" title="The plugin isn't running">off</span>
             </button>
           </li>
           <li v-if="phone.enabled" class="nav-item">
@@ -871,6 +877,8 @@ onBeforeUnmount(() => {
           >
             ■&#xFE0E; Stop talking
           </button>
+          <!-- Who you're talking to (the session's agent); a model picker can join it here later. -->
+          <AgentPicker class="ms-auto" />
         </div>
 
         <div v-if="error" class="alert theme-danger m-0 live-fixed" role="alert">{{ error }}</div>
@@ -917,7 +925,7 @@ onBeforeUnmount(() => {
                 <div v-if="stamps.get(phrase.id)" class="chat-stamp">{{ stamps.get(phrase.id) }}</div>
                 <div class="d-flex gap-3 align-items-baseline">
                   <template v-if="phrase.jarvis">
-                    <span class="text-nowrap"><span class="badge theme-info">Jarvis</span></span>
+                    <span class="text-nowrap"><span class="badge theme-info">{{ replyLabel }}</span></span>
                     <span class="vstack gap-1">
                       <template v-for="(a, i) in phrase.activity ?? []" :key="i">
                         <ToolCallLine v-if="a.call" :label="a.label" :call="a.call" />
@@ -999,16 +1007,6 @@ onBeforeUnmount(() => {
           </div>
           <div class="d-flex gap-3 align-items-end">
             <input ref="filePicker" type="file" multiple class="d-none" @change="onPick" />
-            <button
-              type="button"
-              class="btn-outline theme-secondary attach-button"
-              title="Read aloud: paste text and hear it, with the words highlighted"
-              aria-label="Read aloud"
-              :disabled="!readerTab"
-              @click="tab = 'plugin:reader'"
-            >
-              🔊
-            </button>
             <button
               type="button"
               class="btn-outline theme-secondary attach-button"
@@ -1147,6 +1145,30 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* A plugin tab's icon, before its title; pulsing gently while something is happening (reading aloud). */
+.tab-icon {
+  display: inline-block;
+  margin-right: 0.35rem;
+}
+.tab-icon-live {
+  animation: tab-pulse 1.8s ease-in-out infinite;
+}
+@keyframes tab-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-icon-live {
+    animation: none;
+  }
+}
 /* The timestamp before a group of messages, centred, as in a texting app. */
 .chat-stamp {
   display: block;

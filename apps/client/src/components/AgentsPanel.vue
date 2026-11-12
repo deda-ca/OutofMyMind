@@ -34,6 +34,8 @@ const form = reactive({
   temperature: '' as string | number,
   /** '' = the default voice. */
   voice: '',
+  /** '' = none (shown as 🤖). */
+  icon: '',
   toolsMode: 'all' as 'all' | 'none' | 'some',
   picked: new Set<string>(),
   patterns: '',
@@ -93,7 +95,7 @@ function slug(name: string): string {
 }
 
 function startCreate(): void {
-  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', voice: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
+  Object.assign(form, { name: '', id: '', idTouched: false, description: '', temperature: '', voice: '', icon: '', toolsMode: 'all', picked: new Set(), patterns: '', body: '' })
   editing.value = { id: null }
 }
 
@@ -107,6 +109,7 @@ function startEdit(agent: AgentInfo): void {
     description: agent.description,
     temperature: agent.temperature === undefined ? '' : String(agent.temperature),
     voice: agent.voice ?? '',
+    icon: agent.icon ?? '',
     toolsMode: agent.tools === null ? 'all' : agent.tools.length === 0 ? 'none' : 'some',
     // Exact tool names become ticks; wildcards and tools of plugins that aren't running stay as patterns.
     picked: new Set(tools.filter((t) => known.has(t))),
@@ -153,7 +156,7 @@ async function save(): Promise<void> {
     return
   }
   const temperature = String(form.temperature).trim() === '' ? null : Number(form.temperature)
-  const body = { name: form.name, description: form.description, tools, temperature, voice: form.voice, body: form.body }
+  const body = { name: form.name, description: form.description, tools, temperature, voice: form.voice, icon: form.icon.trim(), body: form.body }
   const id = editing.value?.id
   const ok = await act(async () => {
     applyAgents(id ? await api<AgentListing>(`/api/agents/${encodeURIComponent(id)}`, json('PUT', body)) : await api<AgentListing>('/api/agents', json('POST', { ...body, id: form.id || undefined })))
@@ -169,6 +172,9 @@ async function remove(agent: AgentInfo): Promise<void> {
   if (!confirm(`Delete the agent “${agent.name}”? Its file (agents/${agent.id}.md) is removed. Sessions that used it switch to the default agent.`)) return
   await act(async () => applyAgents(await api<AgentListing>(`/api/agents/${encodeURIComponent(agent.id)}`, { method: 'DELETE' })), `Deleted “${agent.name}”.`)
 }
+
+/** Quick picks for an agent's icon. */
+const ICONS = ['🤖', '🧠', '✉️', '📅', '💼', '🏠', '🍳', '🎓', '🧾', '💪', '🎵', '🛠️', '🌿', '❤️']
 
 /** The voice options: audio.cpp's, plus the agent's own if audio.cpp doesn't have it (so it isn't lost on save). */
 const voiceOptions = computed(() => (form.voice && !voices.value.includes(form.voice) ? [...voices.value, form.voice] : voices.value))
@@ -208,7 +214,7 @@ onMounted(load)
     <div class="d-flex align-items-center gap-3 flex-wrap">
       <span class="text-sm fg-3">
         An agent is who Jarvis is in a session: its instructions (added to SYSTEM.md in every request), which tools it
-        may use, and optionally its own temperature. Sessions without their own agent use the default one.
+        may use, and optionally its own temperature, voice and icon. Sessions without their own agent use the default one.
         Agents are files in the workspace's <code>agents/</code> folder.
       </span>
       <button type="button" class="btn-solid theme-primary btn-sm ms-auto" :disabled="busy || editing !== null" @click="startCreate">+ New agent</button>
@@ -267,6 +273,22 @@ onMounted(load)
             </div>
             <span class="form-text m-0">What it speaks in. Voices are the ones audio.cpp has; leave on Default for TTS_VOICE.</span>
           </div>
+          <div class="col-12 vstack gap-1">
+            <label for="agent-icon" class="form-label m-0 fw-semibold">Icon</label>
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              <input id="agent-icon" v-model="form.icon" class="form-control icon-input" maxlength="8" placeholder="🤖" aria-describedby="agent-icon-help" />
+              <button
+                v-for="i in ICONS"
+                :key="i"
+                type="button"
+                class="btn-text icon-pick"
+                :class="{ picked: form.icon === i }"
+                :aria-label="`Use ${i}`"
+                @click="form.icon = i"
+              >{{ i }}</button>
+            </div>
+            <span id="agent-icon-help" class="form-text m-0">Shown with its name in the sessions list and on its replies. An emoji, or type one of your own.</span>
+          </div>
         </div>
 
         <fieldset class="vstack gap-2">
@@ -323,7 +345,7 @@ onMounted(load)
     <div v-for="agent in sessions.agents" :key="agent.id" class="card">
       <div class="card-body vstack gap-2">
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          <span class="fw-semibold">{{ agent.name }}</span>
+          <span class="fw-semibold"><span class="me-1" aria-hidden="true">{{ agent.icon || '🤖' }}</span>{{ agent.name }}</span>
           <span v-if="agent.isDefault" class="badge theme-primary">Default</span>
           <code class="text-sm fg-3">agents/{{ agent.id }}.md</code>
           <span class="d-flex gap-2 ms-auto">
@@ -372,5 +394,18 @@ onMounted(load)
   padding: 0.5rem 0.75rem;
   border-radius: 0.375rem;
   background: var(--bs-tertiary-bg, rgba(127, 127, 127, 0.1));
+}
+.icon-input {
+  width: 5rem;
+  text-align: center;
+  font-size: 1.2rem;
+}
+.icon-pick {
+  font-size: 1.2rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.375rem;
+}
+.icon-pick.picked {
+  outline: 2px solid var(--bs-primary, #0d6efd);
 }
 </style>

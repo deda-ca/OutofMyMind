@@ -1,15 +1,16 @@
 html, body { height: 100%; }
 body { display: flex; flex-direction: column; }
-.bar { display: flex; gap: 8px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.bar { display: flex; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 16rem; }
+.group { display: inline-flex; gap: 4px; }
+.position { font-size: 13px; white-space: nowrap; }
 .grow { flex: 1; }
-#voice { max-width: 12rem; }
-.controls { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.controls .push { margin-left: auto; font-size: 13px; }
+#voice { max-width: 11rem; }
 .play { min-width: 6.5rem; }
 #error { padding: 6px 14px; }
 .note { padding: 6px 14px; font-size: 13px; }
 .page { flex: 1; overflow: auto; overscroll-behavior: contain; padding: 16px 20px; min-height: 0; }
-.read-text { line-height: 1.75; font-size: 1.05rem; max-width: 48rem; min-height: 100%; outline: none; cursor: text; }
+.read-text { line-height: 1.75; font-size: calc(1.05rem * var(--zoom, 1)); max-width: 48rem; min-height: 100%; outline: none; cursor: text; }
 .read-text.empty::before { content: attr(data-placeholder); color: var(--fg-3); pointer-events: none; }
 .read-text .rw { border-radius: 0.2rem; }
 /* The sentence: lightly marked where reading will start, clearly while reading. */

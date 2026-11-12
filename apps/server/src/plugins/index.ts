@@ -9,7 +9,9 @@
 //     plugin that subscribed to that event type is told; (3) the plugin's tab
 //     is told to refresh.
 //   - requests: jarvis/notify (a notification on screen), jarvis/note (a note
-//     in the active conversation), jarvis/tab-push (its tab should refresh).
+//     in the active conversation), jarvis/tab-push (its tab should refresh),
+//     jarvis/tab-status (what its tab button shows: an icon, maybe pulsing,
+//     and a pill, e.g. the number of unread emails).
 //
 // The confirmation gate (the owner's yes for tools marked "confirm") is in the
 // harness (harness/mcp.ts); its "yes" comes from here (when the owner last spoke).
@@ -44,6 +46,39 @@ export interface PlatformDeps {
 const MAX_EVENT_CHARS = 24_000
 
 let triggers: Triggers | null = null
+
+/** What a plugin's tab button shows besides its title (set by the plugin; the tab page can set it too, client-side). */
+export interface TabStatus {
+  /** Shown instead of the tab's own icon (an emoji or a character or two). */
+  icon?: string
+  /** The icon pulses gently (something is happening: reading aloud). */
+  animate?: boolean
+  /** A pill after the title: a number or a word or two (unread emails). */
+  badge?: string
+  /** Said on hover. */
+  title?: string
+}
+
+const tabStatus = new Map<string, TabStatus>()
+
+/** The status a plugin last set for its tab, if any. */
+export function tabStatusOf(plugin: string): TabStatus | null {
+  return tabStatus.get(plugin) ?? null
+}
+
+/** A status from a plugin, made safe (short, plain); null to clear it. */
+export function cleanStatus(p: Record<string, unknown>): TabStatus | null {
+  const short = (v: unknown, n: number) => (typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' ? [...v.trim()].slice(0, n).join('') : '')
+  const s: TabStatus = {}
+  const icon = short(p.icon, 4)
+  const badge = short(p.badge, 12)
+  const title = short(p.title, 120)
+  if (icon) s.icon = icon
+  if (p.animate === true) s.animate = true
+  if (badge && badge !== '0') s.badge = badge
+  if (title) s.title = title
+  return s.icon || s.badge || s.animate ? s : null
+}
 let eventLog: EventLog | null = null
 
 function manifestOf(plugin: string): PluginManifest | undefined {
@@ -99,6 +134,13 @@ export function startPlatform(deps: PlatformDeps): void {
       if (method === 'jarvis/note') {
         const text = String(params.text ?? '').trim().slice(0, 2000)
         if (text) deps.sessions.record({ kind: 'note', at: new Date().toISOString(), text: `(${titleOf(m)} plugin) ${text}` })
+        return {}
+      }
+      if (method === 'jarvis/tab-status') {
+        const status = cleanStatus(params)
+        if (status) tabStatus.set(plugin, status)
+        else tabStatus.delete(plugin)
+        notifier.broadcast({ type: 'plugin-status', name: plugin, status })
         return {}
       }
       if (method === 'jarvis/tab-push') {

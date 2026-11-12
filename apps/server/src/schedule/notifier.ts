@@ -47,6 +47,8 @@ export type NotifierEvent =
   | { type: 'phone' }
   /** A plugin's tab should refresh (it sent an event, or asked). */
   | { type: 'plugin'; name: string }
+  /** What a plugin's tab button shows (null: just its title and icon). */
+  | { type: 'plugin-status'; name: string; status: { icon?: string; animate?: boolean; badge?: string; title?: string } | null }
 
 interface Screen {
   id: number

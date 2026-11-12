@@ -44,3 +44,26 @@ test('not dismissals', () => {
     assert.ok(!isDismissal(t, true), t)
   }
 })
+
+test("agents' names wake Jarvis too, and say which agent was meant", async () => {
+  const { addressedAgent, canonical, setAgentNames } = await import('../src/assistant/wake.ts')
+  setAgentNames([
+    { id: 'jarvis', name: 'Jarvis' },
+    { id: 'chef', name: 'Chef' },
+    { id: 'email-helper', name: 'Email Helper' },
+    { id: 'x', name: 'X' }, // too short to be a wake word
+  ])
+  assert.equal(canonical('Chef, how long do I boil an egg?'), 'Jarvis, how long do I boil an egg?')
+  assert.equal(hasWakeWord(canonical('ok chef what is for dinner')), true)
+  assert.equal(addressedAgent('Chef, how long do I boil an egg?'), 'chef')
+  assert.equal(addressedAgent('email helper, any news?'), 'email-helper')
+  assert.equal(addressedAgent('Jarvis, the weather?'), 'jarvis')
+  // The first name said is the one meant; a name inside another word isn't a name.
+  assert.equal(addressedAgent('Chef, ask Jarvis later'), 'chef')
+  assert.equal(addressedAgent('the chefs were great'), null)
+  assert.equal(addressedAgent('x marks the spot'), null)
+  assert.equal(isWakeOnly(canonical('Hey Chef')), true)
+  assert.equal(isDismissal(canonical('thanks, Chef'), false), true)
+  assert.equal(withoutWakeWord(canonical('Chef, what can I make with eggs?')), 'what can I make with eggs?')
+  setAgentNames([])
+})

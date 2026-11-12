@@ -29,5 +29,5 @@
     "contact.deleted": { "description": "A contact was deleted.", "untrusted": false }
   },
   "subscribes": ["email.address-seen"],
-  "tab": { "title": "Contacts", "page": "ui/index.html" }
+  "tab": { "title": "Contacts", "page": "ui/index.html", "icon": "👤" }
 }

@@ -60,7 +60,7 @@ plugin.registerTool('tab_voices', { description: 'Read aloud tab: the voices, Ja
       // keep what we had
     }
   }
-  let prefs: { voice?: string; rate?: number } = {}
+  let prefs: { voice?: string; rate?: number; zoom?: number } = {}
   try {
     prefs = JSON.parse(fs.readFileSync(prefsFile, 'utf8')) as typeof prefs
   } catch {
@@ -71,7 +71,7 @@ plugin.registerTool('tab_voices', { description: 'Read aloud tab: the voices, Ja
 
 plugin.registerTool(
   'tab_prefs',
-  { description: 'Read aloud tab: remember the voice and speed.', inputSchema: { voice: z.string().max(80).optional(), rate: z.number().min(0.5).max(2).optional() } },
+  { description: 'Read aloud tab: remember the voice, speed and text size.', inputSchema: { voice: z.string().max(80).optional(), rate: z.number().min(0.5).max(2).optional(), zoom: z.number().min(0.5).max(4).optional() } },
   async (p) => {
     fs.writeFileSync(prefsFile, JSON.stringify(p))
     return json({ ok: true })

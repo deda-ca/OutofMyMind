@@ -25,5 +25,5 @@
     "calendar.added": { "description": "Jarvis or the owner added an event.", "untrusted": false },
     "calendar.removed": { "description": "An event was deleted.", "untrusted": false }
   },
-  "tab": { "title": "Calendar", "page": "ui/index.html" }
+  "tab": { "title": "Calendar", "page": "ui/index.html", "icon": "📅" }
 }

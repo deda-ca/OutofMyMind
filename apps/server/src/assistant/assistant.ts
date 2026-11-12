@@ -30,7 +30,7 @@ import { Room, type RoomLine } from './room.ts'
 import { LlmError, chatTarget, streamChat, type AgentEvent, type ChatMessage, type ChatTarget, type ToolCallDetail } from './llm.ts'
 import { ProgressSpeaker } from './progress.ts'
 import { SentenceSplitter, forSpeech, synthesize, ttsVoices } from './speech.ts'
-import { hasWakeWord, isDismissal, isWakeOnly } from './wake.ts'
+import { addressedAgent, canonical, hasWakeWord, isDismissal, isWakeOnly, setAgentNames } from './wake.ts'
 
 /** After a request, how long a phrase scored as "someone else" is still taken as maybe the owner (it doesn't end the conversation). */
 const OWNER_STILL_TALKING_MS = 30_000
@@ -109,6 +109,8 @@ export interface SessionLink {
   record(entry: SessionEntry): void
   /** "Jarvis, new session". */
   startNew(): void
+  /** The session's agent changes ('' = the default), as if picked on screen ("Chef, …"). */
+  setAgent?(agent: string): void
 }
 
 function memorySession(): SessionLink {
@@ -201,19 +203,23 @@ export class Assistant {
       this.extendFollowUp()
       return
     }
-    const control = detectControl(text)
-    const listenMode = detectListenMode(text)
-    if (detectNewSession(text)) {
+    // Agents' names count like "Jarvis" for every check below; the text itself stays as typed.
+    setAgentNames(this.agents.list())
+    const heard = canonical(text)
+    const control = detectControl(heard)
+    const listenMode = detectListenMode(heard)
+    if (detectNewSession(heard)) {
       this.newSession(phrase)
     } else if (listenMode) {
       this.setListenMode(phrase, listenMode)
     } else if (control && this.lastAnswerId > 0) {
       this.control(control)
       this.o.saveReply(phrase.archiveId, 'control', control, 0, null)
-    } else if (isDismissal(text, true)) {
+    } else if (isDismissal(heard, true)) {
       this.dismiss(phrase)
       return
-    } else if (isWakeOnly(text)) {
+    } else if (isWakeOnly(heard)) {
+      this.switchToAddressed(text)
       this.say(phrase, 'wake', 'Yes?')
     } else {
       this.request(phrase, text)
@@ -247,6 +253,9 @@ export class Assistant {
 
   /** Returns whether Jarvis reacted (answered, acknowledged, or obeyed a control). */
   private respond(phrase: AssistantPhrase, text: string): boolean {
+    // Agents' names count like "Jarvis" for every check below; the text itself stays as said.
+    setAgentNames(this.agents.list())
+    const heard = canonical(text)
     const authorised = !this.o.ownerTrained() || phrase.speaker?.isOwner === true
     const who = phrase.speaker?.isOwner ? 'Owner' : (phrase.speaker?.name ?? 'Someone')
 
@@ -256,8 +265,8 @@ export class Assistant {
     // "Jarvis, new session": the owner only, when talking to Jarvis.
     // Commands count only when addressed to Jarvis: with its name, or in a conversation (unless "wake word only").
     const pushed = phrase.addressed === true
-    const addressed = pushed || hasWakeWord(text) || (this.state === 'conversation' && !this.wakeWordOnly)
-    if (authorised && detectNewSession(text) && addressed) {
+    const addressed = pushed || hasWakeWord(heard) || (this.state === 'conversation' && !this.wakeWordOnly)
+    if (authorised && detectNewSession(heard) && addressed) {
       this.state = 'conversation'
       this.newSession(phrase)
       this.extendFollowUp()
@@ -265,7 +274,7 @@ export class Assistant {
     }
 
     // "Jarvis, only when I say your name" / "Jarvis, normal mode".
-    const listenMode = authorised ? detectListenMode(text) : null
+    const listenMode = authorised ? detectListenMode(heard) : null
     if (listenMode && addressed) {
       this.state = 'conversation'
       this.setListenMode(phrase, listenMode)
@@ -273,9 +282,9 @@ export class Assistant {
       return true
     }
 
-    const control = detectControl(text)
+    const control = detectControl(heard)
     const clearlySomeoneElse = this.o.ownerTrained() && phrase.speaker?.isOwner === false && phrase.speaker.confidence === 'high'
-    const listening = this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused' || hasWakeWord(text) || pushed
+    const listening = this.state === 'conversation' || this.playback === 'playing' || this.playback === 'paused' || hasWakeWord(heard) || pushed
     if (control && listening && !clearlySomeoneElse && this.lastAnswerId > 0) {
       this.control(control)
       this.o.saveReply(phrase.archiveId, 'control', control, 0, null)
@@ -293,22 +302,25 @@ export class Assistant {
         if (clearlySomeoneElse && Date.now() - this.lastRequestAt > OWNER_STILL_TALKING_MS) this.goIdle()
         return false
       }
-      if (isDismissal(text, true)) {
+      if (isDismissal(heard, true)) {
         this.dismiss(phrase)
         return true
       }
       // "Wake word only": the owner may be talking to someone else; only "Jarvis, …" is for Jarvis.
-      if (this.wakeWordOnly && !hasWakeWord(text) && !pushed) return false
+      if (this.wakeWordOnly && !hasWakeWord(heard) && !pushed) return false
       this.extendFollowUp()
       this.request(phrase, text)
       return true
     }
 
     // Idle.
-    if (!authorised || !(pushed || hasWakeWord(text)) || isDismissal(text, false)) return false
+    if (!authorised || !(pushed || hasWakeWord(heard)) || isDismissal(heard, false)) return false
     this.state = 'conversation'
     this.extendFollowUp()
-    if (isWakeOnly(text)) this.say(phrase, 'wake', 'Yes?')
+    if (isWakeOnly(heard)) {
+      this.switchToAddressed(text)
+      this.say(phrase, 'wake', 'Yes?')
+    }
     else this.request(phrase, text)
     return true
   }
@@ -332,7 +344,9 @@ export class Assistant {
    */
   private alarmCommand(phrase: AssistantPhrase, text: string): boolean {
     if (notifier.ringing().length === 0) return false
-    const command = detectAlarmCommand(text)
+    // "Chef, stop" stops it too.
+    setAgentNames(this.agents.list())
+    const command = detectAlarmCommand(canonical(text))
     if (!command) return false
     const done = notifier.ack(null, command.action, command.minutes)
     if (!done.length) return false
@@ -340,7 +354,22 @@ export class Assistant {
     return true
   }
 
+  /**
+   * "Chef, …": an agent called by name that isn't the session's one takes the
+   * session over (as if picked on screen), so it's the one that answers, in
+   * its voice. Its name alone, or another word, changes nothing.
+   */
+  private switchToAddressed(text: string): void {
+    const named = addressedAgent(text)
+    if (!named || !this.session.setAgent) return
+    const current = this.session.agentId() || this.agents.defaultId()
+    if (named === current) return
+    // The default agent, named: the session goes back to "default" rather than pinning it.
+    this.session.setAgent(named === this.agents.defaultId() ? '' : named)
+  }
+
   private request(phrase: AssistantPhrase, text: string): void {
+    this.switchToAddressed(text)
     notifier.heard()
     this.lastRequestAt = Date.now()
     // The owner carried on before Jarvis said anything: one request, said in pieces.

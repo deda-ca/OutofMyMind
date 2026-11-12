@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { callPluginTool, plugins } from '../plugins'
+import { callPluginTool, cleanStatus, plugins } from '../plugins'
 
 // A plugin's own tab (docs/plugins.md): its page, in a sandboxed frame that
 // can't reach the owner's session or the API. It asks this component over
@@ -19,6 +19,9 @@ async function onMessage(e: MessageEvent): Promise<void> {
   const m = e.data as { jarvis?: string; id?: number; tool?: unknown; args?: unknown; text?: unknown; url?: unknown }
   if (m.jarvis === 'call' && typeof m.tool === 'string') {
     post({ jarvis: 'result', id: m.id, result: await callPluginTool(props.name, m.tool, m.args) })
+  } else if (m.jarvis === 'status') {
+    // What its tab button shows (reading aloud: a pulsing speaker).
+    plugins.pageStatus[props.name] = cleanStatus((m as { status?: unknown }).status)
   } else if (m.jarvis === 'ask' && typeof m.text === 'string') {
     emit('ask', m.text)
   } else if (m.jarvis === 'open' && typeof m.url === 'string' && m.url.startsWith('/api/workspace-file?')) {

@@ -14,6 +14,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { harness } from '../harness/index.ts'
+import { tabStatusOf } from './index.ts'
 
 // The release binary unpacks the kit (JARVIS_PLATFORM_KIT); in development it's next to this file.
 const KIT = process.env.JARVIS_PLATFORM_KIT?.trim() || path.join(import.meta.dirname, 'kit')
@@ -41,7 +42,8 @@ export async function pluginRoutes(app: FastifyInstance): Promise<void> {
       description: m.description,
       connected,
       // The tab's folder is served at /plugin-ui/<name>/, so the page is its file name there.
-      tab: m.tab ? { title: m.tab.title, url: `/plugin-ui/${m.name}/${path.basename(m.tab.page)}` } : null,
+      tab: m.tab ? { title: m.tab.title, url: `/plugin-ui/${m.name}/${path.basename(m.tab.page)}`, ...(m.tab.icon ? { icon: m.tab.icon } : {}) } : null,
+      status: tabStatusOf(m.name),
       events: Object.entries(m.events).map(([type, e]) => ({ type, description: e.description, trigger: Boolean(e.trigger) })),
     })),
   }))

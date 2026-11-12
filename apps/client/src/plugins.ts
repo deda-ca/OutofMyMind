@@ -5,11 +5,20 @@
 
 import { reactive } from 'vue'
 
+/** What a plugin's tab button shows besides its title (set by the plugin, or by its tab page). */
+export interface TabStatus {
+  icon?: string
+  animate?: boolean
+  badge?: string
+  title?: string
+}
+
 export interface PluginTabInfo {
   name: string
   description: string
   connected: boolean
-  tab: { title: string; url: string } | null
+  tab: { title: string; url: string; icon?: string } | null
+  status?: TabStatus | null
 }
 
 export const plugins = reactive({
@@ -20,7 +29,28 @@ export const plugins = reactive({
   host: { event: '', n: 0 },
   /** Tabs opened at least once: kept alive (hidden) when another tab is shown, so a tab that's playing carries on. */
   opened: {} as Record<string, boolean>,
+  /** Each tab button's status: from the plugin (the server), or from its page (which wins while it's set). */
+  status: {} as Record<string, TabStatus | null>,
+  pageStatus: {} as Record<string, TabStatus | null>,
 })
+
+/** The status a tab button shows now. */
+export function statusOf(name: string): TabStatus | null {
+  return plugins.pageStatus[name] ?? plugins.status[name] ?? null
+}
+
+/** A status from a tab page (a sandboxed frame): only the expected fields, kept short. */
+export function cleanStatus(s: unknown): TabStatus | null {
+  if (!s || typeof s !== 'object') return null
+  const v = s as Record<string, unknown>
+  const short = (x: unknown, n: number) => (typeof x === 'number' && Number.isFinite(x) ? String(x) : typeof x === 'string' ? [...x.trim()].slice(0, n).join('') : '')
+  const out: TabStatus = {}
+  if (short(v.icon, 4)) out.icon = short(v.icon, 4)
+  if (v.animate === true) out.animate = true
+  if (short(v.badge, 12) && short(v.badge, 12) !== '0') out.badge = short(v.badge, 12)
+  if (short(v.title, 120)) out.title = short(v.title, 120)
+  return out.icon || out.badge || out.animate ? out : null
+}
 
 /** A tab another part of the page wants shown (App.vue switches to it). */
 export const tabRequest = reactive({ tab: '', n: 0 })
@@ -44,6 +74,7 @@ export async function loadPlugins(): Promise<void> {
     if (!response.ok) return
     const body = (await response.json()) as { plugins?: PluginTabInfo[] }
     plugins.list = body.plugins ?? []
+    for (const p of plugins.list) plugins.status[p.name] = p.status ?? null
   } catch {
     // offline: keep what we had
   }
