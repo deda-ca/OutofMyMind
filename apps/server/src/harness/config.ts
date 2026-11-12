@@ -41,6 +41,12 @@ export interface PluginConfig {
   maxResultChars?: number
   /** A self-contained plugin's manifest (plugin.json): its events, tab, and tools needing the owner's yes. */
   manifest?: PluginManifest
+  /**
+   * "on demand": its tools aren't sent with every request; the LLM sees one line
+   * (`summary`) and loads them with tools__load (docs/tool-loading.md). Default: always.
+   */
+  load?: 'always' | 'on demand'
+  summary?: string
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -64,7 +70,16 @@ export function loadPluginConfig(file: string): PluginConfig[] {
     const timeoutMs = typeof entry.timeoutMs === 'number' && entry.timeoutMs > 0 ? entry.timeoutMs : DEFAULT_TIMEOUT_MS
     const instructions = typeof entry.instructions === 'string' && entry.instructions.trim() ? expand(entry.instructions.trim()) : undefined
     const crud = crudOverrides(entry.crud, `${file}: plugin "${name}" crud`)
-    const extra: Pick<PluginConfig, 'exclude' | 'maxResultChars'> = {}
+    const extra: Pick<PluginConfig, 'exclude' | 'maxResultChars' | 'load' | 'summary'> = {}
+    if (entry.load !== undefined) {
+      if (entry.load !== 'always' && entry.load !== 'on demand') throw new Error(`${file}: plugin "${name}" load must be "always" or "on demand"`)
+      extra.load = entry.load
+    }
+    if (entry.summary !== undefined) {
+      if (typeof entry.summary !== 'string' || !entry.summary.trim()) throw new Error(`${file}: plugin "${name}" summary must be a short line of text`)
+      extra.summary = entry.summary.trim().slice(0, 200)
+    }
+    if (extra.load === 'on demand' && !extra.summary) throw new Error(`${file}: plugin "${name}" is "on demand" and needs a "summary" (one line: what its tools are for)`)
     if (entry.exclude !== undefined) extra.exclude = stringArray(entry.exclude, `${name}.exclude`)
     if (entry.maxResultChars !== undefined) {
       if (typeof entry.maxResultChars !== 'number' || !Number.isInteger(entry.maxResultChars) || entry.maxResultChars < 1000 || entry.maxResultChars > 100_000)
@@ -75,7 +90,7 @@ export function loadPluginConfig(file: string): PluginConfig[] {
       // A self-contained plugin (docs/plugins.md): everything but "on" comes from its plugin.json.
       const manifest = loadManifest(path.resolve(dir, expand(entry.plugin)))
       if (manifest.name !== name) throw new Error(`${file}: "${name}" points at the plugin "${manifest.name}" (the names must match)`)
-      plugins.push(pluginFromManifest(manifest, mapValues(stringRecord(entry.env, `${name}.env`), expand)))
+      plugins.push({ ...pluginFromManifest(manifest, mapValues(stringRecord(entry.env, `${name}.env`), expand)), ...extra })
       continue
     }
     if (typeof entry.command === 'string') {

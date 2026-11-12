@@ -155,9 +155,20 @@ export class McpHub {
       })
   }
 
-  /** What each connected plugin says about itself (MCP `instructions`), for the system prompt. */
-  instructions(allow: (functionName: string) => boolean = () => true): string[] {
+  /** Plugins loaded on demand (mcp.json "load": "on demand"): their name and the line that describes them. */
+  deferred(): { name: string; summary: string }[] {
+    return this.connections.filter((c) => c.config.load === 'on demand').map((c) => ({ name: c.config.name, summary: c.config.summary ?? c.config.name }))
+  }
+
+  /** The plugin a tool belongs to, by function name. */
+  pluginOf(name: string): string | undefined {
+    return this.routes.get(name)?.connection.config.name
+  }
+
+  /** What each connected plugin says about itself (MCP `instructions`), for the system prompt. `skip`: plugins to leave out. */
+  instructions(allow: (functionName: string) => boolean = () => true, skip: (plugin: string) => boolean = () => false): string[] {
     return this.connections.flatMap((c) => {
+      if (skip(c.config.name)) return []
       const usable = c.connected && c.tools.some((t) => this.permitted(c, t) && allow(functionName(c.config.name, t.name)))
       if (!usable) return []
       const text = [c.client?.getInstructions()?.trim(), c.config.instructions].filter(Boolean).join(' ')

@@ -1,6 +1,6 @@
 # Loading tools on demand (design, for version 2)
 
-Status: not built. Written 2026-11-11 so the next version is designed this way from the start rather than changed later.
+Status: **the first step is built** (2026-11-12): the browser is on demand. Plugins can be marked `"load": "on demand"` in `mcp.json` with a `summary`; see "Built" below. Written 2026-11-11 so the design was settled before building.
 
 ## The problem
 
@@ -41,6 +41,15 @@ Plugins declare it in `mcp.json` (e.g. `"load": "always" | "on demand"`, with a 
 - **One extra round trip** when a deferred plugin is needed (~0.3 s locally), and that request misses the cache.
 - **The model might not think of a tool it can't see**: every deferred plugin keeps its one line in the prompt, and its description says what it's for.
 - **Order matters for the cache**: always-loaded tools first and in a fixed order; tools that come and go (the phone, services) after them, or always present and refusing when unavailable.
+
+## Built (2026-11-12)
+
+- `mcp.json`: a plugin with `"load": "on demand"` and a one-line `"summary"` (required with it). Default: `"always"`.
+- The system prompt lists each on-demand plugin as one line (its summary, and how to load it); its tools and its full instructions are left out.
+- `tools__load({ plugin })` is offered while there's an unloaded on-demand plugin the agent may use. It loads that plugin's tools for the rest of the reply, and returns its instructions. A new reply starts with them unloaded again, so the prompt is the same from one reply to the next.
+- Measured on the real config: the browser is 24 of 72 tools, about 17,700 characters of schemas and 1,600 of instructions. Each request now drops those: about 30,400 characters of tools remain, from 48,100.
+- Checked with the local LLM on the real plugin list: "open example.com and tell me the heading" loads the browser first and then uses it; "check my notes" and "say hello" don't load it.
+- Tests: `test/onDemand.test.ts` (listing, loading, reply-to-reply reset, an agent without the plugin, an unknown name).
 
 ## First steps (when it's built)
 

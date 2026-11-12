@@ -70,6 +70,8 @@
       "timeoutMs": 45000
     },
     "browser": {
+      "load": "on demand",
+      "summary": "drive a real browser: open a page and read it, click, fill in forms, take screenshots (for sites that need one; plain reading of a page is web's job)",
       "command": "node",
       "args": [
         "../../plugins/browser/start.ts"
