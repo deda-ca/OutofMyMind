@@ -61,7 +61,7 @@ export async function streamRoute(app: FastifyInstance, options: { archive: Arch
               mode,
               log: (msg, err) => req.log.error({ err }, msg),
             })
-            session.start(Number(message.sampleRate), String(message.language ?? ''), message.settings)
+            session.start(Number(message.sampleRate), String(message.language ?? ''), message.settings, message.microphone !== false)
             break
           }
           case 'settings':

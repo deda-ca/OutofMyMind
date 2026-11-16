@@ -33,6 +33,8 @@ export interface StreamSettings {
   speakProgress: number
   /** 1 = no follow-ups: every request needs "Jarvis". */
   wakeWordOnly: number
+  /** 1 = chat: the owner's speech goes to the message box (a dictation), not to Jarvis. 0 = conversation. */
+  chatMode: number
   /** How far back the room note (who's around, what they said) reaches; 0 = off. */
   roomMemoryMs: number
   /** 1 = you can interrupt Jarvis by talking (client only; use headphones). */
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakReplies: 1,
   speakProgress: 1,
   wakeWordOnly: 0,
+  chatMode: 0,
   roomMemoryMs: 5 * 60_000,
   bargeIn: 1,
   bargeInMs: 400,
@@ -137,6 +140,8 @@ export interface TranscriberEvents {
   /** A phrase was created or its text changed. `final` text won't change again. `typed`: sent with sendText, not spoken. */
   onPhrase(id: number, text: string, final: boolean, typed?: boolean): void
   onPhraseDropped(id: number): void
+  /** Chat mode: the owner said something; it goes in the message box instead of the transcript. */
+  onDictation?(id: number, text: string): void
   onError(message: string): void
   onFrame?(stats: FrameStats, upload: UploadStats): void
   onState?(state: PhraseState): void
@@ -164,6 +169,7 @@ type ServerMessage =
   | { type: 'ready' | 'settings'; settings: StreamSettings; sendHangoverMs: number }
   | { type: 'phrase'; id: number; text: string; final: boolean; typed?: boolean }
   | { type: 'phrase.dropped'; id: number }
+  | { type: 'dictation'; id: number; text: string }
   | { type: 'phrase.split'; id: number; into: number[] }
   | { type: 'phrase.speaker'; id: number; final: boolean; speaker: SpeakerTag }
   | ({ type: 'enroll.clip' } & EnrollClipResult)
@@ -211,8 +217,9 @@ export class StreamTranscriber {
     this.settings = { ...options.settings }
   }
 
+  /** Listen: the microphone, and the conversation. */
   async start(): Promise<void> {
-    await this.connect()
+    await this.connect(true)
     const assetPath = this.options.assetPath ?? '/vad/'
     this.vad = await MicVAD.new({
       model: 'v5',
@@ -282,7 +289,17 @@ export class StreamTranscriber {
     this.socket?.close()
   }
 
-  private connect(): Promise<void> {
+  /** Only typed messages (no microphone): Jarvis can be talked to by typing without listening. */
+  async startTypingOnly(): Promise<void> {
+    await this.connect(false)
+  }
+
+  /** Connected to the server (and ready), so typed messages can be sent. */
+  get open(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN && !this.closing
+  }
+
+  private connect(microphone: boolean): Promise<void> {
     const url = new URL('/api/stream', location.href)
     url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(url)
@@ -297,6 +314,7 @@ export class StreamTranscriber {
           language: this.options.language,
           device: 'web',
           mode: this.options.mode ?? 'conversation',
+          microphone,
           settings: this.settings,
         })
       socket.onerror = () => {
@@ -333,6 +351,9 @@ export class StreamTranscriber {
         break
       case 'phrase.dropped':
         this.events.onPhraseDropped(message.id)
+        break
+      case 'dictation':
+        this.events.onDictation?.(message.id, message.text)
         break
       case 'phrase.split':
         this.events.onSplit?.(message.id, message.into)

@@ -29,6 +29,12 @@ export interface StreamSettings {
   speakProgress: number
   /** 1 = no follow-ups: every request needs "Jarvis" (for when the owner is talking with people). */
   wakeWordOnly: number
+  /**
+   * 1 = chat: the owner's speech goes into the message box to edit and send
+   * (a "dictation"), not to Jarvis as it's heard. Other people's speech is only
+   * in the transcript. 0 = conversation: the owner's speech is sent to Jarvis.
+   */
+  chatMode: number
   /** How far back the room note sent with each request reaches (who's around, what they said). 0 = off. */
   roomMemoryMs: number
 }
@@ -48,6 +54,7 @@ export const DEFAULT_SETTINGS: StreamSettings = {
   speakReplies: 1,
   speakProgress: 1,
   wakeWordOnly: 0,
+  chatMode: 0,
   roomMemoryMs: 5 * 60_000,
 }
 
@@ -65,6 +72,7 @@ const RANGES: Record<keyof StreamSettings, [number, number]> = {
   speakReplies: [0, 1],
   speakProgress: [0, 1],
   wakeWordOnly: [0, 1],
+  chatMode: [0, 1],
   roomMemoryMs: [0, 30 * 60_000],
 }
 

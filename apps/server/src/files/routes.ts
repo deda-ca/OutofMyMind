@@ -4,6 +4,8 @@
 //                                its name in X-File-Name, URI-encoded; its type in X-File-Type) → { file }
 //   POST /api/uploads/attach     { files: [file, …], note? } → adds them to the active session (one "Files" message)
 //   GET  /api/workspace-file     ?path=uploads/… → the file, for the transcript (only inside the workspace)
+//   PUT  /api/workspace-file     ?path=notes.md, { text, expected? } → saves a Markdown file edited in the viewer
+//                                (409 if it changed on disk since `expected` was read)
 //
 // Two steps so a drop of several files becomes one message, after they're all saved.
 
@@ -13,7 +15,7 @@ import type { Readable } from 'node:stream'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { FileRef } from '../sessions/format.ts'
 import type { SessionStore } from '../sessions/store.ts'
-import { FileError, contentTypeOf, saveUpload, workspaceFile } from './workspaceFiles.ts'
+import { FileError, contentTypeOf, saveUpload, saveWorkspaceText, workspaceFile } from './workspaceFiles.ts'
 
 const UPLOAD_TYPE = 'application/vnd.jarvis.upload'
 
@@ -87,4 +89,21 @@ export async function fileRoutes(app: FastifyInstance, options: { workspaceDir: 
       return fail(reply, err)
     }
   })
+
+  app.put<{ Querystring: { path?: string }; Body: { text?: unknown; expected?: unknown } }>(
+    '/api/workspace-file',
+    { bodyLimit: 10 * 1024 * 1024 },
+    async (req, reply) => {
+      const { text, expected } = req.body ?? {}
+      if (typeof text !== 'string') return reply.code(400).send({ error: 'Send { text }' })
+      if (expected !== undefined && typeof expected !== 'string') return reply.code(400).send({ error: '`expected` must be text' })
+      try {
+        const file = saveWorkspaceText(workspaceDir, String(req.query.path ?? ''), text, expected)
+        req.log.info({ path: req.query.path, bytes: Buffer.byteLength(text) }, 'workspace file saved from the viewer')
+        return { ok: true, size: fs.statSync(file).size }
+      } catch (err) {
+        return fail(reply, err)
+      }
+    },
+  )
 }

@@ -43,7 +43,7 @@ Open https://127.0.0.1:5173 (accept the self-signed certificate once). Ctrl+C st
 
 `npm run build` (with [Bun](https://bun.sh) installed, after `npm run setup`) builds the web client and compiles one executable, `dist/jarvis-<version>-linux-<arch>/jarvis`, plus a `.tar.gz` of that folder and its `.sha256`. The version is `version` in `apps/server/package.json`.
 
-The executable contains the server, the built web client (it serves it itself, over HTTPS), every MCP plugin in `mcp.json` (`jarvis plugin <name>`), the services kit and ONNX Runtime. To deploy, unpack the tarball anywhere, copy `config.example.jsonc` to `config.jsonc` and set what you need, run `./jarvis fetch-models` once, then `./jarvis`. [release/README.md](release/README.md) (also in the tarball) has the details.
+The executable contains the server, the built web client (it serves it itself, over HTTPS), every MCP plugin in `mcp.json` (`jarvis plugin <name>`), the services kit, ONNX Runtime and the voiceprint model. It needs only a data folder, which holds `config.jsonc` too: `./jarvis init --data DIR` makes one, then `./jarvis --data DIR`. To move an existing setup, copy `apps/server/data` with `apps/server/config.jsonc` put inside it. [release/README.md](release/README.md) (also in the tarball) has the details.
 
 How it's put together: [release/build.ts](release/build.ts) (the build, and small fixes for packages that don't bundle as they are), [release/main.ts](release/main.ts) (the binary's commands), [release/plugins.ts](release/plugins.ts) (the built-in plugins: a new plugin in `mcp.json` must be added there, or the build stops and says so). Development stays on Node: the release only adds `SITE_DIR` (src/site.ts) and `TLS` (src/tls.ts) to the server, both off by default.
 

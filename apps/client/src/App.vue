@@ -8,6 +8,7 @@ import {
   type AssistantMessage,
   type SpeakerTag,
   type UploadStats,
+  type TranscriberEvents,
 } from './audio/streamTranscriber'
 import { BargeIn } from './audio/bargeIn'
 import { replay, toggleReplay } from './audio/replay'
@@ -57,7 +58,8 @@ import { answer as answerCall, decline as declineCall, hangUp as hangUpCall, joi
 /** Passed to Qwen3-ASR. Forcing the language stops it guessing at noise. */
 const LANGUAGE = 'English'
 
-type Status = 'idle' | 'starting' | 'listening' | 'finishing'
+/** typing: a connection without the microphone, for typed messages. */
+type Status = 'idle' | 'starting' | 'listening' | 'finishing' | 'typing'
 type Tab = 'live' | 'history' | 'people' | 'voice' | 'tools' | 'agents' | 'skills' | 'schedule' | 'services' | 'phone' | 'debug' | 'monitor' | `plugin:${string}`
 
 const tab = ref<Tab>('live')
@@ -236,13 +238,134 @@ function upsertPhrase(phrases: Phrase[], id: number, text: string, final: boolea
 /** The message box: type, paste, or fix a misheard phrase, then send it to Jarvis. */
 const draft = ref('')
 const composer = ref<HTMLTextAreaElement | null>(null)
-const canSend = computed(() => status.value === 'listening' && draft.value.trim().length > 0)
+/**
+ * Chat mode: the owner's words as they're heard, in the message box at the cursor, until they're final.
+ * `lead` is the space put before them (when a word comes before the cursor).
+ */
+let pending: { id: number; start: number; lead: string; text: string } | null = null
+/** The phrase whose live words were sent with a message: its late updates are not put back in the box. */
+let sentLiveId: number | null = null
+const shownOf = (p: { lead: string; text: string }) => p.lead + p.text
+const spaceBefore = (at: number) => /\S/.test(draft.value.slice(0, at).slice(-1))
+const canSend = computed(() => draft.value.trim().length > 0)
+const composerHint = computed(() =>
+  status.value === 'listening' && settings.chatMode >= 0.5
+    ? 'Speak or type. What you say appears here to edit; Enter sends it.'
+    : status.value === 'listening'
+      ? 'Type or paste a message for Jarvis, or press ✎ on something you said to fix it…'
+      : 'Type a message to Jarvis, or start listening to talk.',
+)
 
-function sendDraft(): void {
-  if (!canSend.value || !transcriber?.sendText(draft.value.trim())) return
-  draft.value = ''
+/** Typing works with or without listening: without, the text goes over a connection with no microphone. */
+async function sendDraft(): Promise<void> {
+  const sent = draft.value
+  const text = sent.trim()
+  if (!text) return
+  if (!transcriber?.open && !(await connectTyping())) return
+  if (!transcriber?.sendText(text)) {
+    error.value = "Couldn't send that: Jarvis isn't connected."
+    return
+  }
+  // The box is emptied, like submitting: the live words in it went with the message, so their phrase's late updates are ignored.
+  if (pendingValid()) sentLiveId = pending!.id
+  pending = null
+  draft.value = draft.value.startsWith(sent) ? draft.value.slice(sent.length).trimStart() : ''
   // Show the message and Jarvis's answer, even if you'd scrolled up to copy something.
   followTranscript.value = true
+}
+
+/** Replaces [start, end) of the message box with `text` and puts the cursor after it (in step with the DOM, so it can be read at once). */
+function replaceInDraft(start: number, end: number, text: string): void {
+  const value = draft.value.slice(0, start) + text + draft.value.slice(end)
+  const at = start + text.length
+  draft.value = value
+  if (composer.value) {
+    composer.value.value = value
+    composer.value.setSelectionRange(at, at)
+  }
+}
+
+/** Where the cursor is in the message box (or where new words go). */
+function cursor(): { start: number; end: number } {
+  const el = composer.value
+  if (!el) return { start: draft.value.length, end: draft.value.length }
+  return { start: el.selectionStart, end: el.selectionEnd }
+}
+
+/** The live words are still where they were put (the message box hasn't been changed around them). */
+function pendingValid(): boolean {
+  return !!pending && draft.value.slice(pending.start, pending.start + shownOf(pending).length) === shownOf(pending)
+}
+
+/** Takes the live words back out of the message box. */
+function removePending(): void {
+  if (pendingValid()) replaceInDraft(pending!.start, pending!.start + shownOf(pending!).length, '')
+  pending = null
+}
+
+/** Chat mode: the owner's words as they're heard, shown at the cursor (replacing what was shown before). */
+function showLive(id: number, text: string): void {
+  if (pending?.id !== id || !pendingValid()) {
+    removePending()
+    const { start, end } = cursor()
+    pending = { id, start, lead: spaceBefore(start) ? ' ' : '', text: '' }
+    replaceInDraft(start, end, pending.lead)
+  }
+  const p = pending!
+  replaceInDraft(p.start, p.start + shownOf(p).length, p.lead + text)
+  p.text = text
+}
+
+/**
+ * Chat mode: the words are final. They replace their live words in the message box, or go in at the cursor
+ * (with a space either side where one is needed).
+ */
+function settle(id: number, text: string): void {
+  const said = text.trim()
+  let start: number
+  let end: number
+  if (pending?.id === id && pendingValid()) {
+    start = pending.start
+    end = start + shownOf(pending).length
+  } else {
+    removePending()
+    ;({ start, end } = cursor())
+  }
+  pending = null
+  if (!said) return replaceInDraft(start, end, '')
+  const lead = spaceBefore(start) ? ' ' : ''
+  const tail = /^\S/.test(draft.value.slice(end)) ? ' ' : ''
+  replaceInDraft(start, end, lead + said + tail)
+}
+
+/** Chat mode: a phrase from someone else (or a partial one): live words in the box for the owner, the transcript for others. */
+function chatPhrase(phrases: Phrase[], id: number, text: string, final: boolean): void {
+  if (id === sentLiveId) {
+    if (final) sentLiveId = null
+    return
+  }
+  if (final) {
+    if (pending?.id === id) removePending()
+    upsertPhrase(phrases, id, text, final)
+    return
+  }
+  showLive(id, text)
+}
+
+/** Chat mode: the owner said something; it goes into the message box at the cursor, not the transcript. */
+function dictate(phrases: Phrase[], id: number, text: string): void {
+  const index = phrases.findIndex((p) => p.id === id)
+  if (index !== -1) phrases.splice(index, 1)
+  if (id === sentLiveId) {
+    sentLiveId = null
+    return
+  }
+  settle(id, text)
+}
+
+/** Typing over the live words takes them back out; the final words then go in at the cursor. */
+function onComposerInput(): void {
+  if (pending) removePending()
 }
 
 /** Enter sends; Shift+Enter is a new line (and Enter while an IME is composing is left alone). */
@@ -331,7 +454,91 @@ function setSpeaker(phrases: Phrase[], id: number, speaker: SpeakerTag, final: b
   if (final && monitorEnabled.value) lastSpeaker.value = speaker
 }
 
+/** The transcriber's events, written into `current` (the recording it writes into). */
+function eventsFor(current: Phrase[]): TranscriberEvents {
+  return {
+    onFrame: (stats, uploadStats) => {
+      bargeInFrame(stats.probability)
+      // ~30 updates a second: only kept while the Monitor tab is switched on.
+      if (!monitorEnabled.value) return
+      frame.value = stats
+      upload.value = uploadStats
+    },
+    onState: (state) => {
+      phraseState.value = state
+      if (!state.inPhrase) ignoreUntilPhraseEnds = false
+    },
+    onRequest: (log) => {
+      if (monitorEnabled.value) requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]
+    },
+    onPhrase: (id, text, final, typed) =>
+      settings.chatMode >= 0.5 && !typed ? chatPhrase(current, id, text, final) : upsertPhrase(current, id, text, final, typed),
+    onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
+    onSplit: (id, into) => {
+      if (pending?.id === id) removePending()
+      splitPhrase(current, id, into)
+    },
+    onAssistant: (message) => onAssistant(current, message),
+    onServerSettings: (server) => {
+      // Wake-word-only is changed by the server itself (by voice); keep the switch in step.
+      if (server.wakeWordOnly !== settings.wakeWordOnly) settings.wakeWordOnly = server.wakeWordOnly
+    },
+    onSessionsChanged: (activeId) => void sessionsChanged(activeId),
+    onContext,
+    onDebug: onDebugMessage,
+    onPhraseDropped: (id) => {
+      if (pending?.id === id) removePending()
+      if (sentLiveId === id) sentLiveId = null
+      const index = current.findIndex((p) => p.id === id)
+      if (index !== -1) current.splice(index, 1)
+    },
+    onDictation: (id, text) => dictate(current, id, text),
+    onError: (message) => (error.value = message),
+  }
+}
+
+/** Opens a connection without the microphone (typed messages only), unless one is open. */
+let opening: Promise<boolean> | null = null
+function connectTyping(): Promise<boolean> {
+  opening ??= openTyping().finally(() => (opening = null))
+  return opening
+}
+
+async function openTyping(): Promise<boolean> {
+  if (transcriber?.open) return true
+  if (status.value === 'starting' || status.value === 'finishing') {
+    error.value = 'Hang on a moment, then send it again.'
+    return false
+  }
+  if (status.value === 'listening') {
+    error.value = 'Jarvis lost its connection. Stop listening and start again.'
+    return false
+  }
+  // A connection that dropped: start over.
+  transcriber?.cancel()
+  transcriber = undefined
+  status.value = 'idle'
+  recordings.value.push([])
+  const current = recordings.value.at(-1)!
+  const session = new StreamTranscriber({ language: LANGUAGE, settings: { ...toRaw(settings) } }, eventsFor(current))
+  transcriber = session
+  try {
+    await session.startTypingOnly()
+    status.value = 'typing'
+    return true
+  } catch (err) {
+    transcriber = undefined
+    session.cancel()
+    if (current.length === 0) recordings.value.pop()
+    error.value = err instanceof Error ? err.message : String(err)
+    return false
+  }
+}
+
 async function start(): Promise<void> {
+  // Typing alone has no microphone: listening replaces that connection.
+  if (status.value === 'typing') await stop()
+  if (status.value !== 'idle') return
   error.value = ''
   status.value = 'starting'
   recordings.value.push([])
@@ -345,41 +552,7 @@ async function start(): Promise<void> {
   lastSpeaker.value = null
   // Unlock audio output now, while we're handling the click.
   void player.unlock()
-  const session = new StreamTranscriber(
-    { language: LANGUAGE, settings: { ...toRaw(settings) } },
-    {
-      onFrame: (stats, uploadStats) => {
-        bargeInFrame(stats.probability)
-        // ~30 updates a second: only kept while the Monitor tab is switched on.
-        if (!monitorEnabled.value) return
-        frame.value = stats
-        upload.value = uploadStats
-      },
-      onState: (state) => {
-        phraseState.value = state
-        if (!state.inPhrase) ignoreUntilPhraseEnds = false
-      },
-      onRequest: (log) => {
-        if (monitorEnabled.value) requests.value = [...requests.value.slice(-(MAX_REQUEST_LOG - 1)), log]
-      },
-      onPhrase: (id, text, final, typed) => upsertPhrase(current, id, text, final, typed),
-      onSpeaker: (id, speaker, final) => setSpeaker(current, id, speaker, final),
-      onSplit: (id, into) => splitPhrase(current, id, into),
-      onAssistant: (message) => onAssistant(current, message),
-      onServerSettings: (server) => {
-        // Wake-word-only is changed by the server itself (by voice); keep the switch in step.
-        if (server.wakeWordOnly !== settings.wakeWordOnly) settings.wakeWordOnly = server.wakeWordOnly
-      },
-      onSessionsChanged: (activeId) => void sessionsChanged(activeId),
-      onContext,
-      onDebug: onDebugMessage,
-      onPhraseDropped: (id) => {
-        const index = current.findIndex((p) => p.id === id)
-        if (index !== -1) current.splice(index, 1)
-      },
-      onError: (message) => (error.value = message),
-    },
-  )
+  const session = new StreamTranscriber({ language: LANGUAGE, settings: { ...toRaw(settings) } }, eventsFor(current))
   transcriber = session
   try {
     await session.start()
@@ -414,7 +587,7 @@ async function stop(): Promise<void> {
 }
 
 function toggle(): void {
-  if (status.value === 'idle') void start()
+  if (status.value === 'idle' || status.value === 'typing') void start()
   else if (status.value === 'listening') void stop()
 }
 
@@ -692,6 +865,7 @@ onBeforeUnmount(() => {
       <div class="vstack gap-3">
         <header class="d-flex align-items-center gap-3 flex-wrap">
           <h1 class="text-3xl fw-semibold m-0">Jarvis</h1>
+          <span v-if="status === 'typing'" class="badge theme-secondary badge-subtle" title="Typing to Jarvis. The microphone is off: start listening to talk.">Mic off</span>
           <span v-if="status === 'listening' && muted" class="badge theme-warning" title="The mic is open but nothing is sent. Unmute to talk again.">Muted</span>
           <span v-else-if="status === 'listening'" class="badge" :class="speaking ? 'theme-danger' : 'theme-secondary'">
             <span v-if="speaking" class="spinner-grow spinner-sm" aria-hidden="true"></span>
@@ -864,6 +1038,28 @@ onBeforeUnmount(() => {
             ></span>
             {{ buttonLabel }}
           </button>
+          <div class="d-flex gap-1" role="group" aria-label="How what you say is sent">
+            <button
+              type="button"
+              class="btn-lg"
+              :class="settings.chatMode >= 0.5 ? 'btn-outline theme-secondary' : 'btn-solid theme-primary'"
+              :aria-pressed="settings.chatMode < 0.5"
+              title="What you say is sent to Jarvis when you pause. Typed messages go to Jarvis too."
+              @click="settings.chatMode = 0"
+            >
+              Conversation
+            </button>
+            <button
+              type="button"
+              class="btn-lg"
+              :class="settings.chatMode >= 0.5 ? 'btn-solid theme-primary' : 'btn-outline theme-secondary'"
+              :aria-pressed="settings.chatMode >= 0.5"
+              title="What you say goes into the message box, where the cursor is, to edit. Enter sends it."
+              @click="settings.chatMode = 1"
+            >
+              Chat
+            </button>
+          </div>
           <button
             v-if="status === 'listening'"
             type="button"
@@ -1015,7 +1211,7 @@ onBeforeUnmount(() => {
             <span class="spinner-border spinner-sm" aria-hidden="true"></span>
             Adding {{ uploading.total === 1 ? 'the file' : `files (${uploading.done} of ${uploading.total})` }}…
           </div>
-          <div class="d-flex gap-3 align-items-end">
+          <div class="d-flex gap-3 align-items-stretch">
             <input ref="filePicker" type="file" multiple class="d-none" @change="onPick" />
             <button
               type="button"
@@ -1035,19 +1231,13 @@ onBeforeUnmount(() => {
               v-model="draft"
               class="form-control"
               rows="2"
-              :disabled="status !== 'listening'"
-              :placeholder="
-                status === 'listening'
-                  ? 'Type or paste a message for Jarvis, or press ✎ on something you said to fix it…'
-                  : 'Start listening to talk or type to Jarvis.'
-              "
+              :placeholder="composerHint"
+              @input="onComposerInput"
               @keydown="composerKey"
             ></textarea>
-            <button type="submit" class="btn-solid theme-primary" :disabled="!canSend">Send</button>
+            <button type="submit" class="btn-solid theme-primary send-button" :disabled="!canSend">Send</button>
           </div>
-          <div class="form-text m-0">
-            Enter sends, Shift+Enter adds a line. Typed messages always go to Jarvis, no “Jarvis” needed.
-          </div>
+          <div class="form-text m-0">Enter sends, Shift+Enter adds a line.</div>
         </form>
       </div>
 

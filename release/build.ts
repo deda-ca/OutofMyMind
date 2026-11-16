@@ -1,5 +1,5 @@
 // Builds the release: one executable (Bun) with the server, the web client,
-// the MCP plugins, the services kit and ONNX Runtime inside, and a tarball of
+// the MCP plugins, the services kit, ONNX Runtime and the voiceprint model inside, and a tarball of
 // it for deploying. For this machine's platform (linux-x64 or linux-arm64).
 //
 //   npm run build          (needs `npm run setup` once, and Bun)
@@ -40,6 +40,10 @@ const platformKit = files(at('apps', 'server', 'src', 'plugins', 'kit'))
 const ortDir = at('apps', 'server', 'node_modules', 'onnxruntime-node', 'bin', 'napi-v6', 'linux', process.arch)
 const ort = ['onnxruntime_binding.node', 'libonnxruntime.so.1'].map((f) => [f, path.join(ortDir, f)] as [string, string])
 for (const [, f] of ort) if (!fs.existsSync(f)) throw new Error(`${f} is missing: run npm run setup`)
+// The voiceprint model, so a new machine needs nothing but its data folder (fetched here the first time).
+const modelsDir = at('apps', 'server', 'models')
+if (!fs.existsSync(modelsDir) || !fs.readdirSync(modelsDir, { withFileTypes: true }).some((e) => e.name.endsWith('.onnx'))) run('npm', ['--prefix', 'apps/server', 'run', 'fetch-models'])
+const models = files(modelsDir, (f) => f.endsWith('.onnx'))
 
 // 3. mcp.json, with each plugin started by the binary instead of node.
 const BY_SCRIPT = new Map(Object.entries(PLUGINS).map(([plugin, p]) => [at(p.script), plugin]))
@@ -69,7 +73,7 @@ const mcpJson = `${JSON.stringify(mcp, null, 2)}\n`
 
 // 4. The module that embeds them (import … with { type: 'file' }: a path readable at run time).
 const hash = crypto.createHash('sha256')
-for (const [rel, f] of [...site, ...kit, ...platformKit, ...pluginFiles, ...ort]) hash.update(rel).update(fs.readFileSync(f))
+for (const [rel, f] of [...site, ...kit, ...platformKit, ...pluginFiles, ...ort, ...models]) hash.update(rel).update(fs.readFileSync(f))
 const build = { version, commit, date: new Date().toISOString().slice(0, 10), id: `${version}-${hash.digest('hex').slice(0, 12)}` }
 let n = 0
 const imports: string[] = []
@@ -87,6 +91,7 @@ const body = [
   `export const PLATFORM_KIT: [string, string][] = ${list(platformKit)}`,
   `export const PLUGIN_FILES: [string, string][] = ${list(pluginFiles)}`,
   `export const ORT: [string, string][] = ${list(ort)}`,
+  `export const MODELS: [string, string][] = ${list(models)}`,
   `export const BUILD = ${JSON.stringify(build)}`,
   `export const MCP_JSON = ${JSON.stringify(mcpJson)}`,
 ]
@@ -132,9 +137,7 @@ if (!result.success) {
   for (const log of result.logs) console.error(log)
   process.exit(1)
 }
-// The settings: every one, commented out at its default, and the schema an editor checks the file with.
-fs.copyFileSync(at('apps', 'server', 'config.example.jsonc'), path.join(out, 'config.example.jsonc'))
-fs.copyFileSync(at('apps', 'server', 'config.schema.json'), path.join(out, 'config.schema.json'))
+// The settings files (config.jsonc, its schema) the binary writes into the data folder itself (jarvis init).
 fs.copyFileSync(at('release', 'README.md'), path.join(out, 'README.md'))
 
 // 7. The tarball.

@@ -32,12 +32,15 @@ export const GITIGNORE = `# Jarvis data history: what is NOT kept in it (big, bi
 /services/
 /tls/
 /workspace/scripts/tmp/
+/config.jsonc
+/config.schema.json
+/models/
 *.tmp
 *.swp
 `
 
 /** Always ignored, even in a .gitignore the owner edited: secrets, and big or churning runtime folders. */
-const REQUIRED_IGNORES = ['/access-key', '/secrets.json', '/services/', '/tls/']
+const REQUIRED_IGNORES = ['/access-key', '/secrets.json', '/services/', '/tls/', '/config.jsonc', '/models/']
 
 export interface HistoryOptions {
   /** The data folder: the repository's root. */
@@ -52,7 +55,7 @@ export interface HistoryOptions {
 }
 
 /** Folders and files under DATA_DIR not watched (ignored, or churning without anything to keep). */
-const UNWATCHED = /^(\.git|audio|browser|services|tls|jarvis\.db.*|access-key|secrets\.json)(\/|$)|(^|\/)scripts\/tmp(\/|$)|\.(tmp|swp)$/
+const UNWATCHED = /^(\.git|audio|browser|services|tls|models|jarvis\.db.*|access-key|secrets\.json|config\.jsonc|config\.schema\.json)(\/|$)|(^|\/)scripts\/tmp(\/|$)|\.(tmp|swp)$/
 
 export class DataHistory {
   private readonly o: Required<HistoryOptions>

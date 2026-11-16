@@ -86,3 +86,26 @@ test('the routes: upload, attach to the session, read back (sandboxed), refuse o
   assert.equal((await app.inject({ method: 'POST', url: '/api/uploads', headers: { 'content-type': 'application/json' }, payload: '{}' })).statusCode, 415)
   await app.close()
 })
+
+test('saving a Markdown file from the viewer: only .md, inside, and not over a newer version', async () => {
+  const ws = tmp()
+  fs.writeFileSync(path.join(ws, 'notes.md'), '# Old\n')
+  fs.writeFileSync(path.join(ws, 'data.json'), '{}')
+  const sessions = new SessionStore(path.join(ws, 'sessions'), path.join(ws, 'sessions.json'))
+  const app = Fastify()
+  await app.register(fileRoutes, { workspaceDir: ws, sessions })
+  const put = (p: string, payload: object) => app.inject({ method: 'PUT', url: `/api/workspace-file?path=${encodeURIComponent(p)}`, payload })
+
+  const ok = await put('notes.md', { text: '# New\n', expected: '# Old\n' })
+  assert.equal(ok.statusCode, 200, ok.body)
+  assert.equal(fs.readFileSync(path.join(ws, 'notes.md'), 'utf8'), '# New\n')
+
+  assert.equal((await put('notes.md', { text: '# Mine\n', expected: '# Old\n' })).statusCode, 409)
+  assert.equal(fs.readFileSync(path.join(ws, 'notes.md'), 'utf8'), '# New\n')
+  assert.equal((await put('data.json', { text: '[]' })).statusCode, 400)
+  assert.equal((await put('missing.md', { text: 'x' })).statusCode, 404)
+  assert.ok((await put('../outside.md', { text: 'x' })).statusCode >= 403)
+  assert.equal((await put('notes.md', {})).statusCode, 400)
+  assert.deepEqual(fs.readdirSync(ws).filter((f) => f.endsWith('.tmp')), [])
+  await app.close()
+})

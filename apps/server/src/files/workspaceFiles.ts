@@ -89,6 +89,30 @@ export function workspaceFile(workspaceDir: string, relative: string): string {
   return real
 }
 
+/** Text files the viewer may save back (edited in place by the owner). */
+export const EDITABLE = /\.(md|markdown)$/i
+
+/**
+ * Saves an edited text file over an existing workspace file. `expected` is the
+ * text the editor started from: if the file changed on disk since (Jarvis
+ * edited it meanwhile), nothing is written and it's a 409, so neither edit is lost.
+ * Written to a temp file and renamed, so a crash never leaves half a file.
+ */
+export function saveWorkspaceText(workspaceDir: string, relative: string, text: string, expected?: string): string {
+  const file = workspaceFile(workspaceDir, relative)
+  if (!EDITABLE.test(file)) throw new FileError('Only Markdown files can be saved here', 400)
+  if (expected !== undefined && fs.readFileSync(file, 'utf8') !== expected) throw new FileError('The file changed since you opened it', 409)
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`
+  try {
+    fs.writeFileSync(temp, text, { mode: fs.statSync(file).mode })
+    fs.renameSync(temp, file)
+  } catch (err) {
+    fs.rmSync(temp, { force: true })
+    throw err
+  }
+  return file
+}
+
 /** Content type for serving a file back (the common ones; anything else downloads). */
 export function contentTypeOf(file: string): string {
   const types: Record<string, string> = {

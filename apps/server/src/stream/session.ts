@@ -194,7 +194,8 @@ export class StreamSession {
     }
   }
 
-  start(sampleRate: number, language: string, settings: unknown): void {
+  /** `microphone` false: a text-only connection (typed messages), so no microphone is listening. */
+  start(sampleRate: number, language: string, settings: unknown, microphone = true): void {
     if (this.started) throw new Error('Session already started')
     if (sampleRate !== STREAM_SAMPLE_RATE) throw new Error(`sampleRate must be ${STREAM_SAMPLE_RATE}`)
     this.started = true
@@ -204,7 +205,7 @@ export class StreamSession {
     this.send({ type: 'ready', settings: this.settings, sendHangoverMs: sendHangoverMs(this.settings) })
     this.assistant?.announce()
     // A microphone is listening for Jarvis (presence, for scheduled runs).
-    if (this.assistant) {
+    if (this.assistant && microphone) {
       notifier.setListening(1)
       this.listening = true
     }
@@ -479,12 +480,14 @@ export class StreamSession {
         })
       : Promise.resolve(null)
 
+    // Chat mode: the owner's words go to the message box, so the final text is shown once it's known who said it.
+    const chat = this.settings.chatMode >= 0.5
     const { text, status } = await transcribePcm(pcmBuffer(audio), STREAM_SAMPLE_RATE, this.language)
       .then((text) => {
         const noise = isNoise(text)
         this.logRequest(seq, phrase, 'final', audio, started, noise ? 'dropped' : 'ok', text)
         if (noise) this.emit({ type: 'phrase.dropped', id: phrase.id })
-        else this.emit({ type: 'phrase', id: phrase.id, text, final: true })
+        else if (!chat) this.emit({ type: 'phrase', id: phrase.id, text, final: true })
         return { text, status: (noise ? 'dropped' : 'ok') as PhraseStatus }
       })
       .catch((err: unknown) => {
@@ -499,9 +502,15 @@ export class StreamSession {
     // Only real speech may start a new "Speaker X" group, never noise or failures.
     const tag = this.speakers?.identify(vector, speechMs, this.settings.speakerThreshold, status === 'ok')
     if (tag && status === 'ok') this.emit({ type: 'phrase.speaker', id: phrase.id, final: true, speaker: tag })
+    // Chat mode: the owner's words go to the message box (replacing the transcript line) rather than to Jarvis.
+    // Can't tell who it was (no voiceprint, or voice not trained) counts as the owner, as it does for Jarvis.
+    if (chat && status === 'ok') {
+      if (tag?.isOwner !== false) this.emit({ type: 'dictation', id: phrase.id, text })
+      else this.emit({ type: 'phrase', id: phrase.id, text, final: true })
+    }
     const archiveId = await this.archive(phrase, audio, text, status, vector, tag, speechMs)
-    if (status === 'ok') this.assistant?.handle({ id: phrase.id, archiveId, text, speaker: tag, ...(phrase.addressed ? { addressed: true } : {}) })
-    else this.assistant?.notForMe()
+    if (status !== 'ok' || chat) return this.assistant?.notForMe()
+    this.assistant?.handle({ id: phrase.id, archiveId, text, speaker: tag, ...(phrase.addressed ? { addressed: true } : {}) })
   }
 
   /** Voice training: check the clip, archive it, and add it to the owner's library if it's good. */

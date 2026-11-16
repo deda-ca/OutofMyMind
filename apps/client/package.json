@@ -10,6 +10,14 @@
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "@codemirror/commands": "^6.9.0",
+    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "^1.2.1",
     "@ricky0123/vad-web": "^0.0.31",
     "bootstrap": "6.0.0-alpha.1",
     "dompurify": "3.4.17",
